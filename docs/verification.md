@@ -26,7 +26,13 @@ disposable Git repositories and resource roots plus a fake engine transport. Any
 operation other than the configured `capabilities()` query fails without a live
 fallback. Every rejection asserts zero capability queries when it comes from a
 local structural check and zero skill, session or publication operations in all
-cases. These tests do not certify any engine, provider or host. Future runtime
+cases. [Semantic assessment](semantic.md) tests (`tests/test_semantic.py`) script
+every verdict through fake validator sessions and a durable fake gate store that
+outlives helper restarts. They cover interrupted clarification, changed and
+revised proposals, attempted prohibition waivers, validator attempts to run or
+publish, and a default plan with zero validator sessions. Each asserts its
+capability, gate and session counts. These tests do not certify any engine,
+provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture
 operations must fail without falling back to network/model execution. Assert

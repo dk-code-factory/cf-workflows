@@ -1,8 +1,9 @@
 # Configuration contract v1
 
 Back to the [contract index](README.md). `kind` is `configuration`. This contract
-is the input to admission. [Structural admission](../../admission.md) is
-implemented; semantic admission is not.
+is the input to admission. [Structural admission](../../admission.md) and
+[semantic assessment](../../semantic.md) are implemented as library operations;
+acceptance reuse and configuration writes are not.
 
 ## Required shape and resolution
 
