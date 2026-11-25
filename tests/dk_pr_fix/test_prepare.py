@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -75,7 +76,8 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual([stage["id"] for stage in result["stages"]], ["stage_" + str(n) for n in range(1, 6)])
         self.assertEqual(result["stages"][1]["groups"][0]["concurrency"], 2)
         self.assertEqual(result["stages"][-1]["phase"], "finalizers")
-        self.assertEqual([task["id"] for task in plan["tasks"]], ["task_" + str(n) for n in range(1, 6)])
+        self.assertTrue(all(re.fullmatch(r"task_[0-9a-f]{24}", task["id"]) for task in plan["tasks"]))
+        self.assertEqual(len({task["id"] for task in plan["tasks"]}), 5)
         self.assertEqual(plan["tasks"][0]["skill"], plan["tasks"][3]["skill"])
         self.assertNotEqual(plan["tasks"][0]["id"], plan["tasks"][3]["id"])
 

@@ -55,6 +55,9 @@ Adaptations to the example:
   IDs only.
 - The legacy `.pr-fix-state` directory gets no special treatment. In a checkout,
   it is ordinary untracked content.
+- Occurrence IDs are stable rather than positional, fingerprints are scoped, and
+  allowances, deadlines and continuation follow the rules in
+  [Budgets, occurrences and continuation](#budgets-occurrences-and-continuation).
 
 ## Configuration split
 
@@ -108,6 +111,87 @@ So dk-workflows settings, `.pr-fix-state` and other existing state are never
 adopted or imported. Back up the namespace together with the engine's recovery
 bundle.
 
+## Budgets, occurrences and continuation
+
+All of this lives in the logical run's SQLite ledger. A replacement engine run,
+a new session, a changed configuration or lost engine checkpoints and
+preparation receipts reopen the same ledger as long as the logical run is the
+same. The default logical run is derived from the PR, so it is.
+
+**Occurrences.** Each selected task gets a stable ID derived from its phase
+(`tasks` or `finalizers`), its context (task stage or reviewer stage), its
+adapter name (legacy aliases resolve to the same name), its instructions and its
+options. Repeated identical selections are told apart by their ordinal. Reordering
+or inserting other selections keeps every ID, and so keeps its claims and
+results. `finding_verification`, `finding_fix` and `ci_repair` keep their fixed IDs.
+Claims are the occurrence records: each holds its assignment, rounds, failures
+and accepted report, and none is ever deleted.
+
+**Scoped fingerprints.** A completed occurrence is reused while its fingerprint
+is unchanged. The fingerprint binds the PR identity, author and actor, target
+and local trees, diff, discussion, request and `AGENTS.md` instructions, shared
+settings, the task's own resources, role definition, helper implementation and
+admitted execution (workflow, roles and policy). History-scoped tasks (commit
+inspection) also bind the commit history. Head-sensitive tasks also bind the
+heads. CI controls bind only `ci_repair`. Task and finalizer selections, limits,
+the merge method and whether an occurrence is required bind nothing. So a
+governing resource change refreshes only the reviewer that reads it, and a
+rewrite that keeps the tree keeps tree-scoped reviews while commit inspection
+refreshes. A review round is keyed by the reviewers' current fingerprints, ordered
+by occurrence ID, and by each reviewer's count of live claims under them. So
+reordering reviewers, refreshing only one of them, or continuing one after a
+superseded claim never charges more than one cycle per round.
+
+**Allowances.** Defaults: five review cycles, one eligible native retry per
+claim, five CI repairs per cycle, three CI reruns per head and three checklist
+follow-ups per claim. Each unit is reserved in one transaction under a stable
+operation identity before dispatch. Replaying the same operation after response
+loss returns the retained count, even under changed configuration. The first
+reservation fixes the allowance's ceiling: a later configuration can narrow it
+but never widen it. A zero allowance disables the attempt.
+
+**Deadlines.** The CI window (default 1,800 seconds) is absolute. Its start and
+end are recorded on the first observation and kept across polls, head refreshes,
+sessions and runs. A larger timeout never moves the end. A smaller timeout ends
+the window earlier, measured from the original start.
+
+**Explicit continuation.** Only an explicit continuation adds capacity. The
+`extend` helper operation, or `action.py continue`, records a grant of 1 to 10
+units for a named allowance together with the exact user authorization. The
+grant is idempotent by request ID, and a different grant under the same ID is
+rejected. Prior reservations and results stay. The name `occurrence:<task ID>`
+grants a fresh claim for a read-only occurrence whose original claim is
+unfinished, for example after a required native failure with no eligible
+retry. The original claim becomes `superseded`. Its rounds, failures and
+findings are retained, and it can no longer be accepted or resumed. Writers
+never qualify, because their unfinished edits share the Git index: they must
+resume or settle the original claim. Without a grant, exhausted or failed
+mandatory work makes its helper call fail, so the YAML blocks its dependents,
+and nothing is deleted.
+
+**Completion and readiness.** `complete` means every required selected
+occurrence has current coverage, every original finding is settled and, when the
+CI stage is selected, current-head CI succeeded. It holds for an empty plan and
+for plans with only custom tasks or finalizers. `ready` is a separate,
+stricter merge gate: it also needs selected current review and independent
+verification, a clean published head, fresh CI and live repository
+requirements. An interrupted finalizer keeps its unfinished claim. Replaying the
+claim returns it, a replacement run cannot redispatch it, and completion stays
+false until the original settles.
+
+**Ledger schema.** The ledger records its version in `PRAGMA user_version`
+(currently 2). Opening an older ledger migrates it in place without losing
+history. A version 1 CI window keeps its absolute end, but a smaller timeout
+cannot narrow it because its start is unknown. A newer ledger is refused.
+
+## Backup boundaries
+
+| Data | Owner | Location | Backup and restore |
+| --- | --- | --- | --- |
+| Application state: ledgers, artifacts, preparations, staged requests, writer lease | cf-workflows | State namespace (`$XDG_STATE_HOME/cf-workflows/repositories/<id>`) | Copy the whole namespace while no helper runs. Restore it whole: a partial restore can replenish allowances or lose evidence. |
+| Immutable assets: installed workflow, helpers, roles, `closure.json` | cf-workflows package | Installation root | Reinstall the same version and check it against `closure.json`. Do not modify it. A plan refuses a helper closure that differs from the one it was prepared with. |
+| Engine recovery: run snapshots, checkpoints, native sessions | Agent Workflow | Engine state | Back up with the engine's recovery bundle, at the same point in time as the namespace. Losing it keeps budgets, deadlines and results, but an unfinished claim then needs an explicit continuation. A writer's unfinished claim needs the engine run to resume. |
+
 ## Verification
 
 [`tests/test_dk_pr_fix.py`](../tests/test_dk_pr_fix.py) covers the following:
@@ -119,6 +203,15 @@ bundle.
   namespace for every helper step.
 - Preflight mapping and rejections, with invocation counts on a fail-closed fake
   engine transport.
+
+[`tests/test_dk_pr_fix_continuation.py`](../tests/test_dk_pr_fix_continuation.py)
+drives the installed helpers with a fail-closed fake GitHub transport and counts
+native dispatches. It covers reordered and repeated selections, capacity one
+against parallel readers, partial parallel failure, zero and exhausted
+allowances, and interrupted finalizers. It replaces runs, deletes preparation
+checkpoints and changes the configuration and the admitted execution, then
+checks the retained counts, deadlines and claims. It also checks scoped refresh,
+explicit continuation, completion without readiness and ledger migration.
 
 In one case, the installation is copied to a read-only directory with spaces in
 its path. The request is staged, and then `snapshot_request`, `prepare` and the
@@ -152,7 +245,9 @@ provider or host capability.
   discovery disabled, and observed evidence of the session's plugin set.
 - [Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138)
   and #17: merge and publication.
-- #15: retained budgets, occurrence identity and continuation across runs.
+- Proof that budgets, occurrences and continuation hold across real engine runs
+  and native sessions needs #129 and #130. The fixtures exercise only the
+  helpers.
 - Workflow inputs for semantically admitted custom inputs (#12), and #16 for
   supplied skills.
 

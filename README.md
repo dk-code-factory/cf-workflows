@@ -10,9 +10,10 @@ inventory and implements [structural configuration admission](docs/admission.md)
 [acceptance reuse with configuration-write recovery](docs/acceptance.md) against
 engine interfaces. It also extracts the portable PR-fix example into the
 [installed `cf-workflows:dk-pr-fix` workflow](docs/dk-pr-fix.md), with preflight
-and an external state namespace. There is no runnable plugin or verified host
-compatibility yet: running the installed workflow needs Agent Workflow #129, #130
-and the #139 discovery-isolation work. Source pins are provenance, not a
+and an external state namespace, and keeps its budgets, deadlines, occurrence
+identities and explicit continuations in the logical run's ledger. There is no
+runnable plugin or verified host compatibility yet: running the installed
+workflow needs Agent Workflow #129, #130 and the #139 discovery-isolation work. Source pins are provenance, not a
 certified released engine.
 
 - [Baselines and attribution](docs/baselines.md)

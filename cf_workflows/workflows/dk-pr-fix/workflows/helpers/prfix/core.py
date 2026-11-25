@@ -178,7 +178,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY, pr TEXT NOT NULL, created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS reservations(name TEXT NOT NULL, operation TEXT NOT NULL,
  amount INTEGER NOT NULL, limit_value INTEGER NOT NULL, PRIMARY KEY(name,operation));
-CREATE TABLE IF NOT EXISTS deadlines(name TEXT PRIMARY KEY, value REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS deadlines(name TEXT PRIMARY KEY, value REAL NOT NULL, started REAL);
 CREATE TABLE IF NOT EXISTS extensions(id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS claims(id TEXT PRIMARY KEY, task TEXT NOT NULL, fingerprint TEXT NOT NULL,
  state TEXT NOT NULL, agent TEXT NOT NULL DEFAULT '', assignment TEXT NOT NULL,
@@ -200,9 +200,32 @@ CREATE TABLE IF NOT EXISTS local_commits(id TEXT PRIMARY KEY,parent TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS native_failures(claim_id TEXT NOT NULL, round INTEGER NOT NULL,
  agent TEXT NOT NULL, classification TEXT NOT NULL, unsafe TEXT NOT NULL,
  diagnostic TEXT NOT NULL, PRIMARY KEY(claim_id,round));
+CREATE TABLE IF NOT EXISTS review_rounds(claim_id TEXT PRIMARY KEY, task TEXT NOT NULL, basis TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ci_observations(operation TEXT PRIMARY KEY,head TEXT NOT NULL,
  status TEXT NOT NULL,result TEXT NOT NULL);
 """
+
+
+# Version 2 records each deadline's original start, so a narrower runtime
+# ceiling can shorten an absolute window but never extend or restart it, and
+# records each review claim's round basis so reviewers share one cycle per round.
+SCHEMA_VERSION = 2
+
+
+def _schema_version(db):
+    version = db.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise ValueError("ledger schema is newer than this helper; upgrade the installed workflow")
+    return version
+
+
+def _migrate(db):
+    if _schema_version(db) < SCHEMA_VERSION:
+        if "started" not in {row[1] for row in db.execute("PRAGMA table_info(deadlines)")}:
+            # A version 1 window keeps its retained absolute end. Its start is
+            # unknown, so only that original end bounds it.
+            db.execute("ALTER TABLE deadlines ADD COLUMN started REAL")
+        db.execute("PRAGMA user_version=" + str(SCHEMA_VERSION))
 
 
 class Ledger:
@@ -228,7 +251,10 @@ class Ledger:
                 os.chmod(path, 0o600)
                 self.db.execute("PRAGMA journal_mode=WAL")
                 self.db.execute("PRAGMA synchronous=FULL")
+                _schema_version(self.db)
                 self.db.executescript(SCHEMA)
+                with self.transaction():
+                    _migrate(self.db)
                 if pr is not None:
                     with self.transaction():
                         row = self.db.execute("SELECT pr FROM groups WHERE id=?", (logical_run,)).fetchone()
@@ -236,7 +262,9 @@ class Ledger:
                             raise ValueError("logical run belongs to another PR")
                         self.db.execute("INSERT OR IGNORE INTO groups VALUES(?,?,?)",
                                         (logical_run, pr, time.time()))
-            elif pr is not None:
+            else:
+                _schema_version(self.db)
+            if read_only and pr is not None:
                 row = self.db.execute("SELECT pr FROM groups WHERE id=?", (logical_run,)).fetchone()
                 if not row or row["pr"] != pr:
                     raise ValueError("logical run binding differs")
@@ -266,40 +294,56 @@ class Ledger:
         else:
             self.db.commit()
 
+    def granted(self, name):
+        """Capacity added to one allowance by retained explicit continuations."""
+        values = (bounded_json(row[0]) for row in self.db.execute("SELECT value FROM extensions ORDER BY rowid"))
+        return sum(value["amount"] for value in values if value.get("name") == name)
+
     def reserve(self, name, operation, limit, amount=1):
+        """Durably reserve allowance for one stable operation identity.
+
+        The first reservation fixes the allowance's original ceiling. A later
+        run or configuration can only narrow it; only an explicit continuation
+        grant adds capacity. Replaying a reserved operation, including after
+        response loss under changed configuration, never consumes again.
+        """
         text(name, "allowance name")
         text(operation, "allowance operation")
         if type(limit) is not int or type(amount) is not int or limit < 0 or amount < 1:
             raise ValueError("invalid allowance")
         with self.transaction():
-            ceiling = self.db.execute("SELECT limit_value FROM reservations WHERE name=? LIMIT 1", (name,)).fetchone()
-            if ceiling and ceiling[0] != limit:
-                raise ValueError("retained allowance ceiling changed; use explicit continuation")
-            old = self.db.execute("SELECT amount,limit_value FROM reservations WHERE name=? AND operation=?",
+            used = self.db.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE name=?", (name,)).fetchone()[0]
+            old = self.db.execute("SELECT amount FROM reservations WHERE name=? AND operation=?",
                                   (name, operation)).fetchone()
             if old:
-                if old["amount"] != amount or old["limit_value"] != limit:
+                if old["amount"] != amount:
                     raise ValueError("allowance operation identity conflict")
-                return self.db.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE name=?", (name,)).fetchone()[0]
-            used = self.db.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE name=?", (name,)).fetchone()[0]
-            extensions = self.db.execute("SELECT value FROM extensions").fetchall()
-            extra = sum(bounded_json(row[0]).get("amount", 0) for row in extensions
-                        if bounded_json(row[0]).get("name") == name)
-            if used + amount > limit + extra:
+                return used
+            original = self.db.execute("SELECT limit_value FROM reservations WHERE name=? ORDER BY rowid LIMIT 1",
+                                       (name,)).fetchone()
+            ceiling = min(limit, original[0]) if original else limit
+            if used + amount > ceiling + self.granted(name):
                 raise ValueError("retained allowance exhausted: " + name)
             self.db.execute("INSERT INTO reservations VALUES(?,?,?,?)", (name, operation, amount, limit))
             return used + amount
 
     def deadline(self, name, seconds):
+        """Return a retained absolute deadline, bounded by a narrower duration.
+
+        The first call fixes the window's start and end. A later run or
+        configuration never moves the end later or restarts the window; a
+        smaller duration ends it earlier, measured from the original start.
+        """
         if type(seconds) not in {int, float} or seconds <= 0 or seconds > 86400:
             raise ValueError("deadline duration out of bounds")
         with self.transaction():
-            row = self.db.execute("SELECT value FROM deadlines WHERE name=?", (name,)).fetchone()
+            row = self.db.execute("SELECT value,started FROM deadlines WHERE name=?", (name,)).fetchone()
             if row:
-                return row[0]
-            value = time.time() + seconds
-            self.db.execute("INSERT INTO deadlines VALUES(?,?)", (name, value))
-            return value
+                return row["value"] if row["started"] is None else min(row["value"], row["started"] + seconds)
+            started = time.time()
+            self.db.execute("INSERT INTO deadlines(name,value,started) VALUES(?,?,?)",
+                            (name, started + seconds, started))
+            return started + seconds
 
     def extend(self, request_id, name, amount, authorization):
         value = {"name": text(name), "amount": amount, "authorization": auth(authorization)}

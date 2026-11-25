@@ -28,6 +28,7 @@ MAX_FILE_BYTES = 64 << 20
 SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 HOST = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 REPO_PART = re.compile(r"^[A-Za-z0-9_.-]+$")
+CI_OPTIONS = ("ci", "ci_timeout_seconds", "ci_classifications", "ci_exceptions")
 
 
 def _text(value, label):
@@ -512,8 +513,11 @@ def capture(root, provider, plan, *, clean=False):
             if path.stat().st_size > 1 << 20:
                 raise ValueError("repository instruction file exceeds 1 MiB")
             instruction_files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+    # Selections and limits never bind analysis. CI controls bind only CI repair,
+    # and the merge method only the final merge, so changing them keeps siblings.
     options = {k: v for k, v in plan.get("options", {}).items()
-               if k not in ("tasks", "finalizers", "reviewers", "limits")}
+               if k not in ("tasks", "finalizers", "reviewers", "limits", "merge_method") and k not in CI_OPTIONS}
+    ci_options = {k: v for k, v in plan.get("options", {}).items() if k in CI_OPTIONS}
     discussion = {"title": metadata.get("title"), "body": metadata.get("body"),
                   **{k: observed[k] for k in ("comments", "reviews", "inline", "threads")}}
     state = state_directory(root, missing_ok=True)
@@ -533,6 +537,7 @@ def capture(root, provider, plan, *, clean=False):
               "history": hashlib.sha256(history).hexdigest(), "discussion": digest(discussion),
               "instructions": digest({"request": plan["instructions"], "repository": instruction_files}),
               "settings": digest({"options": options, "settings": plan.get("settings", {})}),
+              "ci_settings": digest(ci_options),
               "resources": digest(resources),
               "definitions": digest(plan.get("definitions", {})),
               "resource_digests": resources,
@@ -587,4 +592,8 @@ def fingerprint(snapshot, task):
         selected["history"] = snapshot["history"]
     if task.get("head_sensitive") or task.get("head-sensitive"):
         selected.update({k: snapshot[k] for k in ("head", "target", "local_head")})
-    return digest({"snapshot": selected, "task": task})
+    if task.get("id") == "ci_repair":
+        selected["ci_settings"] = snapshot.get("ci_settings")
+    # Whether an occurrence is required changes how its result gates the plan,
+    # not the analysis, so toggling it keeps a completed result reusable.
+    return digest({"snapshot": selected, "task": {k: v for k, v in task.items() if k != "required"}})

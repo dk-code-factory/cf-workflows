@@ -222,6 +222,36 @@ def candidates(root, ledger, plan):
     return result
 
 
+def supersede(ledger, task, claim_id):
+    """Let an explicit continuation replace one unfinished read-only claim.
+
+    Without a retained grant for ``occurrence:<task>`` the original execution
+    must resume. A grant extends history: the original claim, its rounds and
+    failures stay retained as ``superseded`` and can no longer be accepted.
+    Writers never qualify, because their unfinished edits share the Git index.
+    """
+    message = "unfinished logical claim for original task: resume its originating engine execution"
+    if task["writes"]:
+        raise ValueError(message)
+    try:
+        # A zero ceiling admits only granted capacity. The superseded claim is
+        # the operation identity, so a lost response never consumes twice.
+        ledger.reserve("occurrence:" + task["id"], claim_id, 0)
+    except ValueError as error:
+        if "exhausted" not in str(error):
+            raise
+        raise ValueError(message + " or grant an explicit continuation for occurrence:" + task["id"]) from None
+    with ledger.transaction():
+        ledger.db.execute("UPDATE claims SET state='superseded' WHERE id=? AND state IN ('claimed','incomplete')",
+                          (claim_id,))
+
+
+def _active(claim):
+    if claim["state"] == "superseded":
+        raise ValueError("claim was superseded by an explicit continuation; its original results remain retained")
+    return claim
+
+
 def prepare_claim(root, provider, ledger, plan, inputs):
     task = _task(plan, inputs["task"])
     snapshot = _snapshot(root, provider, plan)
@@ -229,7 +259,7 @@ def prepare_claim(root, provider, ledger, plan, inputs):
     fingerprint = digest([_fingerprint(snapshot, task, ledger), payload]) if payload else _fingerprint(snapshot, task, ledger)
     unfinished = ledger.db.execute("SELECT id FROM claims WHERE task=? AND state IN ('claimed','incomplete') LIMIT 1", (task["id"],)).fetchone()
     if unfinished:
-        raise ValueError("unfinished logical claim for original task: resume its originating engine execution")
+        supersede(ledger, task, unfinished["id"])
     current = _current(ledger, snapshot, task) if task.get("cacheable", True) else None
     if current:
         return {"claim": current["id"], "invoke": False, "complete": True,
@@ -275,11 +305,18 @@ def prepare_claim(root, provider, ledger, plan, inputs):
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
     # A new process, execution or generated plan never replenishes this ledger.
+    # The round counts only this reviewer's live claims under the same inputs,
+    # so reviewers whose claim histories differ (one refreshed alone, or one
+    # continued after a superseded claim) still share one cycle per round.
+    basis = None
     if task["kind"] == "review":
-        cycle = digest([plan["review_contract"], invocation,
-                        [_fingerprint(snapshot, review) for review in plan["tasks"]
+        basis = digest([plan["review_contract"],
+                        [_fingerprint(snapshot, review) for review in sorted(plan["tasks"], key=lambda t: t["id"])
                          if review["kind"] == "review"]])
-        ledger.reserve("review_cycles", cycle, plan["limits"]["review_cycles"])
+        round_number = ledger.db.execute(
+            "SELECT count(*) FROM review_rounds r JOIN claims c ON c.id=r.claim_id "
+            "WHERE r.task=? AND r.basis=? AND c.state!='superseded'", (task["id"], basis)).fetchone()[0]
+        ledger.reserve("review_cycles", digest([basis, round_number]), plan["limits"]["review_cycles"])
     if task["id"] == "ci_repair":
         latest = ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
         if not latest or latest["head"] != snapshot["head"] or latest["status"] != "failed":
@@ -306,6 +343,8 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             raise ValueError("unfinished logical claim: resume its originating engine execution")
         ledger.db.execute("INSERT INTO claims(id,task,fingerprint,state,assignment) VALUES(?,?,?,?,?)",
                           (key, task["id"], fingerprint, "claimed", reference))
+        if basis is not None:
+            ledger.db.execute("INSERT INTO review_rounds VALUES(?,?,?)", (key, task["id"], basis))
     return {"claim": key, "invoke": True, "complete": False,
             "definition": task["definition"], "prompt": prompt, "task_input": assignment, "report": ""}
 
@@ -446,7 +485,7 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
-    claim = _claim(ledger, inputs["claim"])
+    claim = _active(_claim(ledger, inputs["claim"]))
     task = _task(plan, claim["task"])
     agent = text(inputs.get("agent"), "opaque native agent reference")
     if not re.fullmatch(r"agent_[a-f0-9]{32}", agent):
@@ -528,7 +567,7 @@ def turn_result(root, provider, ledger, plan, inputs):
         accepted = accept(root, provider, ledger, plan, {**inputs, "round": 0})
         return {**accepted, "checklist": not accepted["complete"],
                 "retry": False, "prompt": "", "task_input": {}}
-    claim = _claim(ledger, inputs["claim"])
+    claim = _active(_claim(ledger, inputs["claim"]))
     task = _task(plan, claim["task"])
     agent = text(inputs.get("agent"), "original failed native agent")
     if not re.fullmatch(r"agent_[a-f0-9]{32}", agent):
