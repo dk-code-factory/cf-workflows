@@ -342,6 +342,71 @@ class AnsweredAndOptional(Feedback):
         self.assertEqual(view.responders, {1, 9})
 
 
+class ReviewRegressions(Feedback):
+    """Review cycle 1 of PR #45."""
+
+    def test_a_link_to_another_comment_with_a_longer_id_does_not_answer(self):
+        self.github.comment(12, REVIEWER, 'Why does this leak the handle?', 1)
+        self.github.comment(123, BOB, 'Unrelated question', 2)
+        self.github.review(45, REVIEWER, 'Please split this method.', 3)
+        self.github.comment(500, AUTHOR, f'Re {URL}#issuecomment-123 and {URL}#pullrequestreview-456: done.', 4)
+        self.github.comment(501, AUTHOR, f'Reply to [comment]({URL}#issuecomment-12): fixed.', 5)
+        view = self.view()
+        self.assess(view, 'comment:12', request('q', 'leak the handle'))
+        for key, excerpt in (('comment:12', 'leak the handle'), ('review:45', 'split')):
+            self.rejects('later reply', view, key, request('q', excerpt, response=answered('comment', 500)))
+        with self.assertRaisesRegex(feedback.FeedbackError, 'own location'):
+            self.ledger.record_reply(view, 'comment:12', {'kind': 'comment', 'id': 500}, 'intent:x')
+        self.assertEqual(self.ledger.record_reply(view, 'comment:12', {'kind': 'comment', 'id': 501}, 'intent:1'),
+                         'comment:501')
+
+    def test_a_question_for_another_participant_cannot_be_reassessed_away(self):
+        self.github.inline(100, REVIEWER, '@bob did you benchmark this?', 1)
+        view = self.view()
+        self.assess(view, 'inline:100', request('q', '@bob did you benchmark this?', 'participant', participant='bob',
+                                                response=no_reply('addressed_to_participant')))
+        for ident in ('q', 'other'):
+            self.rejects('drops the question for bob', view, 'inline:100',
+                         request(ident, '@bob did you benchmark this?', 'none',
+                                 response=no_reply('no_author_reply_needed')))
+        self.assertEqual(feedback.resolution(self.ledger, view, 'T100', BOTH)['blockers'], ['inline:100 awaits bob'])
+        # Upgrading to a required answer is allowed.
+        self.assess(view, 'inline:100', request('q', '@bob did you benchmark this?', 'participant', participant='bob',
+                                                instructed=True))
+
+    def test_an_edit_keeps_obligations_whose_text_remains(self):
+        source = self.github.comment(10, REVIEWER, 'Please fix the leak.', 1)
+        self.assess(self.view(), 'comment:10', request('q', 'Please fix the leak.', implementation='rejected'))
+        source['body'] = 'Please fix the leak. (typo)'
+        view = self.view()
+        for ident in ('q', 'other'):
+            self.rejects('drops the response obligation of q', view, 'comment:10',
+                         request(ident, 'Please fix the leak.', 'none', response=no_reply('no_author_reply_needed')))
+        self.assertEqual(feedback.stage(self.ledger, view, BOTH)['status'], 'incomplete')
+        self.assess(view, 'comment:10', request('q', 'Please fix the leak.', implementation='rejected'))
+        self.assertEqual(feedback.stage(self.ledger, view, BOTH)['replies_needed'], ['comment:10'])
+        # An edit that removes the quoted request releases it.
+        source['body'] = 'Never mind, the leak was elsewhere.'
+        view = self.view()
+        self.assess(view, 'comment:10', request('n', 'Never mind', 'none', response=no_reply('no_author_reply_needed')))
+        self.assertEqual(feedback.stage(self.ledger, view, BOTH)['status'], 'complete')
+
+    def test_a_verified_reply_settles_a_request_whose_cited_answer_was_deleted(self):
+        self.github.inline(100, REVIEWER, 'Is this thread-safe?', 1)
+        answer = self.github.inline(101, BOB, 'Yes, guarded by the lock.', 2, parent=100)
+        view = self.view()
+        self.assess(view, 'inline:100', request('q', 'thread-safe', response=answered('inline', 101)))
+        self.assertEqual(feedback.stage(self.ledger, view, BOTH)['unassessed'], ['inline:101'])
+        self.assertEqual(feedback.stage(self.ledger, view, BOTH)['sources']['inline:100']['status'], 'settled')
+        self.github.ev['inline'].remove(answer)
+        self.assertEqual(feedback.stage(self.ledger, self.view(), BOTH)['replies_needed'], ['inline:100'])
+        self.github.inline(102, AUTHOR, 'Yes, see the lock in `put`.', 3, parent=100)
+        view = self.view()
+        self.ledger.record_reply(view, 'inline:100', {'kind': 'inline', 'id': 102}, 'intent:1')
+        result = feedback.stage(self.ledger, self.view(), BOTH)
+        self.assertEqual((result['status'], result['replies_needed']), ('complete', []))
+
+
 class Evidence(Feedback):
     def test_incomplete_or_foreign_evidence_rejects(self):
         cases = [lambda ev: ev.pop('threads'), lambda ev: ev['metadata'].update(number=8),

@@ -134,7 +134,9 @@ class View:
             return False
         if source['kind'] == 'inline':
             return reply['kind'] == 'inline' and reply['root'] == source['root']
-        return reply['kind'] == 'comment' and isinstance(source['url'], str) and source['url'] in reply['body']
+        # The source URL must appear as a whole link: #issuecomment-12 is not #issuecomment-123.
+        return (reply['kind'] == 'comment' and isinstance(source['url'], str)
+                and re.search(re.escape(source['url']) + r'(?![A-Za-z0-9_-])', reply['body']) is not None)
 
     def later(self, source, login):
         """Whether participant login has spoken after source in the same inline thread."""
@@ -326,8 +328,13 @@ class Ledger:
                 self.db.execute('SELECT value FROM assessments WHERE source = ? ORDER BY seq', (source,))]
 
     def assess(self, view, assessment):
-        """Retain one source's assessment. Repeating it is a no-op; a reassessment of an
-        unchanged source may add obligations but never drop one."""
+        """Retain one source's assessment. Repeating it is a no-op.
+
+        A reassessment never drops an earlier obligation whose excerpt the source still
+        contains, even after an edit: a required request stays required under its ID, and a
+        question for another participant stays addressed to that participant (or becomes
+        required). Only an edit that removes the quoted text releases it.
+        """
         value = validate(view, assessment)
         source = view.sources[value['source']]
         with self.transaction():
@@ -338,12 +345,20 @@ class Ledger:
             previous = self.current(source['key'], value['fingerprint'])
             if previous == value:
                 return value
-            if previous is not None:
-                now = {request['id']: request for request in value['requests']}
-                for request in previous['requests']:
+            now = {request['id']: request for request in value['requests']}
+            for earlier in self.history(source['key']):
+                for request in earlier['requests']:
+                    if request['excerpt'] not in source['body']:
+                        continue
+                    kept = now.get(request['id'])
                     if required(request):
-                        require(request['id'] in now and required(now[request['id']]),
+                        require(kept is not None and required(kept),
                                 f"reassessment drops the response obligation of {request['id']}")
+                    elif request['addressee'] == 'participant':
+                        require(kept is not None and (required(kept) or (
+                            kept['addressee'] == 'participant'
+                            and kept['participant'].lower() == request['participant'].lower())),
+                                f"reassessment drops the question for {request['participant']} in {request['id']}")
             self.db.execute('INSERT INTO assessments (source, fingerprint, value) VALUES (?, ?, ?)',
                             (source['key'], value['fingerprint'], dumps(value)))
         return value
@@ -395,7 +410,8 @@ def _settlement(ledger, view, source):
         response = request['response']
         if response['disposition'] == 'already_answered':
             answer = view.items.get(f"{response['reply']['kind']}:{response['reply']['id']}")
-            settled = answer is not None and view.answers(source, answer)
+            # A verified reply from the author also settles it, e.g. after the cited answer was deleted.
+            settled = bool(replies) or (answer is not None and view.answers(source, answer))
         elif response['disposition'] == 'reply':
             settled = bool(replies)
         else:

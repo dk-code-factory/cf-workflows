@@ -47,20 +47,25 @@ Every `no_reply` carries a justification. `instructed: true` records an
 explicit user instruction to answer and makes any request required.
 `already_answered` cites a later comment by someone other than the source's
 author, in the source's own location: the same inline thread, or for comments
-and review bodies, a PR comment that links the source URL.
+and review bodies, a PR comment that links the exact source URL (a link to
+`#issuecomment-123` does not answer comment 12).
 
 The ledger keeps every assessment. Repeating an identical assessment adds
-nothing. A reassessment of an unchanged source may add obligations but never
-drop one. An edited source has a new fingerprint and needs a new assessment;
-the earlier record and replies remain.
+nothing. A reassessment may add obligations but never drop one whose excerpt the
+source still contains, including after an edit: a required request stays
+required under its ID, and a question for another participant stays addressed
+to that participant unless it becomes required. Only an edit that removes the
+quoted text releases it. An edited source has a new fingerprint and needs a new
+assessment; the earlier record and replies remain.
 
 ## Response-stage completion
 
 `Ledger.record_reply()` retains a published reply with its publication
 reference only after the reply is observed from the PR author or actor, later
 than the source, in its own location. An unobserved reply is never recorded:
-uncertain dispatch stays with publication reconciliation. One reply covers every
-request of its source.
+uncertain dispatch stays with publication reconciliation. One verified reply
+covers every required request of its source, including one whose cited answer
+was later deleted.
 
 `stage(ledger, view, permissions)` re-verifies every retained reply and answer
 against the current observation and returns:
