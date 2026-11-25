@@ -411,6 +411,49 @@ class Reconcile(Fixture):
         self.assertEqual(missing['status'], 'blocked')
         self.assertIn('durable-state', missing['error']['message'])
 
+    def test_later_user_comment_outranks_the_request(self):
+        admitted = self.admit('Store run state in SQLite.')
+        ledger = self.ledger(admitted)
+        sqlite = decision('state-sqlite', ['instruction:request'], text='Store run state in SQLite.')
+        self.assertEqual(self.reconcile(admitted, ledger, session(result(sqlite)))['status'], 'complete')
+        # The same user changes direction on the PR after issuing the request.
+        self.github.ev['comments'].append(comment(106, ALICE, 'Do not use SQLite; use a JSON file.', 6))
+        json_file = decision('state-json', ['comment:106'], text='Store run state in a JSON file.')
+        conflict = contradiction('storage', ['state-sqlite', 'state-json'], ['instruction:request', 'comment:106'])
+        stale = dict(conflict, resolution={'direction': 'SQLite.', 'decision': 'state-sqlite',
+                                           'sources': ['instruction:request']})
+        refused = self.reconcile(admitted, ledger, session(result(json_file, contradictions=[stale])))
+        self.assertEqual((refused['status'], refused['error']['path']),
+                         ('blocked', 'result.contradictions[0].resolution.sources'))
+        [task] = self.fake.tasks
+        order = [item['id'] for item in task['context']['sources']]
+        self.assertLess(order.index('comment:105'), order.index('instruction:request'))
+        self.assertLess(order.index('instruction:request'), order.index('comment:106'))
+        current = dict(conflict, resolution={'direction': 'JSON file.', 'decision': 'state-json',
+                                             'sources': ['comment:106']})
+        excluded = dict(sqlite, status='excluded', sources=['instruction:request', 'comment:106'])
+        settled = self.reconcile(admitted, ledger, session(result(excluded, json_file, contradictions=[current])))
+        self.assertEqual(settled['status'], 'complete', settled)
+        self.assertEqual(self.ids(settled['decisions']['settled']), ['state-json'])
+
+    def test_unchanged_request_and_unrelated_comment_cannot_revive_an_exclusion(self):
+        admitted = self.admit('Store run state in SQLite.')
+        ledger = self.ledger(admitted)
+        sqlite = decision('state-sqlite', ['instruction:request'], text='Store run state in SQLite.')
+        self.reconcile(admitted, ledger, session(result(sqlite)))
+        self.github.ev['comments'].append(comment(106, ALICE, 'Drop the SQLite idea entirely.', 6))
+        excluded = self.reconcile(admitted, ledger, session(result(dict(sqlite, status='excluded',
+                                                                        sources=['comment:106']))))
+        self.assertEqual(self.ids(excluded['decisions']['excluded']), ['state-sqlite'])
+        self.github.ev['comments'].append(comment(107, CAROL, 'Any update?', 7))
+        revived = self.reconcile(admitted, ledger, session(result(dict(sqlite, sources=['instruction:request',
+                                                                                         'comment:107']))))
+        self.assertEqual(revived['status'], 'blocked')
+        self.assertIn('restored only by a later user source', revived['error']['message'])
+        self.github.ev['comments'].append(comment(108, ALICE, 'Actually, go back to SQLite.', 8))
+        back = self.reconcile(admitted, ledger, session(result(dict(sqlite, sources=['comment:108']))))
+        self.assertEqual(self.ids(back['decisions']['settled']), ['state-sqlite'])
+
     def test_lost_session_response_reconciles_to_the_original_claim(self):
         admitted = self.admit()
         ledger = self.ledger(admitted)
@@ -495,6 +538,51 @@ class Publish(Fixture):
         again = decisions.publish(admitted, reused, publisher=publisher, audience=self.audience)
         self.assertEqual((again['status'], again['intent']), ('applied', outcome['intent']))
         self.assertEqual(self.github.counts['write'], 1)
+
+    def test_crlf_bodies_keep_one_section_and_their_line_endings(self):
+        self.github.ev['metadata']['body'] = ('Adds storage.\r\n\r\n## Decisions\r\n\r\n'
+                                              '- Use Redis for run state. <!-- cf-workflows:decision redis -->\r\n'
+                                              '\r\n## Testing\r\n\r\nRan tests.\r\n')
+        admitted = self.admit(authorize=True)
+        sources, published = decisions.collect(admitted, self.github.capture(None))
+        [body] = [item for item in sources if item['id'] == 'pr-body']
+        self.assertTrue(published['present'])
+        self.assertEqual(body['text'], 'Adds storage.\n\n## Testing\n\nRan tests.')
+        self.assertEqual(published['entries'][1]['decision'], 'redis')
+        ledger = self.ledger(admitted)
+        report = self.settled(admitted, ledger, API)
+        outcome = decisions.publish(admitted, report, publisher=self.publisher(admitted, ledger), audience=self.audience)
+        self.assertEqual(outcome['status'], 'applied', outcome)
+        self.assertEqual(self.github.ev['metadata']['body'], (
+            'Adds storage.\r\n\r\n## Decisions\r\n\r\n'
+            '- Use Redis for run state. <!-- cf-workflows:decision redis -->\r\n'
+            f'- Keep the v1 API stable. ([comment]({PR}#issuecomment-101)) <!-- cf-workflows:decision api-compat -->'
+            '\r\n\r\n## Testing\r\n\r\nRan tests.\r\n'))
+        self.assertEqual(self.reconcile(admitted, ledger)['session'], False)
+
+    def test_paused_decisions_leave_the_published_section(self):
+        admitted = self.admit(authorize=True)
+        ledger = self.ledger(admitted)
+        publisher = self.publisher(admitted, ledger)
+        report = self.settled(admitted, ledger, API)
+        self.assertEqual(decisions.publish(admitted, report, publisher=publisher, audience=self.audience)['status'],
+                         'applied')
+        self.github.ev['comments'].append(comment(106, ALICE, 'Pause the API stability decision until 2.0.', 6))
+        paused = dict(API, status='paused', sources=['comment:101', 'comment:106'], revisit='At 2.0 planning.')
+        report = self.settled(admitted, ledger, paused)
+        outcome = decisions.publish(admitted, report, publisher=publisher, audience=self.audience)
+        self.assertEqual((outcome['status'], outcome['draft']['removed']), ('applied', ['api-compat']))
+        self.assertNotIn('decision api-compat', self.github.ev['metadata']['body'])
+
+    def test_public_sources_without_authority_do_not_publish_private_decisions(self):
+        admitted = self.admit('Do not support Windows.', authorize=True)
+        ledger = self.ledger(admitted)
+        self.github.ev['comments'].append(comment(106, CAROL, 'Will this work on Windows?', 6))
+        windows = decision('no-windows', ['instruction:request', 'comment:106'], text='Windows is not supported.')
+        report = self.settled(admitted, ledger, windows, API)
+        outcome = decisions.publish(admitted, report, publisher=self.publisher(admitted, ledger), audience=self.audience)
+        self.assertEqual((outcome['status'], outcome['draft']['withheld']), ('applied', ['no-windows']))
+        self.assertNotIn('Windows', self.github.ev['metadata']['body'])
 
     def test_contested_entries_are_kept_verbatim(self):
         self.github.ev['comments'].append(comment(104, BOB, 'Drop v1 API compatibility.', 4, 'MEMBER'))

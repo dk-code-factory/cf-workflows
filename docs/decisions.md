@@ -47,8 +47,11 @@ and the user's recorded gate answers into sources. Each source has a durable
 identity (`pr-body`, `comment:<id>`, `review:<id>`, `inline:<id>`,
 `issue:<n>`, `issue-comment:<n>:<id>`, `instruction:request`,
 `answer:<id>`), its URL when public, the SHA-256 of its exact text and its
-discussion order. Pending reviews are skipped. The instruction and the answers
-are private and come after all discussion.
+discussion order. Pending reviews are skipped. The request and the answers are
+private. The request is ordered by when it was issued: the ledger fixes the
+discussion present at the run's first reconciliation, and the request comes after
+that discussion and before any later comment, so a later user comment outranks
+it. Gate answers come last.
 
 The helper assigns authority; the session cannot raise it:
 
@@ -85,7 +88,8 @@ record. The helper accepts the result only when all of these hold:
   agreement, a maintainer's role or a recommendation never resolves it, and the
   current request outranks earlier discussion.
 - A decision that was excluded or paused is settled again only by a user source
-  later than the exclusion's sources.
+  that is later than the exclusion's sources and is itself new or changed. The
+  unchanged request or an unrelated new comment cannot revive it.
 - An unaffected retained decision or contradiction changes only by citing a
   changed or new source, and every affected one is returned.
 - The language review used at most the configured passes and stopped at the
@@ -123,11 +127,13 @@ It appends every accepted result and every rejected claim; nothing is rewritten.
 
 `draft` changes only the bounded section of the PR body. The section is the one
 heading that equals `section_heading`, up to the next heading of the same or a
-higher level; several such headings block. Each settled decision with a public
-source is rendered with its public source links and a stable marker. Decisions
-cited only by the private request or answers are withheld. An existing entry of
-a decision the user excluded, or one that a settled decision supersedes, is
-removed. Contested, unmanaged and other entries are kept verbatim, and nothing
+higher level; several such headings block. CRLF bodies are matched without their
+carriage returns; text outside the section keeps its original line endings, and
+the section uses the body's own. Each settled decision that cites a public user
+or maintainer source is rendered with its public source links and a stable
+marker. Others are withheld, so a private request cannot reach the body through
+a public question. An existing entry of a decision the user excluded or paused,
+or one that a settled decision supersedes, is removed. Contested, unmanaged and other entries are kept verbatim, and nothing
 outside the section changes.
 
 `publish` uses the shared [exact-intent publication](publication.md) boundary
@@ -156,13 +162,14 @@ gates or writes. It covers:
 - **Reconciliation.** Distinct settled, proposed, contested and excluded
   decisions; a waiting gate with no session; a user answer that refreshes only
   the contested subjects; unchanged reuse in a fresh session; a later request
-  that governs an earlier agreement; an excluded agreement that a later
-  maintainer comment cannot restore; edited, removed and linked-issue sources;
+  that governs an earlier agreement; a later user comment that outranks the
+  request; an excluded agreement that a later maintainer comment, the unchanged
+  request or an unrelated comment cannot restore; edited, removed and linked-issue sources;
   a changed requirement; lost session and gate responses; and unsupported
   results, which are never recorded.
 - **Publication.** A private draft without authority; a section update that
-  preserves the rest of the body, withholds private-only decisions and removes
-  a superseded entry; contested entries kept verbatim; response loss before and
+  preserves the rest of the body, withholds decisions without a public user or
+  maintainer source and removes superseded and paused entries; a CRLF body; contested entries kept verbatim; response loss before and
   after the effect with one write; a superseded result and an ambiguous section.
 - **Composition.** A `dk-pr-fix` occurrence with the same report and handoff,
   and a plan without the adapter.

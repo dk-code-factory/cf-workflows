@@ -209,11 +209,16 @@ def effective(admitted):
 # -- Sources ------------------------------------------------------------------------------------
 
 def split_section(body, heading):
-    """(before, section lines or None, after) around the one bounded decision section of a body."""
+    """(before, section lines or None, after) around the one bounded decision section of a body.
+
+    Lines split on LF; a trailing CR (CRLF bodies from the web editor) is ignored for
+    matching, and before/after keep their original line endings.
+    """
     lines = body.split('\n')
     found = []
     fence = None
-    for number, line in enumerate(lines):
+    for number, raw in enumerate(lines):
+        line = raw.rstrip('\r')
         stripped = line.lstrip()
         if stripped.startswith(('```', '~~~')):
             fence = None if fence and stripped.startswith(fence) else (fence or stripped[:3])
@@ -229,15 +234,16 @@ def split_section(body, heading):
     end = len(lines)
     fence = None
     for number in range(start + 1, len(lines)):
-        stripped = lines[number].lstrip()
+        line = lines[number].rstrip('\r')
+        stripped = line.lstrip()
         if stripped.startswith(('```', '~~~')):
             fence = None if fence and stripped.startswith(fence) else (fence or stripped[:3])
             continue
-        match = None if fence else _HEADING.fullmatch(lines[number])
+        match = None if fence else _HEADING.fullmatch(line)
         if match and len(match[1]) <= level:
             end = number
             break
-    return '\n'.join(lines[:start]), lines[start:end], '\n'.join(lines[end:])
+    return '\n'.join(lines[:start]), [line.rstrip('\r') for line in lines[start:end]], '\n'.join(lines[end:])
 
 
 def _authority(author, association, accounts, host):
@@ -249,12 +255,16 @@ def _authority(author, association, accounts, host):
     return 'maintainer' if association in MAINTAINERS else 'participant'
 
 
-def collect(admitted, capture, *, issues=(), answers=()):
+def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
     """Sources with durable identities, helper-assigned authority and discussion order.
 
     capture is the shared PR capture (metadata, comments, reviews, inline); issues
     are captured linked issues ({number, url, body, user, author_association,
-    created_at, comments}); answers are the user's recorded gate answers. The
+    created_at, comments}); answers are the user's recorded gate answers. baseline
+    is the set of discussion identities present when the request was first
+    reconciled: the request comes after those and before any later discussion,
+    so a later user comment outranks it (None: all discussion precedes it).
+    Gate answers come last. The
     current decision section of the PR body is a record, never a source: it cannot
     settle, restore or revise a decision.
     """
@@ -279,7 +289,8 @@ def collect(admitted, capture, *, issues=(), answers=()):
                            'created_at': created})
     before, section, after = split_section(meta.get('body') or '', heading)
     # Whitespace around the section is not discussion, so publishing it leaves this source unchanged.
-    add('pr-body', 'pr', '\n\n'.join(part.strip('\n') for part in (before, after) if part.strip()), meta, pr['url'],
+    outside = [part.replace('\r\n', '\n').strip('\r\n') for part in (before, after)]
+    add('pr-body', 'pr', '\n\n'.join(part for part in outside if part.strip()), meta, pr['url'],
         meta.get('created_at') or '')
     for kind, key in (('comment', 'comments'), ('review', 'reviews'), ('inline', 'inline')):
         for item in capture.get(key) or []:
@@ -295,9 +306,11 @@ def collect(admitted, capture, *, issues=(), answers=()):
             add(f'issue-comment:{issue["number"]}:{item["id"]}', 'issue-comment', item.get('body'), item,
                 item.get('html_url') or issue.get('url'), item.get('created_at') or '')
     discussion.sort(key=lambda item: (item['created_at'], item['id']))
-    sources = discussion + [{'id': 'instruction:request', 'kind': 'instruction', 'public': False, 'url': None,
+    earlier = [item for item in discussion if baseline is None or item['id'] in baseline]
+    later = [item for item in discussion if baseline is not None and item['id'] not in baseline]
+    sources = earlier + [{'id': 'instruction:request', 'kind': 'instruction', 'public': False, 'url': None,
                              'text': snapshot['request']['original_instructions'], 'author': None,
-                             'authority': 'user', 'created_at': None}]
+                             'authority': 'user', 'created_at': None}] + later
     for answer in answers:
         value = answer['value']
         sources.append({'id': 'answer:' + answer['answer_id'], 'kind': 'answer', 'public': False, 'url': None,
@@ -388,6 +401,7 @@ class Ledger:
                     version = SCHEMA_VERSION
                 require(version == SCHEMA_VERSION, 'ledger', f'unsupported decision ledger version {version}')
                 meta = dict(self.db.execute('SELECT key, value FROM meta').fetchall())
+                meta.pop('request_baseline', None)
                 require(meta == expected, 'ledger', 'decision ledger belongs to another suite, logical run or PR')
                 self.db.execute('COMMIT')
             except BaseException:
@@ -417,6 +431,13 @@ class Ledger:
 
     def history(self):
         return [self._record(row) for row in self.db.execute('SELECT * FROM results ORDER BY seq')]
+
+    def baseline(self, discussion):
+        """The discussion identities the request was issued against, fixed at the run's first call."""
+        self.db.execute('INSERT OR IGNORE INTO meta VALUES (?, ?)',
+                        ('request_baseline', admission.canonical(sorted(discussion)).decode()))
+        row = self.db.execute("SELECT value FROM meta WHERE key = 'request_baseline'").fetchone()
+        return set(json.loads(row[0]))
 
     def attempts(self, binding):
         """Rejected attempts of one binding; each later attempt gets a fresh claim."""
@@ -521,8 +542,9 @@ def check_result(output, *, sources, retained, previous, changed, subjects, pass
         if old is not None and old['status'] in ('excluded', 'paused') and item['status'] == 'settled':
             # Revised or excluded agreements return only through a later explicit user source.
             floor = max(known[i]['order'] if i in known else -1 for i in old['sources'])
-            require(any(known[i]['authority'] == 'user' and known[i]['order'] > floor for i in cited), at + '.sources',
-                    'an excluded or paused decision is restored only by a later user source')
+            require(any(known[i]['authority'] == 'user' and known[i]['order'] > floor and i in changed for i in cited),
+                    at + '.sources', 'an excluded or paused decision is restored only by a later user source that '
+                    'is itself new or changed')
         decisions[item['id']] = item
     missing = [ident for ident in subjects['decisions'] if ident not in seen]
     require(not missing, 'result.decisions', 'affected decisions must be returned: ' + ', '.join(missing))
@@ -688,6 +710,8 @@ def reconcile(admitted, *, capture, ledger, transport, issues=()):
                 'value': gate['answer']['value']} for gate in gates]
     try:
         sources, published = collect(admitted, capture, issues=issues, answers=answers)
+        baseline = ledger.baseline(item['id'] for item in sources if item['kind'] not in ('instruction', 'answer'))
+        sources, published = collect(admitted, capture, issues=issues, answers=answers, baseline=baseline)
     except (AdmissionError, configuration.Blocked, TypeError, KeyError, AttributeError) as error:
         return {'skill': SKILL, 'status': 'blocked', 'error': _failure(error)}
     context = _context(admitted, task, governing)
@@ -777,18 +801,19 @@ def render(decision, sources):
 def draft(report, body, heading, sources):
     """The PR body with only the bounded decision section changed.
 
-    Settled decisions with a public source are rendered. Decisions cited only by
-    private instructions or answers are withheld. Existing entries of a decision
-    the user excluded or superseded are removed; contested, unmanaged and other
+    Settled decisions with a public user or maintainer source are rendered; the
+    others are withheld. Existing entries of a decision the user excluded, paused
+    or superseded are removed; contested, unmanaged and other
     entries are kept verbatim; nothing outside the section changes.
     """
     before, section, after = split_section(body, heading)
     known = {item['id']: item for item in sources}
+    # Published only on a public source that itself carries the decision's authority.
     public = [d for d in report['decisions']['settled']
-              if any(i in known and known[i]['public'] for i in d['sources'])]
+              if any(i in known and known[i]['public'] and known[i]['authority'] in GOVERNING for i in d['sources'])]
     withheld = [d['id'] for d in report['decisions']['settled'] if d not in public]
     rendered = {d['id']: render(d, sources) for d in public}
-    revised = {d['id'] for d in report['decisions']['excluded']} | {
+    revised = {d['id'] for d in report['decisions']['excluded'] + report['decisions']['paused']} | {
         other for d in report['decisions']['settled'] for other in d.get('supersedes', [])}
     lines, removed, kept, placed = [], [], [], set()
     for entry in _entries(section or []):
@@ -807,15 +832,15 @@ def draft(report, body, heading, sources):
     while lines and not lines[0].strip():
         lines.pop(0)
     lines.extend(rendered[d['id']] for d in public if d['id'] not in placed)
+    eol = '\r\n' if '\r\n' in body else '\n'  # The section follows the body's own line endings.
     if section is None:
         if not lines:
             return {'body': body, 'withheld': withheld, 'removed': [], 'kept': []}
-        head = f'## {heading}'
-        content = head + '\n\n' + '\n'.join(lines) + '\n'
-        new = (body.rstrip('\n') + '\n\n' + content) if body.strip() else content
+        content = eol.join([f'## {heading}', ''] + lines) + eol
+        new = (body.rstrip('\r\n') + eol + eol + content) if body.strip() else content
     else:
-        content = '\n'.join([section[0], ''] + lines) + '\n'
-        new = (before + '\n' if before else '') + content + ('\n' + after if after else '')
+        content = eol.join([section[0], ''] + lines) + eol
+        new = (before + '\n' if before else '') + content + (eol + after if after else '')
     return {'body': new, 'withheld': withheld, 'removed': removed, 'kept': kept}
 
 
