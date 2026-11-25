@@ -181,11 +181,16 @@ class Helpers(unittest.TestCase):
             with self.subTest(tasks=tasks):
                 with self.assertRaisesRegex(ValueError, message):
                     self.prepare(tasks=tasks)
-        with self.assertRaisesRegex(ValueError, "no branch, feedback or finding publication"):
-            self.prepare(permissions={"post_findings": True})
+        for permission in ("push_commits", "reply_to_feedback", "edit_pr", "resolve_threads"):
+            with self.subTest(permission=permission):
+                with self.assertRaisesRegex(ValueError, "no branch or feedback publication"):
+                    self.prepare(permissions={permission: True})
+        # Verified findings are the one publication incoming review can enable (#25).
+        self.assertEqual(self.prepare(permissions={"post_findings": True})["options"]["permissions"],
+                         {"post_findings": True})
         with self.assertRaisesRegex(ValueError, "immutable numeric identities"):
             self.prepare(accounts=["contributor"])
-        self.assertEqual(self.transport.calls, Counter({"capture": 2}))
+        self.assertEqual(self.transport.calls, Counter({"capture": 3}))
 
     def test_identities_route_ownership_by_numeric_id_not_login(self):
         # A renamed author whose immutable ID is a configured personal account owns the PR.
@@ -423,12 +428,21 @@ class ReviewPreflight(PreflightFixture):
                 self.assertEqual(result['preflight'], 'rejected')
                 self.assertTrue(result['error']['path'].startswith(path), result['error'])
                 self.assertNotIn('state', result)
-        for action, owner in (('post_findings', '#25'), ('push', 'never writes')):
+        for action in ('push', 'reply', 'edit_pr'):
             with self.subTest(action=action):
                 result = self.review(request={**self.request, 'authorizations': {action: grant}},
                                      invocation={'permissions': {action: True}})
                 self.assertEqual(result['error']['path'], 'request.authorizations.' + action)
-                self.assertIn(owner, result['error']['message'])
+                self.assertIn('never writes', result['error']['message'])
+        # Verified findings publish with their own permission and authorization (#25).
+        result = self.review(request={**self.request, 'authorizations': {'post_findings': grant}},
+                             invocation={'permissions': {'post_findings': True}})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual({key for key, value in result['inputs']['permissions'].items() if value}, {'post_findings'})
+        self.assertEqual(set(result['state']['request_document']['authorizations']), {'post_findings'})
+        # An authorization without the enabled permission rejects instead of being dropped.
+        result = self.review(request={**self.request, 'authorizations': {'post_findings': grant}})
+        self.assertEqual(result['error']['path'], 'request.authorizations.post_findings')
         offered = copy.deepcopy(CAPABILITIES)
         offered['providers']['fixture-provider'].append('merge_guard')
         result = self.review(request={**self.request, 'authorizations': {'merge': grant}},

@@ -290,6 +290,10 @@
       "reason": "Response stage helpers (#21); no upstream counterpart (docs/responses.md)."
     },
     {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/findings.py",
+      "reason": "Verified incoming-review finding publication (#25); no upstream counterpart (docs/review.md)."
+    },
+    {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/responses.yml",
       "reason": "Response stage orchestration (#21); no upstream counterpart (docs/responses.md)."
     },

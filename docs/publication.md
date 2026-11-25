@@ -45,7 +45,15 @@ dispatch and reconciliation fixtures with response loss before and after the
 effect. Until then it stays in `EXTENSIONS` and denies.
 
 Replies to feedback sources and thread resolutions come from the selected
-[response stage](responses.md) through the `responses` listing. When that stage
+[response stage](responses.md) through the `responses` listing. Incoming
+review's verified findings come only from the `findings` listing, as one
+`submit_review` per run and head (see
+[finding publication](review.md#finding-publication)); in review mode no other
+listing or native proposal is publishable. Its intent `source` records each
+published finding's identity and its exact location-and-text key, and
+dispatch accepts that source only on a review submission. A review submission
+with inline comments may have an empty body; review text is bounded to 65536
+characters. When that stage
 is selected, the ordinary barrier skips native reply proposals that name a
 feedback source.
 

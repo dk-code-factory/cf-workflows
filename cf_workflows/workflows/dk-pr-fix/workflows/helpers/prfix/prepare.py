@@ -209,8 +209,9 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             or not isinstance(item["host"], str) or type(item["id"]) is not int or item["id"] <= 0
             for item in accounts)):
         raise ValueError("accounts are {host, id} immutable numeric identities")
-    if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS if name != "merge"):
-        raise ValueError("incoming review enables no branch, feedback or finding publication input")
+    if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS
+                                if name not in ("merge", "post_findings")):
+        raise ValueError("incoming review enables no branch or feedback publication input")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
@@ -288,7 +289,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                 raise ValueError("managed publication/review/CI stages cannot be in a parallel group")
             stage = group[0].get("stage")
             if mode == "review" and stage in {"publication", "responses", "ci"}:
-                # Finding publication (#25), feedback replies and CI approval (#35) are not incoming-review stages yet.
+                # Verified findings publish after the cycles (main.yml findings job); feedback
+                # replies and CI approval (#35) are not incoming-review stages.
                 raise ValueError("incoming review supports task and reviewer stages only")
             if stage in {"publication", "ci"}:
                 stages.append({"kind": stage, "phase": phase})
@@ -373,4 +375,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     plan["fingerprint"] = digest(plan)
     plan_reference = artifact(root, plan)
     return {"logical_run": logical_run, "plan": plan_reference, "stages": stages,
-            "limits": limits, "turns": turns, "merge_authorized": "merge" in authorizations}
+            "limits": limits, "turns": turns, "merge_authorized": "merge" in authorizations,
+            # Incoming review's verified findings; publication still rechecks both at dispatch.
+            "findings_authorized": mode == "review" and "post_findings" in authorizations
+                                   and permissions.get("post_findings") is True}

@@ -81,18 +81,39 @@ def _publication(root, provider, ledger, plan, *, audience=None):
         source_validator=validate_source)
 
 
+def _current_source(root, provider, ledger, plan, reference, snapshot):
+    try:
+        _source(root, provider, ledger, plan, reference, snapshot=snapshot)
+        return True
+    except (ValueError, KeyError, TypeError, PublicationError):
+        return False
+
+
 def publication_list(root, provider, ledger, plan, inputs):
     """List current accepted proposals; never infer authority from selection."""
     from . import app
     snapshot = app._snapshot(root, provider, plan)
     selector = inputs.get("kind", "ordinary")
-    if selector not in {"ordinary", "merge", "responses", "all"}:
+    if selector not in {"ordinary", "merge", "responses", "all", "findings"}:
         raise PublicationError("unsupported publication selector")
+    # Incoming review publishes only its verified findings (and a separately
+    # authorized merge); native report operations never become its writes.
+    if (plan.get("mode") == "review") != (selector == "findings") and selector != "merge":
+        raise PublicationError("verified finding publication belongs to incoming review, which publishes nothing else")
     if not snapshot["identities"]["current"]:
         # Provisional analysis is private: no proposal is listed until the PR
         # metadata reaches the analyzed revision.
         return {"items": [], "provisional": app.provisional(snapshot),
                 "blockers": ["publication is withheld while analysis is provisional"]}
+    if selector == "findings":
+        from . import findings
+        listed = findings.listing(root, provider, ledger, plan, _publication(root, provider, ledger, plan),
+                                  lambda reference, current: _current_source(root, provider, ledger, plan, reference, current))
+        # Retained dispatched originals come first, for read-only reconciliation only.
+        return {"items": listed["reconcile"] + listed["items"], "withheld": listed["withheld"],
+                "blockers": listed["blockers"]}
+    if plan.get("mode") == "review":
+        return {"items": []}
     from . import responses
     if selector == "responses":
         # Feedback replies and resolutions. Retained dispatched originals come first,
@@ -194,8 +215,19 @@ def publication_prepare(root, provider, ledger, plan, inputs):
     # Never accept arbitrary workflow inputs merely because they name an
     # accepted source. Reconstruct the source report's exact original proposal,
     # including the deterministic missing-sources/ID normalization above.
-    listing = publication_list(root, provider, ledger, plan, {"kind": "all"})
+    review = plan.get("mode") == "review"
+    listing = publication_list(root, provider, ledger, plan, {"kind": "findings" if review else "all"})
     listed = listing["items"]
+    if review and proposal.get("kind") == "submit_review" and _retained_original(root, provider, ledger, plan, proposal):
+        # A retained finding submission is never re-created: a dispatched one
+        # is only reconciled, and only an identical relisted one is prepared.
+        publisher = _publication(root, provider, ledger, plan)
+        saved = publisher._attempts(publisher._load(proposal["id"])["id"])[-1]
+        if saved["state"] in {"applied", "pending"}:
+            from .findings import proposal_of
+            if proposal_of(saved) != proposal:
+                raise PublicationError("proposal differs from the retained original operation")
+            return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
     if listing.get("provisional") and not _retained_original(root, provider, ledger, plan, proposal):
         raise PublicationError("publication is withheld while analysis is provisional")
     if proposal.get("kind") == "merge":

@@ -50,9 +50,8 @@ UNAVAILABLE_ACTIONS = {
 }
 
 
-# Incoming review publishes nothing yet; merge keeps its own grant and readiness.
-REVIEW_ACTIONS = {'merge'}
-REVIEW_UNAVAILABLE = {'post_findings': 'finding publication from incoming review is owned by #25'}
+# Incoming review publishes only its verified findings; merge keeps its own grant and readiness.
+REVIEW_ACTIONS = {'post_findings', 'merge'}
 
 
 def _review_plan(snapshot):
@@ -63,8 +62,8 @@ def _review_plan(snapshot):
             return task['path'], 'incoming review tasks cannot write'
     for stage in snapshot['plan']['stages']:
         if stage['kind'] in ('publication', 'responses', 'ci'):
-            return 'plan.stages', ('incoming review supports task and reviewer stages only; finding publication '
-                                   'is #25 and CI approval #35')
+            return 'plan.stages', ('incoming review supports task and reviewer stages only; verified findings '
+                                   'publish after them, and CI approval is #35')
     if not any(stage['kind'] == 'reviews' for stage in snapshot['plan']['stages']):
         return 'plan.stages', 'incoming review requires a selected reviewer stage'
     return None
@@ -223,8 +222,8 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         if action in UNAVAILABLE_ACTIONS:
             return _reject(result, 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action])
         if mode == 'review' and action not in REVIEW_ACTIONS:
-            return _reject(result, 'request.authorizations.' + action, REVIEW_UNAVAILABLE.get(
-                action, 'incoming review never writes the PR branch, description or discussion'))
+            return _reject(result, 'request.authorizations.' + action,
+                           'incoming review never writes the PR branch, description or discussion')
         if not permissions[action]['effective']:
             return _reject(result, 'request.authorizations.' + action,
                            'the authorized action is not enabled by accepted configuration; '

@@ -10,6 +10,10 @@ name: Sequential publication barrier
       turns:
         type: number
         default: 8
+      selector:
+        # ordinary proposals, or findings: incoming review's verified findings (findings.py).
+        type: string
+        default: ordinary
     secrets:
       github_token:
         required: true
@@ -20,6 +24,7 @@ jobs:
       operation: publication_list
       payload:
         plan: ${{ inputs.plan }}
+        kind: ${{ inputs.selector }}
     secrets:
       github_token: ${{ secrets.github_token }}
   publish:

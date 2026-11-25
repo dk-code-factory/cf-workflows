@@ -136,6 +136,8 @@ covers:
   it needs these native stages in the installed workflow. The alternatives
   skills and the direct manual entry are #27.
 - Posting an eligible finding goes through [exact-intent
-  publication](publication.md). Body-only and inline placement are #25.
+  publication](publication.md). Incoming review applies the same rules in its
+  [finding publication](review.md#finding-publication); it does not call this
+  library function.
 - Real GitHub conformance and native-session adherence need separate
   authorization. These fixtures do not establish them.

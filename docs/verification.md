@@ -91,6 +91,12 @@ reply authority and custom or empty plans.
 helpers in review mode and the router with fail-closed fake GitHub and engine
 transports. They count native dispatches and identity reads, and cover
 dk-workflows#254 report-only pass claims.
+[Finding publication](review.md#finding-publication) tests
+(`tests/test_dk_pr_review_findings.py`) cover dk-workflows#240 body-only and
+mixed findings with summaries disabled, partial `COMMENT` reviews, unchanged
+reruns, uncertain submissions, existing pending drafts and conclusive
+rejection through the shared publication journal, counting review writes and
+native dispatches on a fail-closed fake GitHub.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
 gateways. They cover missing, duplicate, undeclared and nested children, digest

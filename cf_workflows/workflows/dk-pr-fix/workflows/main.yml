@@ -204,6 +204,20 @@ jobs:
     repeat:
       max-attempts: ${{ needs.prepare.outputs.result.limits.review_cycles }}
       until: ${{ iteration.outputs.settled }}
+  findings:
+    # Incoming review: independently verified findings, published once as inline
+    # comments and body findings. Partial coverage only comments (findings.py).
+    uses: workflows/publication-barrier.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+      selector: findings
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - cycles
+    if: ${{ needs.prepare.outputs.result.findings_authorized and needs.cycles.status != 'canceled' }}
   completion:
     uses: workflows/helper.yml
     with:

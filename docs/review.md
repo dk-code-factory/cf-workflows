@@ -53,11 +53,12 @@ calls `main.yml` with `mode: review`. The default logical run is
 
 Preflight and the `prepare` helper reject a writing task, the publication,
 response and CI stages, and a plan without a reviewer stage. The only
-authorization accepted is `merge`, with its own permission, the engine's
-`merge_guard` and current readiness. `post_findings` is #25. Approval and
-fork-CI approval stay denied extension kinds. Capture reads another author's
-PR without `maintain_other`, and the plan adds `finding_verification` but no
-`finding_fix`.
+authorizations accepted are `post_findings` (see
+[Finding publication](#finding-publication)) and `merge`, each with its own
+permission; merge also needs the engine's `merge_guard` and current readiness.
+Approval and fork-CI approval stay denied extension kinds. Capture reads
+another author's PR without `maintain_other`, and the plan adds
+`finding_verification` but no `finding_fix`.
 
 Each reviewer and the verifier is an engine-managed session with the admitted
 `reviewer` or `verifier` role and no skills. A profile such as the
@@ -102,8 +103,90 @@ occurrences run again. Supplied reviewer skills keep the [skills](skills.md)
 rules: only the selected occurrence loads the skill, its findings go to the
 separate verifier, and coverage comes only from engine records.
 
+## Finding publication
+
+With `post_findings` enabled by accepted configuration and explicitly
+authorized, `main.yml`'s `findings` job runs the publication barrier with the
+`findings` selector after the review cycles.
+[`prfix/findings.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/findings.py)
+lists at most one new `submit_review` proposal, and the shared
+[exact-intent publication](publication.md) path prepares it, obtains its
+independent audience verdict, dispatches it and reconciles it. This covers
+dk-workflows#240.
+
+Each reviewer finding names its own location (the assignment's
+`location_contract` and the native report schema):
+
+| Location | Published |
+| --- | --- |
+| `{kind: diff, path, line, side}` on an added (`RIGHT`) or removed (`LEFT`) line of the PR diff | Inline on that line |
+| `{kind: file, path, line}` on an added line | Inline on that line |
+| Any other existing line of the head (or, for `LEFT`, the base) | Review body, as `path` line N with a pinned link |
+| `{kind: commit_message, commit}` for a commit of the PR | Review body, with the commit link |
+| `{kind: pr_title}` or `{kind: pr_description}` | Review body, with the PR link |
+
+The changed lines come from `git diff -U0 base..head` of the reviewed
+revision, which is GitHub's PR diff. No finding is ever moved to a nearby
+changed line. A location that does not exist in the reviewed PR (a missing
+line or file, a commit outside the PR) and a finding with no location are
+withheld, with the reason in the private listing result. One submission holds
+at most 64 inline comments and one finding per anchor; the others wait for a
+later run.
+
+A finding is published only when all of these hold:
+
+- it comes from a review occurrence (captured feedback from others is never
+  republished) whose current accepted report still contains it;
+- the current independent verification confirms it, from a session other than
+  the reviewer's;
+- its text names no local execution detail (the checkout path, workflow state
+  or a native agent reference);
+- analysis is not [provisional](provisional.md);
+- no prepared, pending or applied submission of this run already carries it,
+  by finding identity or by exact location and text.
+
+The payload is built only from those findings. Inline comments hold the
+finding text and evidence links. The body holds one entry per body finding:
+its location label and link, its text and its evidence links, all pinned to
+the reviewed head. The boolean `settings` option `include_summary: true` adds
+one overview sentence (counts only); `false`, the default, removes only that sentence, so a
+body-only review keeps every finding. A review with only inline findings and
+no summary has an empty body. Coverage gaps, withheld findings, operational
+errors and other diagnostics stay in the listing's private `withheld` and
+`blockers` fields.
+
+The event is `REQUEST_CHANGES` only when the review outcome is `findings`
+(complete coverage with an ordinary reviewer), the PR is not the actor's own
+and the setting `request_changes` is not false. Otherwise, including every
+partial review, it is `COMMENT`. Both are boolean `settings` options. Publishing findings never changes the review
+record: `clean_review`, `approve` and `ready` stay false, merge keeps its own
+authorization and readiness, and approval and fork-CI approval remain denied.
+`include_summary` and `request_changes` shape only the review text, so changing
+them never makes review coverage stale.
+
+Recovery is the shared publication journal. The proposal ID is a digest of the
+run and the exact proposal, so an unchanged rerun relists the same submission
+or, once it is applied, nothing. A pending (uncertain) submission is listed
+only for read-only reconciliation, and its findings are not proposed again. A
+blocked or `not_applied` submission frees its findings, and an identical
+relisting becomes a fresh attempt. An actor-owned pending review refuses
+preparation and is never touched ([pending reviews](publication.md#pending-reviews)).
+Native reviewer reports cannot propose review writes in review mode: the
+publication helpers list only verified findings and the final merge there.
+
 ## Verification
 
+- [`tests/test_dk_pr_review_findings.py`](../tests/test_dk_pr_review_findings.py)
+  drives the installed helpers on a disposable repository with a fake GitHub
+  transport that answers only capture, review creation and review-comment
+  reads, and counts writes and native dispatches. It covers dk-workflows#240
+  body-only findings with summaries disabled, mixed inline, body and withheld
+  findings without duplication or re-anchoring, the exact changed-line map,
+  partial `COMMENT` reviews that establish no readiness, own-PR and configured
+  events, missing permission or authorization, native review proposals,
+  unverified and rejected findings, unchanged reruns and a new head, response
+  loss before and after the effect, an existing pending draft, a draft after
+  preparation, conclusive pending-review rejection and provisional analysis.
 - [`tests/test_routing.py`](../tests/test_routing.py) uses a fake GitHub
   transport that answers only the two identity reads, at most once each. Any
   other operation fails. Cases cover own and other PRs, multi-host accounts,
@@ -134,5 +217,10 @@ separate verifier, and coverage comes only from engine records.
 - A profile built from an installed code-review-ad package uses custom adapters.
   These need semantic admission (#12/#13) and workflow inputs for accepted
   custom inputs. Supplied reviewer skills need #16 and Agent Workflow #139.
-- Finding publication (inline and body-only) is #25. Approval and fork-CI
-  approval are #31 and #35.
+- Finding publication runs through the installed graph only once Agent
+  Workflow #129 and #130 land. The fixtures prove the helper and ledger
+  behavior, not GitHub's acceptance of these payloads (for example an empty
+  body with inline comments); that conformance needs separate authorization.
+- Historical finding follow-ups (reusing an earlier equivalent thread) and the
+  standalone `cf-workflows:dk-pr-review-post` entry are #31. Approval and
+  fork-CI approval are #31 and #35.
