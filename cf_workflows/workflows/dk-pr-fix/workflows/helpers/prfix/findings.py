@@ -27,11 +27,12 @@ Nothing here writes; ``publishing`` prepares and dispatches the listed proposal.
 """
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import quote
 
 from .capture import PUBLICATION_SETTINGS as SETTINGS  # noqa: F401  (publication only; never bind analysis)
-from .core import digest, read_artifact
+from .core import STATE_ENV, digest, read_artifact
 
 LOCATIONS = {"diff": {"path", "line", "side"}, "file": {"path", "line"},
              "commit_message": {"commit"}, "pr_title": set(), "pr_description": set()}
@@ -39,7 +40,12 @@ MAX_INLINE = 64
 MAX_BODY = 60000
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-_AGENT = re.compile(r"agent_[a-f0-9]{32}")
+# Workflow state locations and opaque execution identities (core.py, app.py, prepare.py).
+_PRIVATE = re.compile(
+    r"\.agent-workflow|\.pr-fix-portable|cf-workflows-state|\.owned-by-cf-workflows"
+    r"|cf-workflows/repositories/|\b(?:artifacts|requests|preparations)/[0-9a-f]{64}\.json"
+    r"|\b(?:agent|claim|task|finding|group|pr|review|publication|findings|push|merge)_[0-9a-f]{8,}\b"
+    r"|\bgroup_\d+\b")
 
 
 class LocationError(ValueError):
@@ -171,10 +177,17 @@ def key(place, finding_text):
     return digest({"location": place, "text": finding_text})
 
 
-def _private(root, finding_text):
-    """Local execution details never enter public review text."""
-    return (str(root) in finding_text or ".agent-workflow" in finding_text or ".pr-fix-portable" in finding_text
-            or _AGENT.search(finding_text) is not None)
+def _private(root, plan, finding_text):
+    """Local execution details never enter public review text.
+
+    The checkout and state namespace paths, workflow state references and the
+    opaque identities of agents, claims, tasks, findings, groups and the run.
+    """
+    paths = {str(root), plan["logical_run"]}
+    raw = os.environ.get(STATE_ENV, "")
+    if raw:
+        paths.update({raw, os.path.realpath(raw)})
+    return any(path and path in finding_text for path in paths) or _PRIVATE.search(finding_text) is not None
 
 
 def _evidence(root, snapshot, report, finding):
@@ -282,7 +295,7 @@ def listing(root, provider, ledger, plan, publisher, validate_source):
             reasons.append("unverified")
         if verifier_agent is not None and verifier_agent == candidate["agent"]:
             reasons.append("not_independent")
-        if _private(root, candidate["text"]):
+        if _private(root, plan, candidate["text"]):
             reasons.append("private_details")
         place = placed = None
         try:
@@ -330,7 +343,11 @@ def listing(root, provider, ledger, plan, publisher, validate_source):
     # A partial review only comments. Requesting changes needs complete coverage
     # with an ordinary reviewer, and never applies to the actor's own PR.
     complete = review["outcome"] == "findings" and not review["partial"]
-    own = snapshot["author_id"] == snapshot["actor_id"]
+    # Like capture: the actor's PR, or one by a configured personal account on its host.
+    pr = snapshot["pr"]
+    own = snapshot["author_id"] == snapshot["actor_id"] or any(
+        str(account.get("host", "")).lower() == pr["host"] and account.get("id") == snapshot["author_id"]
+        for account in plan.get("options", {}).get("accounts", []))
     blocking = complete and not own and plan.get("settings", {}).get("request_changes", True) is not False
     payload = {"event": "REQUEST_CHANGES" if blocking else "COMMENT", "body": text, "comments": inline}
     source = {"kind": "findings", "findings": chosen}

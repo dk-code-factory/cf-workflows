@@ -139,8 +139,10 @@ A finding is published only when all of these hold:
   republished) whose current accepted report still contains it;
 - the current independent verification confirms it, from a session other than
   the reviewer's;
-- its text names no local execution detail (the checkout path, workflow state
-  or a native agent reference);
+- its text names no local execution detail: the checkout or state namespace
+  path (mounted, configured or resolved), a `cf-workflows/repositories/` path,
+  an `artifacts/`, `requests/` or `preparations/` state reference, the logical
+  run, or an agent, claim, task, finding, group or publication identity;
 - analysis is not [provisional](provisional.md);
 - no prepared, pending or applied submission of this run already carries it,
   by finding identity or by exact location and text.
@@ -156,8 +158,9 @@ errors and other diagnostics stay in the listing's private `withheld` and
 `blockers` fields.
 
 The event is `REQUEST_CHANGES` only when the review outcome is `findings`
-(complete coverage with an ordinary reviewer), the PR is not the actor's own
-and the setting `request_changes` is not false. Otherwise, including every
+(complete coverage with an ordinary reviewer), the PR is not the user's own
+(authored by the actor or by a configured personal account on the PR's host,
+as in [routing](#routing)) and the setting `request_changes` is not false. Otherwise, including every
 partial review, it is `COMMENT`. Both are boolean `settings` options. Publishing findings never changes the review
 record: `clean_review`, `approve` and `ready` stay false, merge keeps its own
 authorization and readiness, and approval and fork-CI approval remain denied.

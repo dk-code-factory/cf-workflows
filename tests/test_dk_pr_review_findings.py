@@ -116,8 +116,8 @@ class Fixture(unittest.TestCase):
     # -- helpers ---------------------------------------------------------------
 
     def prepare(self, reviewers=None, authorizations=None, permissions=None, settings=None, mode="review",
-                run="review_fixture", tasks=None):
-        controls = {"tasks": tasks or [{"stage": "reviews"}], "finalizers": [],
+                run="review_fixture", tasks=None, accounts=None):
+        controls = {"tasks": tasks or [{"stage": "reviews"}], "finalizers": [], "accounts": accounts or [],
                     "reviewers": reviewers if reviewers is not None else ["review"], "adapters": adapters(),
                     "settings": settings or {}, "resources": [], "turns": 8, "mode": mode,
                     "permissions": {"post_findings": True} if permissions is None else permissions}
@@ -328,6 +328,54 @@ class EventsAndAuthority(Fixture):
                 self.reviewed(plan, ledger, [self.finding("subject", SUBJECT, "commit_message", commit=self.commit)])
                 self.barrier(plan, ledger)
                 self.assertEqual(self.github.posted[-1]["event"], "COMMENT")
+
+    def test_configured_personal_account_pr_is_own_and_only_comments(self):
+        # Actor 1 reviews a PR by configured personal account 2 on the same host: the user's own PR.
+        self.github.evidence["viewer"]["id"] = 1
+        plan = self.prepare(accounts=[{"host": "github.com", "id": 2}], run="review_accounts")
+        ledger = self.ledger(plan)
+        self.reviewed(plan, ledger, [self.finding("subject", SUBJECT, "commit_message", commit=self.commit)])
+        review = app.coverage(self.root, self.github, ledger, plan, {})["review"]
+        self.assertEqual((review["outcome"], review["partial"]), ("findings", False))
+        self.barrier(plan, ledger)
+        self.assertEqual(self.github.posted[-1]["event"], "COMMENT")
+        # The same account ID on another host is not the user's.
+        self.github.evidence["reviews"], self.github.evidence["inline"] = [], []
+        plan = self.prepare(accounts=[{"host": "ghe.example.com", "id": 2}], run="review_other_host")
+        ledger = self.ledger(plan)
+        self.reviewed(plan, ledger, [self.finding("subject", SUBJECT, "commit_message", commit=self.commit)])
+        self.barrier(plan, ledger)
+        self.assertEqual(self.github.posted[-1]["event"], "REQUEST_CHANGES")
+        self.assertEqual(self.writes(), 2)
+
+    def test_state_references_and_execution_identities_are_withheld(self):
+        plan = self.prepare()
+        ledger = self.ledger(plan)
+        hexes = "0123456789abcdef" * 4
+        task = self.task(plan, "review")["id"]
+        quoted = {
+            "mount": "The assignment at /cf-workflows-state/requests/" + hexes + ".json says so.",
+            "namespace": "Read " + str(Path(self.state_dir).resolve()) + "/runs first.",
+            "xdg": "See $XDG_STATE_HOME/cf-workflows/repositories/abc/ for the ledger.",
+            "artifact": "The retry assignment_reference artifacts/" + hexes + ".json is stale.",
+            "preparation": "preparations/" + hexes + ".json differs.",
+            "task": "Occurrence " + task + " was skipped.",
+            "claim": "claim_" + hexes + " never finished.",
+            "finding": "Duplicate of finding_" + hexes[:24] + ".",
+            "group": "The reviewers in group_1 disagreed.",
+            "run": "Run " + plan["logical_run"] + " is partial.",
+        }
+        reported = [self.finding(key, value, "pr_description") for key, value in quoted.items()]
+        reported.append(self.finding("subject", SUBJECT, "commit_message", commit=self.commit))
+        self.reviewed(plan, ledger, reported)
+        listing, _ = self.barrier(plan, ledger)
+        reasons = {read_id(entry["finding"], ledger, plan): entry["reasons"] for entry in listing["withheld"]}
+        self.assertEqual(reasons, {key: ["private_details"] for key in quoted})
+        self.assertEqual(self.writes(), 1)
+        self.assertNotIn("assignment", self.payload_text())
+        self.assertIn(SUBJECT, self.github.posted[0]["body"])
+        # Ordinary identifiers that merely share a prefix stay publishable.
+        self.assertFalse(findings._private(self.root, plan, "Rename push_add and merge_base; group_name is unused."))
 
     def test_publication_needs_its_own_permission_and_authorization(self):
         for authorizations, permissions in (({}, {"post_findings": True}), ({"post_findings": GRANT}, {})):
