@@ -643,9 +643,13 @@ def _gate(transport, request_id, claim, prompt, payload):
 
 
 def request_id(admitted):
-    """Durable identity of the exact ask for this entry; it never depends on store revisions."""
+    """Durable identity of the exact ask in its logical run; it never depends on store revisions.
+
+    The same words asked in another logical run are a new request, never settled by an earlier one.
+    """
     entry, snapshot = admitted['entry'], admitted['snapshot']
     return 'cfgreq_' + digest({'skill': entry['skill'], 'target': target(snapshot),
+                               'logical_run': snapshot['request']['logical_run'],
                                'instructions': snapshot['request']['original_instructions'],
                                'options': {key: value['value'] for key, value in entry['options'].items()},
                                'prompts': entry['prompts']})[:32]
@@ -678,9 +682,12 @@ def configure(name, *, request, store, ledger, deployment, repository, transport
     where, ident = target(admitted['snapshot']), request_id(admitted)
     base = {'request_id': ident, 'recovered_writes': recovered}
     marker = 'request:' + ident
-    for intent in ledger.writes():
-        if marker in intent['evidence_refs'] and intent['status'] in ('applied', 'blocked'):
-            # Settled earlier: an applied request is not run again, an uncertain one is never retried.
+    settled = [intent for intent in ledger.writes(('applied', 'blocked')) if marker in intent['evidence_refs']]
+    current_revision = document['revision'] if document is not None else None
+    for intent in settled[-1:]:
+        # An uncertain write of this request is never retried. An applied one is settled only while the
+        # store still holds its revision; after any later change the same ask is assessed again.
+        if intent['status'] == 'blocked' or (intent['receipt'] or {}).get('revision') == current_revision:
             return {**base, 'status': intent['status'], 'write': {'intent_id': intent['intent_id'],
                                                                    'status': intent['status'],
                                                                    'receipt': intent['receipt'],

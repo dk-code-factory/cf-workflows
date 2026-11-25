@@ -288,6 +288,12 @@ class Onboarding(Fixture):
         self.assertEqual(result['status'], 'incomplete')
         self.assertIn('configuration', {gap['subject'] for gap in result['report']['gaps']})
 
+    def test_onboarding_with_a_custom_prompt_opens_no_gate(self):
+        result = self.onboard(invocation={'prompts': [{'id': 'p', 'slot': 'additional', 'text': 'Skip CONTRIBUTING.'}]})
+        self.assertEqual((result['status'], result['admission']['error']['path']), ('rejected', 'invocation.prompts'))
+        self.calls()
+        self.nothing_saved()
+
     def test_entry_preset_cannot_expand_execution_or_publication_authority(self):
         authorization = {'push': {'request_id': 'r1', 'instruction': 'push it', 'source': 'user'}}
         for name, extra in {
@@ -295,7 +301,10 @@ class Onboarding(Fixture):
                 'tasks': {'invocation': {'options': {'tasks': ['address-feedback']}}},
                 'permissions': {'invocation': {'permissions': {'push': True}}},
                 'skills': {'invocation': {'skills': []}},
-                'unknown option': {'options': {'default_applies_to': ['review']}}}.items():
+                'unknown option': {'options': {'default_applies_to': ['review']}},
+                # A prompt would need assessment, whose clarification opens a durable gate.
+                'custom prompt': {'invocation': {'prompts': [{'id': 'p', 'slot': 'additional',
+                                                              'text': 'Skip CONTRIBUTING.'}]}}}.items():
             with self.subTest(name):
                 arguments = {'request': self.request('Onboard.'), **extra}
                 transport = self.transport()
@@ -417,6 +426,58 @@ class Config(Changes):
         self.assertFalse(any(item['effective'] for item in entries.preflight(
             'dk-config', request=self.request('x'), deployment=self.deployment, repository=self.repo,
             transport=self.transport())['snapshot']['permissions'].values()))
+
+    DISABLE = ({'op': 'set_permission', 'scope': 'repo', 'action': 'push', 'value': False},)
+    ENABLE_AGAIN = ({'op': 'set_permission', 'scope': 'repo', 'action': 'push', 'value': True},)
+
+    def push(self):
+        return self.store.read()['scopes'][0]['permissions']['push']
+
+    def test_the_same_ask_after_a_later_change_or_in_a_new_run_is_assessed_again(self):
+        first = self.configure(proposal(*self.ENABLE))
+        self.assertEqual(first['status'], 'applied')
+        self.assertEqual(self.configure(proposal(*self.DISABLE), instructions='Disable pushes.')['status'], 'applied')
+        self.assertFalse(self.push())
+        # Same run, same words: the earlier receipt is no longer current, so a session runs again.
+        again = self.configure(proposal(*self.ENABLE_AGAIN))
+        self.assertEqual((again['status'], again['request_id']), ('applied', first['request_id']))
+        self.assertTrue(self.push())
+        self.calls(capabilities=2, input_gates=1, native_session=1)
+        self.assertEqual(self.configure(proposal(*self.DISABLE), instructions='Disable pushes again.')['status'],
+                         'applied')
+        # A new logical run with the first ask is a new request, never settled by the old one.
+        self.transport(proposal(*self.ENABLE_AGAIN))
+        fresh = configuration.configure('dk-config', request=self.request('Enable pushes for this repository.',
+                                                                          logical_run='run2'),
+                                        store=self.store, ledger=self.ledger(), deployment=self.deployment,
+                                        repository=self.repo, transport=self.fake)
+        self.assertEqual(fresh['status'], 'applied', fresh)
+        self.assertNotEqual(fresh['request_id'], first['request_id'])
+        self.assertTrue(self.push())
+        self.calls(capabilities=2, input_gates=1, native_session=1)
+        self.assertEqual(self.engine.sessions, Counter(change=5))
+
+    def test_an_uncertain_write_blocks_only_its_own_run(self):
+        def changed_during_write(store, expected, document, real=writes.FileStore.write):
+            other = configuration.empty_configuration()
+            other['scopes'].append({'id': 'mine', 'selector': {'kind': 'personal', 'id': 'me'},
+                                    'options': {'turns': 9}, 'permissions': {}, 'prompts': [], 'skills': [],
+                                    'preferences': []})
+            real(store, expected, document)
+            real(store, writes.revision({**document, 'revision': None}), other)
+            raise OSError('response lost')
+        with patch.object(writes.FileStore, 'write', changed_during_write):
+            uncertain = self.configure(proposal(*self.ENABLE))
+        self.assertEqual(uncertain['status'], 'blocked', uncertain)
+        self.assertEqual(self.configure()['status'], 'blocked')
+        self.calls(capabilities=1)
+        self.transport(proposal(*self.ENABLE))
+        fresh = configuration.configure('dk-config', request=self.request('Enable pushes for this repository.',
+                                                                          logical_run='run2'),
+                                        store=self.store, ledger=self.ledger(), deployment=self.deployment,
+                                        repository=self.repo, transport=self.fake)
+        self.assertEqual(fresh['status'], 'applied', fresh)
+        self.assertEqual([scope['id'] for scope in self.store.read()['scopes']], ['mine', 'repo'])
 
     def test_clarification_resumes_the_same_request_without_new_sessions(self):
         first = self.configure(questions('Which repository scope: this repository or all personal settings?'))

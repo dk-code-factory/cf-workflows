@@ -97,6 +97,10 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
         invocation = {} if invocation is None else invocation
         require(isinstance(invocation, dict) and set(invocation) <= {'prompts'}, 'invocation',
                 'the entry preset fixes tasks, finalizers, reviewers and permissions; only prompts may be added')
+        # Discovery is read-only and leaves no history: a custom prompt would need a semantic
+        # assessment whose clarification opens a durable gate, so onboarding takes none.
+        require(name != 'dk-repo-onboard' or not invocation.get('prompts'), 'invocation.prompts',
+                'dk-repo-onboard takes no custom prompts; it creates no request history')
     except AdmissionError as error:
         return _rejected(error.path, error.message)
     try:

@@ -27,8 +27,9 @@ The role prompts are the baseline `prompts/default.md` texts, byte for byte. The
 digests match [the inventory](../baselines/inventory.json). The bundled adapters
 are control text in `admission.ENTRY_ADAPTERS`, like the baseline adapters. So an
 entry's default plan has no custom input, runs no validator session and loads no
-skill. An invocation may add only `prompts`; these pass the shared
-[semantic assessment](semantic.md). Tasks, finalizers, reviewers, permissions,
+skill. A `dk-config` or `dk-preferences` invocation may add only `prompts`;
+these pass the shared [semantic assessment](semantic.md). `dk-repo-onboard`
+takes none, because a clarification would open a durable gate. Tasks, finalizers, reviewers, permissions,
 skills and unknown entry options reject before the engine is contacted. A
 remote-write authorization in the request rejects too: enabling a permission is a
 saved setting, not an authorization.
@@ -105,10 +106,12 @@ paths.
 
 1. Read back every unsettled configuration write in the shared ledger
    ([writes.py](acceptance.md#configuration-writes)) before reading the store.
-2. Bind the exact ask to a request ID. The ID covers the entry, target,
-   instructions, entry options and invocation prompts, never the store revision.
-   If the ledger already holds an `applied` write for this request, return its
-   receipt with no session. An uncertain (`blocked`) write is never retried.
+2. Bind the exact ask to a request ID. The ID covers the entry, target, logical
+   run, instructions, entry options and invocation prompts, never the store
+   revision. The same words in another logical run are a new request. If the
+   ledger holds an `applied` write for this request and the store still has its
+   revision, return the receipt with no session; after any later change the ask
+   is assessed again. An uncertain (`blocked`) write is never retried in its run.
 3. Read the engine's input gates for the request. A waiting gate returns
    `waiting` with no new session or gate. Answered gates become clarifications.
 4. Run one session. Its claim binds the request, base revision and answers. The
