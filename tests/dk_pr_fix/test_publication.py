@@ -12,19 +12,23 @@ import git_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "cf_workflows" / "workflows" / "dk-pr-fix" / "workflows" / "helpers"))
 from prfix.core import Ledger, canonical, digest, identity
-from prfix.publication import Publication, PublicationError, UncertainEffect
+from prfix.publication import PERMISSION_INPUTS, Publication, PublicationError, UncertainEffect
 
 HEAD = "a" * 40
 BASE = "b" * 40
 OTHER = "c" * 40
 MERGE = "d" * 40
 AUTH = {"request_id": "user-1", "instruction": "Fix and publish this PR; merge when ready", "source": "chat:1"}
+# Authority is per contract action; an iteration grant authorizes no write.
+ACTIONS = ("push", "edit_pr", "reply", "resolve_thread", "request_review", "create_pr",
+           "rerun_ci", "post_findings", "merge")
+GRANTS = {action: AUTH for action in ACTIONS}
 
 
 class FakeGitHub:
     def __init__(self):
         self.ev = {
-            "metadata": {"html_url": "https://github.com/o/r/pull/7", "number": 7,
+            "metadata": {"html_url": "https://github.com/o/r/pull/7", "number": 7, "id": 700,
                          "state": "open", "merged": False, "draft": False,
                          "mergeable": True, "mergeable_state": "clean",
                          "title": "Before", "body": "Old description",
@@ -114,9 +118,8 @@ class PublicationTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.pr = identity("https://github.com/o/r/pull/7")
         self.plan = {"logical_run": "fixture", "pr": self.pr, "instructions": "Original exact instruction",
-                     "authorizations": {"iterate": AUTH, "merge": AUTH},
-                     "options": {"permissions": {key: True for key in (
-                         "push_commits", "rewrite_commits", "edit_pr", "reply_to_feedback", "resolve_threads", "create_draft_prs", "request_review")},
+                     "authorizations": dict(GRANTS),
+                     "options": {"permissions": {key: True for key in PERMISSION_INPUTS},
                          "limits": {"ci_reruns_per_head": 3}}}
         self.ledger = Ledger(self.root, "fixture", self.pr["url"])
         self.addCleanup(self.ledger.close)
@@ -148,7 +151,7 @@ class PublicationTests(unittest.TestCase):
         self.provider.lose_response = True
         with self.assertRaisesRegex(OSError, "response lost"):
             self.publication.execute(prepared["id"], self.audience(prepared))
-        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "uncertain")
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "pending")
         before = self.ledger.db.total_changes
         observed = self.publication.reconcile(prepared["id"])
         self.assertEqual(observed["outcome"], "completed")
@@ -170,11 +173,16 @@ class PublicationTests(unittest.TestCase):
 
     def test_observation_failure_is_unknown_without_writes(self):
         prepared = self.propose()
+        # A never-dispatched intent is conclusively without effect.
+        self.assertEqual(self.publication.reconcile(prepared["id"])["outcome"], "no_effect")
+        self.provider.delay_creation = self.provider.lose_response = True
+        with self.assertRaises(OSError):
+            self.publication.execute(prepared["id"], self.audience(prepared))
         self.provider.capture_error = True
         before = self.ledger.db.total_changes
         self.assertEqual(self.publication.reconcile(prepared["id"])["outcome"], "unknown")
         self.assertEqual(self.ledger.db.total_changes, before)
-        self.assertEqual(self.provider.writes, [])
+        self.assertEqual(len(self.provider.writes), 1)
 
     def test_distinct_ids_alias_original_reply_including_uncertain(self):
         first = self.propose()

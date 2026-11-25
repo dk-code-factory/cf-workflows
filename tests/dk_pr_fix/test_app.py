@@ -15,7 +15,7 @@ from prfix import app, publishing
 from prfix.core import Ledger, artifact, canonical, digest, identity, read_artifact
 from prfix.prepare import CHECKLIST
 from prepared_fixture import prepare
-from test_publication import AUTH, FakeGitHub
+from test_publication import AUTH, GRANTS, FakeGitHub
 
 REVIEWER = "agent_" + "1" * 32
 VERIFIER = "agent_" + "2" * 32
@@ -66,7 +66,7 @@ class AppFixture:
             "options": {"tasks": tasks, "finalizers": []},
             "adapters": {"local:review": {"kind": "review", "definition": "reviewer", "writes": False,
                 "assignment": "Review this exact fixture and retain original source findings."}},
-            "authorizations": {"iterate": AUTH}}
+            "authorizations": dict(GRANTS)}
         self.prepared = prepare(root, self.request, self.provider)
         self.plan = read_artifact(root, self.prepared["plan"])
 

@@ -16,6 +16,7 @@ from prfix.core import MAX_JSON, Ledger, artifact, canonical, digest, read_artif
 from prepared_fixture import prepare
 from test_app import AppFixture, FIXER, REVIEWER, VERIFIER
 from test_publication import AUTH
+from prfix.publication import PublicationError
 
 
 class NativeResultTests(unittest.TestCase):
@@ -519,6 +520,7 @@ class ActionTests(unittest.TestCase):
     def test_completion_survives_authorized_merge_with_lost_response_before_reconciliation(self):
         request = copy.deepcopy(self.fixture.request)
         request["options"]["tasks"] = ["local:review"]
+        request["options"]["permissions"] = {"merge": True}
         request["authorizations"]["merge"] = AUTH
         self.prepared = prepare(self.root, request, self.provider)
         self.plan = read_artifact(self.root, self.prepared["plan"])
@@ -593,7 +595,7 @@ class ActionTests(unittest.TestCase):
         self.assertTrue(self.handle("publication_execute", "validate_checkpoint", inputs,
             key="remote-effect", checkpoint=recovered["result"])["valid"])
         with self.ledger(read_only=True) as ledger:
-            self.assertEqual(ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "uncertain")
+            self.assertEqual(ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "pending")
         record_inputs = {"id": prepared["id"], "receipt": recovered["result"]["output"]["receipt"]}
         recorded = self.handle("publication_record", "execute", record_inputs, key="record-original-receipt")
         self.assertTrue(self.handle("publication_record", "validate_checkpoint", record_inputs,
@@ -627,16 +629,28 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(self.handle("publication_execute", "reconcile", inputs)["outcome"], "no_effect")
         self.assertEqual(before, self.state())
         self.assertEqual(self.provider.writes, [])
+        # The never-dispatched intent stays conclusively without effect, but a
+        # concurrent title change (part of the source fingerprint) blocks it.
         original_title = self.provider.ev["metadata"]["title"]
         self.provider.ev["metadata"]["title"] = "Unrelated concurrent title"
-        self.assertEqual(self.handle("publication_execute", "reconcile", inputs)["outcome"], "unknown")
-        with self.assertRaisesRegex(ValueError, "remains unresolved"):
+        self.assertEqual(self.handle("publication_execute", "reconcile", inputs)["outcome"], "no_effect")
+        with self.assertRaisesRegex(PublicationError, "stale"):
             self.handle("publication_execute", "execute", inputs)
         self.assertEqual(self.provider.writes, [])
         self.provider.ev["metadata"]["title"] = original_title
-        completed = self.handle("publication_execute", "execute", inputs)
+        with self.assertRaisesRegex(PublicationError, "is blocked"):
+            self.handle("publication_execute", "execute", inputs, key="blocked-replay")
+        # A later attempt is a fresh intent with its own audience.
+        with self.ledger() as ledger:
+            fresh = publishing.publication_prepare(self.root, self.provider, ledger, self.plan, {"proposal": proposal})
+        self.assertEqual(fresh["id"], prepared["id"] + ".r1")
+        self.assertEqual(fresh["intent"]["supersedes"], prepared["id"])
+        inputs = {"id": fresh["id"], "agent": VERIFIER,
+                  "report": self.fixture.report(audience={"fingerprint": fresh["fingerprint"],
+                    "suitable": True, "audience": "PR participants", "evidence": ["source"]})}
+        completed = self.handle("publication_execute", "execute", inputs, key="fresh-attempt")
         self.assertEqual(completed["result"]["output"]["receipt"]["kind"], "edit_pr")
-        self.handle("publication_execute", "execute", inputs)
+        self.handle("publication_execute", "execute", inputs, key="fresh-attempt")
         self.assertEqual(len(self.provider.writes), 1)
 
 

@@ -192,9 +192,13 @@ CREATE TABLE IF NOT EXISTS accepted_reports(reference TEXT PRIMARY KEY, task TEX
 CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, kind TEXT NOT NULL, input TEXT NOT NULL,
  state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS publication_intents(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
- value TEXT NOT NULL, state TEXT NOT NULL, receipt TEXT NOT NULL DEFAULT '');
+ value TEXT NOT NULL, state TEXT NOT NULL, receipt TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS publication_aliases(id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL,
  fingerprint TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS publication_events(intent TEXT NOT NULL, seq INTEGER NOT NULL,
+ event TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(intent,seq));
+CREATE TABLE IF NOT EXISTS publication_effects(effect TEXT PRIMARY KEY, intent TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS publication_lock(singleton INTEGER PRIMARY KEY CHECK(singleton=1), intent TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS local_commits(id TEXT PRIMARY KEY,parent TEXT NOT NULL,
  head TEXT NOT NULL,tree TEXT NOT NULL,message TEXT NOT NULL,state TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS native_failures(claim_id TEXT NOT NULL, round INTEGER NOT NULL,
@@ -209,7 +213,9 @@ CREATE TABLE IF NOT EXISTS ci_observations(operation TEXT PRIMARY KEY,head TEXT 
 # Version 2 records each deadline's original start, so a narrower runtime
 # ceiling can shorten an absolute window but never extend or restart it, and
 # records each review claim's round basis so reviewers share one cycle per round.
-SCHEMA_VERSION = 2
+# Version 3 uses the contract's publication journal states and adds the retained
+# audience assessment, an append-only event history, unique effects and the lock.
+SCHEMA_VERSION = 3
 
 
 def _schema_version(db):
@@ -220,12 +226,40 @@ def _schema_version(db):
 
 
 def _migrate(db):
-    if _schema_version(db) < SCHEMA_VERSION:
-        if "started" not in {row[1] for row in db.execute("PRAGMA table_info(deadlines)")}:
-            # A version 1 window keeps its retained absolute end. Its start is
-            # unknown, so only that original end bounds it.
-            db.execute("ALTER TABLE deadlines ADD COLUMN started REAL")
-        db.execute("PRAGMA user_version=" + str(SCHEMA_VERSION))
+    if _schema_version(db) >= SCHEMA_VERSION:
+        return
+    if "started" not in {row[1] for row in db.execute("PRAGMA table_info(deadlines)")}:
+        # A version 1 window keeps its retained absolute end. Its start is
+        # unknown, so only that original end bounds it.
+        db.execute("ALTER TABLE deadlines ADD COLUMN started REAL")
+    if "audience" not in {row[1] for row in db.execute("PRAGMA table_info(publication_intents)")}:
+        db.execute("ALTER TABLE publication_intents ADD COLUMN audience TEXT NOT NULL DEFAULT ''")
+    # uncertain becomes pending and completed becomes applied. A retained
+    # acknowledged response or no-effect proof moves into the event history.
+    # Version 2 reset a dispatched write to prepared with a no-effect proof
+    # from absence. It was sent, so it also becomes pending and is never resent.
+    from .publication import effect_key
+    for ident, value, state, receipt in db.execute(
+            "SELECT id,value,state,receipt FROM publication_intents ORDER BY rowid").fetchall():
+        retained = bounded_json(receipt) if receipt else None
+        if state in ("uncertain", "prepared") and retained:
+            event = "response" if "dispatch_response" in retained else "no_effect"
+            evidence = retained.get("dispatch_response", retained.get("no_effect"))
+            db.execute("INSERT INTO publication_events(intent,seq,event,value) VALUES(?,1,?,?)",
+                       (ident, event, canonical(evidence).decode()))
+            db.execute("UPDATE publication_intents SET receipt='' WHERE id=?", (ident,))
+        if state == "uncertain" or state == "prepared" and retained:
+            db.execute("UPDATE publication_intents SET state='pending' WHERE id=?", (ident,))
+            db.execute("INSERT OR IGNORE INTO publication_lock(singleton,intent) VALUES(1,?)", (ident,))
+        elif state == "completed":
+            db.execute("UPDATE publication_intents SET state='applied' WHERE id=?", (ident,))
+            key = effect_key(bounded_json(value), retained)
+            if key is not None:
+                owner = db.execute("SELECT intent FROM publication_effects WHERE effect=?", (key,)).fetchone()
+                if owner and owner[0] != ident:
+                    raise ValueError("ledger holds duplicate publication receipts; reconcile before upgrading")
+                db.execute("INSERT OR IGNORE INTO publication_effects(effect,intent) VALUES(?,?)", (key, ident))
+    db.execute("PRAGMA user_version=" + str(SCHEMA_VERSION))
 
 
 class Ledger:

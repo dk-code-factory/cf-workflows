@@ -58,6 +58,9 @@ Adaptations to the example:
 - Occurrence IDs are stable rather than positional, fingerprints are scoped, and
   allowances, deadlines and continuation follow the rules in
   [Budgets, occurrences and continuation](#budgets-occurrences-and-continuation).
+- Publication uses the contract's journal states, per-action authority, a
+  retained audience, a lock, unique effects and fresh attempts instead of
+  replay, and adds review submission: see [exact-intent publication](publication.md).
 
 ## Configuration split
 
@@ -80,9 +83,11 @@ starts no session and runs nothing.
    installed workflow has no inputs that carry them yet, so running without them
    would silently drop them. Supplied skills reject until Agent Workflow #139
    ([skills.md](skills.md)).
-3. Remote-write authorizations and effective permissions reject. Publication and
-   merge stay disabled until the guarded path in #17 is available. Every
-   permission input is `false`.
+3. A remote write needs an enabled permission and an explicit authorization.
+   Preflight maps each such action onto its permission input and stages only
+   those authorizations. An authorization without the enabled permission
+   rejects, and so do merge, approval, issue and fork-CI actions (see
+   [exact-intent publication](publication.md)). Every other input is `false`.
 4. It maps the effective options onto the declared inputs: tasks, finalizers,
    reviewers, the selected baseline adapters, limits, CI timeout, merge method,
    accounts, settings and turns. `inputs.request` names the staged request.
@@ -181,7 +186,7 @@ claim returns it, a replacement run cannot redispatch it, and completion stays
 false until the original settles.
 
 **Ledger schema.** The ledger records its version in `PRAGMA user_version`
-(currently 2). Opening an older ledger migrates it in place without losing
+(currently 3). Opening an older ledger migrates it in place without losing
 history. A version 1 CI window keeps its absolute end, but a smaller timeout
 cannot narrow it because its start is unknown. A newer ledger is refused.
 
@@ -245,7 +250,8 @@ provider or host capability.
   discovery-isolation PR: sessions with host and repository skill and plugin
   discovery disabled, and observed evidence of the session's plugin set.
 - [Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138)
-  and #17: merge and publication.
+  and #19: merge. Other publication kinds are helper-side only until the
+  workflow runs ([exact-intent publication](publication.md#what-remains)).
 - Proof that budgets, occurrences and continuation hold across real engine runs
   and native sessions needs #129 and #130. The fixtures exercise only the
   helpers.

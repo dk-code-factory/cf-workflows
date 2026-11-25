@@ -30,10 +30,25 @@ STATE_MOUNT = '/cf-workflows-state'
 STATE_MARKER = '.owned-by-cf-workflows-dk-pr-fix'
 STATE_FORMAT = 'cf-workflows-dk-pr-fix-v1'
 ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_ROLES}
-# Contract actions mapped to the portable workflow's permission inputs. Every
-# input stays false in this release: publication needs its guarded path (#17).
+# The workflow's permission inputs; each defaults to false.
 PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
-                     'resolve_threads', 'create_draft_prs', 'request_review')
+                     'resolve_threads', 'create_draft_prs', 'request_review', 'post_findings',
+                     'rerun_ci', 'merge')
+# Contract actions the exact-intent publication path supports, mapped to the
+# inputs they enable. History rewrites have no contract action yet, so
+# rewrite_commits stays false.
+PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'reply_to_feedback',
+                       'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
+                       'request_review': 'request_review', 'post_findings': 'post_findings',
+                       'rerun_ci': 'rerun_ci'}
+# Actions this release denies, with the work that owns them.
+UNAVAILABLE_ACTIONS = {
+    'merge': 'merge stays disabled until current merge-readiness gating (#19) and Agent Workflow #138 land',
+    'approve_pr': 'PR approval is an extension kind owned by #31',
+    'create_issue': 'issue creation is an extension kind owned by #32',
+    'edit_issue': 'issue edits are an extension kind owned by #32',
+    'approve_fork_ci': 'fork-CI approval is an extension kind owned by #35',
+}
 
 
 class InstallationError(ValueError):
@@ -160,13 +175,17 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
                        'dk-pr-fix workflow yet')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', snapshot['request']['logical_run']):
         return _reject(result, 'request.logical_run', 'the workflow ledger accepts [A-Za-z0-9_-]{1,100} only')
-    if snapshot['request']['authorizations']:
-        return _reject(result, 'request.authorizations',
-                       'publication and merge are disabled until the guarded publication path (#17) is available')
-    effective = sorted(action for action, value in snapshot['permissions'].items() if value['effective'])
-    if effective:
-        return _reject(result, 'permissions.' + effective[0],
-                       'publication and merge are disabled until the guarded publication path (#17) is available')
+    # Every remote write needs an enabled permission and an explicit request
+    # authorization; the guarded publication helpers recheck both at dispatch.
+    permissions = snapshot['permissions']
+    for action in sorted(snapshot['request']['authorizations']):
+        if action in UNAVAILABLE_ACTIONS:
+            return _reject(result, 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action])
+        if not permissions[action]['effective']:
+            return _reject(result, 'request.authorizations.' + action,
+                           'the authorized action is not enabled by accepted configuration; '
+                           'enable it in a scoped configuration or remove the authorization')
+    effective = sorted(action for action, value in permissions.items() if value['effective'])
     namespace = state_namespace(home, snapshot['request']['pr']['repository'])
     for other, name in ((repository, 'repository'), (install, 'installation')):
         if not _disjoint(namespace, other):
@@ -175,12 +194,14 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     selected = {task['adapter'] for task in snapshot['plan']['tasks']}
     staged = {'pr': snapshot['request']['pr']['url'],
               'instructions': snapshot['request']['original_instructions'],
-              'logical_run': snapshot['request']['logical_run'], 'authorizations': {}}
+              'logical_run': snapshot['request']['logical_run'],
+              'authorizations': {action: snapshot['request']['authorizations'][action] for action in effective}}
     inputs = {
         'tasks': options['tasks'], 'finalizers': options['finalizers'], 'reviewers': options['reviewers'],
         'adapters': {name: _adapter(snapshot['adapters'][name]) for name in sorted(selected)},
         'limits': snapshot['limits'],
-        'permissions': {name: False for name in PERMISSION_INPUTS},
+        'permissions': {name: name in {PUBLICATION_ACTIONS[action] for action in effective}
+                        for name in PERMISSION_INPUTS},
         'ci': {'timeout_seconds': options['ci'].get('timeout_seconds', 1800)},
         'merge_method': options['merge_method'], 'accounts': options['accounts'],
         'settings': options['settings'], 'resources': [], 'turns': options['turns'],

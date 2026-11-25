@@ -1,7 +1,11 @@
 """Publication adapters over accepted native reports and application coverage.
 
+Adapted from Agent Workflow's portable PR-fix example (MIT; see LICENSE).
+
 These helpers perform one boundary operation. YAML selects task order, obtains
 an independent audience assessment, and schedules each mutation separately.
+Native sessions only propose operations; every remote write is an exact intent
+dispatched by ``Publication``.
 """
 from __future__ import annotations
 
@@ -92,7 +96,7 @@ def publication_list(root, provider, ledger, plan, inputs):
         # publication still needs explicit authority and an independent exact
         # audience verdict. Publish it before proposals for the resulting PR.
         permissions = plan.get("options", {}).get("permissions", {})
-        authority = plan.get("authorizations", {}).get("push", plan.get("authorizations", {}).get("iterate"))
+        authority = plan.get("authorizations", {}).get("push")
         if permissions.get("push_commits") is not True or authority is None:
             return {"items": [], "unpublished": True,
                     "blockers": ["local controlled commits require explicit push authority and configured permission"]}
@@ -176,18 +180,20 @@ def publication_prepare(root, provider, ledger, plan, inputs):
             prepared = _publication(root, provider, ledger, plan).prepare(proposal)
             return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
     if not any(value == proposal for value in listed):
-        # A completed or uncertain original may outlive source freshness after
+        # An applied or pending original may outlive source freshness after
         # its own publication. Its immutable ID/payload can be inspected and
         # reconciled, but this path cannot dispatch a replacement proposal.
         ident = proposal.get("id")
         if not isinstance(ident, str):
             raise PublicationError("proposal is outside accepted source reports")
-        saved = _publication(root, provider, ledger, plan)._load(ident)
+        publisher = _publication(root, provider, ledger, plan)
+        # The latest fresh attempt carries the original's exact proposal.
+        saved = publisher._attempts(publisher._load(ident)["id"])[-1]
         original = saved["intent"]
         semantic = {key: proposal.get(key, original.get(key)) for key in ("kind", "head", "lease", "target", "payload", "sources", "source")}
         if semantic != {key: original.get(key) for key in semantic}:
             raise PublicationError("proposal differs from the retained original operation")
-        if saved["state"] not in {"completed", "uncertain"}:
+        if saved["state"] not in {"applied", "pending"}:
             raise PublicationError("publication source changed before dispatch")
         return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
     prepared = _publication(root, provider, ledger, plan).prepare(proposal)
@@ -298,17 +304,13 @@ def publication_record(root, provider, ledger, plan, inputs):
     saved = publisher._load(text(inputs.get("id"), "publication operation"))
     receipt = inputs.get("receipt")
     _retained_audience(root, ledger, saved)
-    if saved["state"] not in {"uncertain", "completed"}:
+    if saved["state"] not in {"pending", "applied"}:
         raise PublicationError("only a dispatched publication can record a reconciled receipt")
-    if saved["state"] == "completed" and saved["receipt"] != receipt:
-        raise PublicationError("completed publication receipt identity changed")
+    if saved["state"] == "applied" and saved["receipt"] != receipt:
+        raise PublicationError("duplicate receipt: the applied publication has a different receipt")
     if not publisher.validate(saved["id"], receipt):
         raise PublicationError("reconciled publication receipt does not match the exact current effect")
-    with ledger.transaction():
-        changed = ledger.db.execute("UPDATE publication_intents SET state='completed',receipt=? WHERE id=? AND fingerprint=? AND state IN ('uncertain','completed')",
-            (canonical(receipt).decode(), saved["id"], saved["fingerprint"]))
-        if changed.rowcount != 1:
-            raise PublicationError("publication state changed before receipt recording")
+    publisher._settle(saved, receipt)
     return {"id": saved["id"], "receipt": receipt}
 
 
@@ -370,6 +372,8 @@ def merge_proposal(root, provider, ledger, plan, inputs):
     if authority is None:
         return {"invoke": False, "proposal": {}}
     authority = auth(authority)
+    if plan.get("options", {}).get("permissions", {}).get("merge") is not True:
+        return {"invoke": False, "proposal": {}, "blockers": ["configured permission forbids merge"]}
     current = readiness(root, provider, ledger, plan, {})
     if not current["ready"]:
         return {"invoke": False, "proposal": {}, "blockers": current["blockers"]}
@@ -391,7 +395,7 @@ def completed_merge(root, provider, ledger, plan, completion):
     if not completion.get("complete") or not completion.get("ready") or authority is None:
         return False
     publisher = _publication(root, provider, ledger, plan)
-    for row in ledger.db.execute("SELECT id FROM publication_intents WHERE state IN ('uncertain','completed')"):
+    for row in ledger.db.execute("SELECT id FROM publication_intents WHERE state IN ('pending','applied')"):
         saved = publisher._load(row["id"])
         intent = saved["intent"]
         if (intent["kind"] != "merge" or intent["head"] != completion.get("head")
