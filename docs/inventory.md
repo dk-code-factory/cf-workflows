@@ -15,6 +15,11 @@ upstream paths whose defaults allowed some writes. Direct and composed scenarios
 remain pending for every row; a compatibility entry must itself be exercised
 and cannot establish implementation of its delegate.
 
+The three configuration rows (#26) have entry presets, adapter procedures and
+deterministic direct and composed fixtures ([configuration skills](configuration-skills.md)).
+They stay `not_implemented` until they run as engine-managed sessions through an
+installed workflow.
+
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |
 | `cf-workflows:dk-pr-iter` | #24–25 | Selected fix/review invocation and identity evidence |

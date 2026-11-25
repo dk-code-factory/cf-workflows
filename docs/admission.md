@@ -8,8 +8,9 @@ catalog before mapping options onto the workflow's declared inputs.
 
 ## Inputs
 
-`admit()` takes the private request (PR URL, exact instruction, optional
-`logical_run`, optional `upstream`, authorizations), the saved configuration
+`admit()` takes the private request (a PR URL or, with no invented PR, a
+canonical `repository`; exact instruction, optional `logical_run`, optional
+`upstream`, authorizations), the saved configuration
 document or `null`, invocation-local inputs, deployment configuration (the parsed
 `agents.yml` shape), the admitted role catalog, named resource roots and an
 engine transport. The `repository` root is the target checkout.
@@ -45,6 +46,11 @@ Admission reads and hashes these inputs:
   `reasoning-effort`, written one `key: "JSON string"` line per field. The bundled
   validator definition below keeps its pinned TOML form.
 - Saved and invocation-local prompts and preferences, with their resource references.
+  A preference may declare `applies_to`, `include`/`exclude` selectors and a
+  `condition`; it is then applicable only when the plan exercises one of its modes
+  ([configuration skills](configuration-skills.md#scoped-preferences)).
+- The bundled adapters: the baseline set plus the configuration entries' own
+  adapters, which are never custom input.
 - Ordered task and stage selections, including parallel groups and nested
   reviewer groups.
 

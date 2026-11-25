@@ -101,7 +101,9 @@ starts no session and runs nothing.
    reject at preflight. Admission reports them as `semantic_required`, but the
    installed workflow has no inputs that carry them yet, so running without them
    would silently drop them. Supplied skills reject until Agent Workflow #139
-   ([skills.md](skills.md)).
+   ([skills.md](skills.md)). A repository-only request and the configuration
+   adapters of `dk-config` and `dk-preferences` reject; the read-only
+   `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission

@@ -201,6 +201,12 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     if result['preflight'] != 'admitted':
         return result
     snapshot = result['snapshot']
+    if snapshot['request']['pr'] is None:
+        return _reject(result, 'request.pr', 'dk-pr-fix maintains one pull request; a repository target has none')
+    if any(task['kind'] == admission.CONFIGURATION_KIND for task in snapshot['plan']['tasks']):
+        # Their proposals are applied only by the configuration entries (cf_workflows.entries).
+        return _reject(result, 'options.tasks', 'configuration adapters run only in cf-workflows:dk-config '
+                       'and cf-workflows:dk-preferences')
     if any(snapshot['custom'].values()):
         return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
                        'dk-pr-fix workflow yet')

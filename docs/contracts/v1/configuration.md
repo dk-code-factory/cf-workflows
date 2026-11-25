@@ -30,6 +30,8 @@ instructions remain separate from behavior replacement and additions.
 Preferences have no automatic priority winner; resolve contradictory applicable
 instructions before admission. Omitted preference application modes default only
 for new records, never reinterpret existing records after defaults change.
+The implemented selectors and modes are described in
+[configuration skills](../../configuration-skills.md#scoped-preferences).
 
 Prompts include custom task text, reviewer text, finalizers, assessment/evaluation,
 selection, reconciliation, reply/cleanup/commit policy, behavior replacements and
