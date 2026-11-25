@@ -38,6 +38,9 @@ STAGE_ALIASES = {"dk-workflows:dk-pr-publish": "publication", "dk-workflows:dk-c
 # The response stage's read-only adapter. It runs only inside that stage, and
 # every response stage of a plan shares its one occurrence (see responses.py).
 RESPONDER = "reply-feedback"
+# Plan modes. "review" is incoming review of a PR (cf-workflows:dk-pr-review):
+# read-only tasks and reviewers, independent verification and no finding fixes.
+MODES = ("fix", "review")
 
 
 def _selection(raw):
@@ -174,8 +177,11 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     pr = identity(request["pr"])
     instructions = text(request.get("instructions"), "exact original instruction")
     execution_fingerprint = text(execution_fingerprint, "admitted execution fingerprint")
-    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns"}:
+    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode"}:
         raise ValueError("unsupported YAML preparation input")
+    mode = controls.get("mode", "fix")
+    if mode not in MODES:
+        raise ValueError("unsupported plan mode")
     turns = controls.get("turns", 8)
     if type(turns) is not int or not 5 <= turns <= 2147483647:
         raise ValueError("turn allowance must support at least five retained turns")
@@ -185,7 +191,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if set(definitions) != {"leaf", "reviewer", "verifier", "fixer", "audience"}:
         raise ValueError("five explicit native definitions required")
     options = {key: value for key, value in controls.items()
-               if key not in {"settings", "resources", "adapters", "turns"}}
+               if key not in {"settings", "resources", "adapters", "turns", "mode"}}
     allowed_options = {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method",
                        "ci_timeout_seconds", "ci_classifications", "ci_exceptions", "before_cycle", "after_cycle"}
     if set(options) - allowed_options:
@@ -197,6 +203,14 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if (not isinstance(permissions, dict) or set(permissions) - set(PERMISSION_INPUTS)
             or any(type(value) is not bool for value in permissions.values())):
         raise ValueError("permissions accept only the declared boolean publication inputs")
+    accounts = options.get("accounts", [])
+    # Personal accounts are immutable host-scoped numeric identities, never logins.
+    if (not isinstance(accounts, list) or any(not isinstance(item, dict) or set(item) != {"host", "id"}
+            or not isinstance(item["host"], str) or type(item["id"]) is not int or item["id"] <= 0
+            for item in accounts)):
+        raise ValueError("accounts are {host, id} immutable numeric identities")
+    if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS if name != "merge"):
+        raise ValueError("incoming review enables no branch, feedback or finding publication input")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
@@ -213,6 +227,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     ledger.close()
     adapters = controls.get("adapters", {})
     tasks, stages = [], []
+    if mode == "review" and request.get("maintain_other"):
+        raise ValueError("incoming review never maintains the PR")
     occurrences = {}
 
     def occurrence(phase, context, name, call):
@@ -258,6 +274,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             raise ValueError("reviewers cannot write")
         if task["writes"] and kind == "reply":
             raise ValueError("the response stage cannot write")
+        if task["writes"] and mode == "review":
+            raise ValueError("incoming review tasks cannot write")
         tasks.append(task)
         return task["id"]
 
@@ -269,6 +287,9 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             if len(group) > 1 and any("stage" in call for call in group):
                 raise ValueError("managed publication/review/CI stages cannot be in a parallel group")
             stage = group[0].get("stage")
+            if mode == "review" and stage in {"publication", "responses", "ci"}:
+                # Finding publication (#25), feedback replies and CI approval (#35) are not incoming-review stages yet.
+                raise ValueError("incoming review supports task and reviewer stages only")
             if stage in {"publication", "ci"}:
                 stages.append({"kind": stage, "phase": phase})
                 continue
@@ -288,19 +309,23 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                         raise ValueError("reviewer selection must use read-only review adapters")
                     groups.append({"id": "group_" + str(len(groups) + 1),
                                    "tasks": [{"id": key} for key in keys], "concurrency": len(keys)})
-                stages.append({"kind": "reviews", "groups": groups, "review": True, "phase": phase})
+                stages.append({"kind": "reviews", "groups": groups, "review": True, "fix": mode == "fix", "phase": phase})
                 continue
             keys = [task_call(call, phase, "tasks") for call in group]
             if len(keys) > 1 and any(next(t for t in tasks if t["id"] == key)["writes"] for key in keys):
                 raise ValueError("parallel writing tasks share a Git index and are unsupported")
             stages.append({"kind": "tasks", "phase": phase,
                            "groups": [{"id": "group_1", "tasks": [{"id": key} for key in keys], "concurrency": len(keys)}],
-                           "review": any(next(t for t in tasks if t["id"] == key)["kind"] == "review" for key in keys)})
+                           "review": any(next(t for t in tasks if t["id"] == key)["kind"] == "review" for key in keys),
+                           "fix": mode == "fix"})
 
+    if mode == "review" and not any(stage["kind"] == "reviews" for stage in stages):
+        raise ValueError("incoming review requires a selected reviewer stage")
     if any(task["kind"] == "review" for task in tasks):
+        # Incoming review verifies findings independently and never fixes them.
         for key, kind, role, assignment in [
             ("finding_verification", "verification", "verifier", "Independently verify every retained original finding. Preserve exact finding_id and report source; return dispositions confirmed/rejected with concrete source evidence and reason. Do not edit or publish."),
-            ("finding_fix", "fix", "fixer", "Address independently confirmed findings. Return every finding_id disposition fixed/accepted/deferred/rejected, current evidence IDs and exact changed-file hashes/commit_message. Preserve original report/source references in deliverables. Accepted/deferred dispositions require retained exact user authority. Do not publish or commit.")]:
+            *([] if mode == "review" else [("finding_fix", "fix", "fixer", "Address independently confirmed findings. Return every finding_id disposition fixed/accepted/deferred/rejected, current evidence IDs and exact changed-file hashes/commit_message. Preserve original report/source references in deliverables. Accepted/deferred dispositions require retained exact user authority. Do not publish or commit.")])]:
             tasks.append({"id": key, "skill": key, "kind": kind, "definition": role,
                 "definition_digest": hashlib.sha256(definitions[role]).hexdigest(), "assignment": assignment,
                 "required": True, "writes": kind == "fix", "checklist": CHECKLIST,
@@ -311,7 +336,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "assignment": "Repair only the exact evidenced failed CI head/run/job/attempt in this assignment. Inspect original logs and relevant tests. Return source evidence, complete changed-file manifest and native commit message. Do not publish or commit; do not reinterpret unknown failures as flakes.",
             "required": False, "writes": True, "checklist": CHECKLIST, "options": {}, "resources": [],
             "history": False, "head_sensitive": True, "cacheable": False})
-    plan = {"format": FORMAT, "logical_run": logical_run, "pr": pr, "instructions": instructions,
+    plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),
             "runtime": {"execution_fingerprint": execution_fingerprint}, "execution_fingerprint": execution_fingerprint, "turns": turns,
             "authorizations": authorizations, "limits": limits, "tasks": tasks, "stages": stages,

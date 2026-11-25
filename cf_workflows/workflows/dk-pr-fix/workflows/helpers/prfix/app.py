@@ -567,6 +567,14 @@ def accept(root, provider, ledger, plan, inputs):
     assignment = read_artifact(root, claim["assignment"])
     if claim["agent"] and claim["agent"] != agent:
         raise ValueError("checklist continuation changed the original native session")
+    if plan.get("mode") == "review" and task["kind"] in {"review", "verification"}:
+        # Each reviewer pass and the verifier are separate engine sessions. A
+        # session that already reported for another occurrence cannot also cover
+        # this one, however its report describes the work (dk-workflows#254).
+        other = ledger.db.execute("SELECT task FROM claims WHERE agent=? AND task!=? LIMIT 1",
+                                  (agent, task["id"])).fetchone()
+        if other:
+            raise ValueError("one native session cannot cover more than one review occurrence")
     try:
         # Invalid evidence or findings cannot become immutable correction input.
         # Apply the report byte limit after removing wire-string escaping.
@@ -775,6 +783,52 @@ def task_status(root, provider, ledger, plan, inputs):
     return {"complete": claim["state"] == "complete", "claim": claim["id"], "report": claim["report"]}
 
 
+SIMPLIFIER = "simplify"
+
+
+def review_outcome(ledger, plan, snapshot, originals, verification, missing):
+    """Incoming review's record: distinct required and optional outcomes and finding dispositions.
+
+    A clean review needs every required reviewer and the independent verifier
+    current, at least one current ordinary (not simplification) reviewer, and no
+    confirmed or unverified finding. Aggregate success, a report describing
+    other passes and empty findings never stand in for a missing occurrence.
+    Nothing here is an approval, readiness or a publication.
+    """
+    occurrences = []
+    for task in plan["tasks"]:
+        if task["kind"] not in {"review", "verification"}:
+            continue
+        current = _current(ledger, snapshot, task)
+        if current:
+            status = "covered"
+        else:
+            latest = ledger.db.execute("SELECT state FROM claims WHERE task=? ORDER BY rowid DESC LIMIT 1",
+                                       (task["id"],)).fetchone()
+            status = "failed" if latest and latest["state"] == "optional_failed" else "missing"
+        occurrences.append({"id": task["id"], "adapter": task["skill"], "required": task["required"],
+                            "role": "verification" if task["kind"] == "verification" else
+                            "simplification" if task["skill"] == SIMPLIFIER else "ordinary",
+                            "status": status, "agent": current["agent"] if current else None})
+    required = [item["id"] for item in occurrences if item["required"] and item["status"] != "covered"]
+    optional = [{"id": item["id"], "status": item["status"]} for item in occurrences
+                if not item["required"] and item["status"] != "covered"]
+    findings = {"confirmed": [], "rejected": [], "unverified": []}
+    for candidate in originals:
+        status = verification.get(candidate["id"])
+        findings[status if status in {"confirmed", "rejected"} else "unverified"].append(candidate["id"])
+    ordinary = any(item["role"] == "ordinary" and item["status"] == "covered" for item in occurrences)
+    verified = any(item["role"] == "verification" and item["status"] == "covered" for item in occurrences)
+    complete = not missing and not required and verified and not findings["unverified"]
+    clean = complete and ordinary and not findings["confirmed"]
+    return {"outcome": "clean" if clean else "findings" if complete and ordinary else "incomplete",
+            "clean_review": clean, "complete": complete, "partial": not complete or not ordinary,
+            "required_missing": required, "optional_omitted": optional, "ordinary_covered": ordinary,
+            "occurrences": occurrences, "findings": findings,
+            # Approval, fork-CI approval and merge each need their own authority and current readiness.
+            "approve": False, "ready": False}
+
+
 def coverage(root, provider, ledger, plan, inputs):
     snapshot = _snapshot(root, provider, plan)
     missing = []
@@ -804,11 +858,18 @@ def coverage(root, provider, ledger, plan, inputs):
                 verification[key] = item.get("status")
             if row["kind"] == "fix":
                 fixes[key] = item.get("status")
+    review = plan.get("mode") == "review"
     for candidate in originals:
         key = candidate["id"]
-        if verification.get(key) != "rejected" and (verification.get(key) != "confirmed"
+        if review:
+            # Incoming review never fixes: a confirmed finding stays unresolved
+            # for the PR, while only an unverified one leaves analysis open.
+            if verification.get(key) != "rejected":
+                unresolved.append(key)
+        elif verification.get(key) != "rejected" and (verification.get(key) != "confirmed"
                 or fixes.get(key) not in {"fixed", "accepted", "deferred"}):
             unresolved.append(key)
+    unverified = [key for key in unresolved if verification.get(key) not in {"confirmed", "rejected"}]
     identities = snapshot["identities"]
     withheld = []
     if any(stage["kind"] == "ci" for stage in plan["stages"]):
@@ -828,9 +889,11 @@ def coverage(root, provider, ledger, plan, inputs):
     # Selected-plan coverage, current identity agreement and readiness stay
     # separate. Provisional coverage is private analysis of the pinned revision.
     # Once waits are exhausted, nothing more a cycle can do: the run settles.
-    analyzed = not missing and not unresolved
+    analyzed = not missing and not (unverified if review else unresolved)
     waits = None if identities["current"] else reconciliation(ledger, identities)
+    outcome = review_outcome(ledger, plan, snapshot, originals, verification, missing) if review else None
     return {"complete": analyzed and not withheld, "ready": False, "current": identities["current"],
+            "review": outcome,
             "provisional": provisional(snapshot), "reconciliation": waits,
             "waiting": waits is not None and not waits["exhausted"],
             "settled": analyzed and (waits is None or waits["exhausted"]),

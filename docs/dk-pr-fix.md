@@ -74,6 +74,12 @@ Adaptations to the example:
   review, and again as a finalizer: see the [response stage](responses.md).
   Its files (`responses.yml`, `prfix/responses.py` and `prfix/feedback.py`)
   originate here and are listed as `authored` in the provenance.
+- A `mode` input selects `fix` (the default) or `review`. Review mode is
+  [incoming review](review.md): read-only tasks and reviewers, a separate
+  verifier and no `finding_fix`. Its entry `workflows/review.yml` and
+  `skills/dk-pr-review/SKILL.md` are `authored`. `accounts` are `{host, id}`
+  numeric identities, and an explicit `maintain_other` request is staged with the
+  private request for another author's PR.
 
 ## Configuration split
 

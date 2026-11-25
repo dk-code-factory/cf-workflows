@@ -292,6 +292,14 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/responses.yml",
       "reason": "Response stage orchestration (#21); no upstream counterpart (docs/responses.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-review/SKILL.md",
+      "reason": "Incoming-review skill entry point (#24); no upstream counterpart (docs/review.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/review.yml",
+      "reason": "Incoming-review preset over main.yml in review mode (#24); no upstream counterpart (docs/review.md)."
     }
   ],
   "corrections": [

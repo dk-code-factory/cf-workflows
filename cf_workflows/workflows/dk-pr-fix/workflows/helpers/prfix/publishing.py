@@ -367,7 +367,7 @@ def readiness(root, provider, ledger, plan, inputs=None):
         covered = app.coverage(root, provider, ledger, plan, {})
         result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []),
                       withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []),
-                      responses=covered.get("responses"))
+                      responses=covered.get("responses"), review=covered.get("review"))
         snapshot = covered["snapshot"]
         result.update(head=snapshot["head"], target=snapshot["target"], provisional=app.provisional(snapshot))
         current_identity = snapshot["identities"]["current"]
@@ -389,6 +389,9 @@ def readiness(root, provider, ledger, plan, inputs=None):
             current[task["id"]] = row
             result["evidence"].append(row["reference"])
         result["clean_review"] = bool(reviews) and all(t["id"] in current for t in reviews) and not covered["unresolved"]
+        if covered.get("review") is not None:
+            # Incoming review also needs ordinary (not only simplification) coverage.
+            result["clean_review"] = result["clean_review"] and covered["review"]["clean_review"]
         result["verified"] = bool(verifications) and all(t["id"] in current for t in verifications) and not covered["unresolved"]
         if not current_identity:
             # Live CI and repository requirements belong to a reconciled head.

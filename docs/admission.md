@@ -23,7 +23,10 @@ stays empty; `null` is rejected because no declared option gives it a meaning.
 Every scope is validated in full, including values that a later scope overrides
 and scopes that do not match this target. Selector IDs must be canonical
 (lowercase `host/owner/name` or a canonical PR URL), so a scope never silently
-fails to apply because of case or formatting. `accounts` hold account logins only.
+fails to apply because of case or formatting. `accounts` hold personal accounts
+as `{host, id}` immutable numeric identities, never logins ([routing](review.md#routing)).
+An entry point can replace the bundled defaults with its preset (`defaults`, as
+[incoming review](review.md#incoming-review) does); every scope still applies above it.
 
 ## Resolution
 

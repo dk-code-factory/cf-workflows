@@ -37,8 +37,8 @@ INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:
 REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)')  # Not footnotes.
 FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})')
 CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
-LOGIN = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?')
 REPOSITORY = re.compile(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+')
+HOST = re.compile(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?')
 
 ACTIONS = ('push', 'edit_pr', 'reply', 'resolve_thread', 'request_review', 'create_pr',
            'create_issue', 'edit_issue', 'post_findings', 'approve_fork_ci', 'rerun_ci',
@@ -51,6 +51,8 @@ KINDS = ('review', 'inspection', 'decisions', 'fix', 'scope', 'description', 'cl
          'synchronization', 'reply', 'task')
 # The response stage's read-only adapter; it runs only inside that stage (docs/responses.md).
 RESPONDER = 'reply-feedback'
+# The simplification reviewer; it never substitutes for ordinary review coverage (docs/review.md).
+SIMPLIFIER = 'simplify'
 PROMPT_SLOTS = ('task', 'reviewer', 'finalizer', 'assessment', 'selection', 'reconciliation',
                 'reply', 'cleanup', 'commit', 'behavior_replacement', 'behavior_addition',
                 'completion', 'additional')
@@ -103,6 +105,14 @@ BASELINE_ADAPTERS = {
             {'id': 'assignment', 'text': 'Inspect the actual diff and originating requirements.'},
             {'id': 'evidence', 'text': 'Verify source evidence and every concrete finding.'},
             {'id': 'scope', 'text': 'Account for repository rules, changed tests and unresolved checks.'}]},
+    'simplify': {'kind': 'review', 'writes': False, 'definition': 'reviewer', 'assignment':
+        'Review only the PR changes for bounded, behavior-preserving simplifications with a concrete maintainability '
+        'benefit. Stay within changed hunks and agreed scope; report broader opportunities as deferred observations. '
+        'Each finding states the complexity reduced, its scope and the verification it needs. Do not edit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Inspect the actual changed hunks and agreed scope.'},
+            {'id': 'evidence', 'text': 'Support every recommendation with source evidence and a concrete benefit.'},
+            {'id': 'scope', 'text': 'Keep behavior and public contracts; defer out-of-scope observations.'}]},
 }
 DEFAULTS = {
     'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback', {'stage': 'publication'},
@@ -631,8 +641,17 @@ def check_option(name, value, path, resources):
     if name in ('tasks', 'finalizers', 'reviewers', 'accounts', 'requirements', 'prohibitions'):
         require(isinstance(value, list), path, 'must be an array')
     if name == 'accounts':
+        # Personal accounts are immutable numeric identities scoped to their host; logins can be renamed.
+        seen = set()
         for index, item in enumerate(value):
-            require(isinstance(item, str) and LOGIN.fullmatch(item), f'{path}[{index}]', 'must be an account login')
+            where = f'{path}[{index}]'
+            fields(item, where, ('host', 'id'))
+            require(isinstance(item['host'], str) and HOST.fullmatch(item['host']), where + '.host',
+                    'must be a canonical lowercase host')
+            require(type(item['id']) is int and item['id'] > 0, where + '.id',
+                    'must be a positive immutable numeric account ID, not a login')
+            require((item['host'], item['id']) not in seen, where, 'duplicate account')
+            seen.add((item['host'], item['id']))
     elif name in ('requirements', 'prohibitions'):
         for index, item in enumerate(value):
             text(item, f'{path}[{index}]')
@@ -690,7 +709,7 @@ def check_scope_body(scope, path, resources, invocation=False):
     return scope
 
 
-def effective(scopes, request, invocation, resources):
+def effective(scopes, request, invocation, resources, defaults=None):
     """Apply matching scopes in precedence order with per-value provenance.
 
     Every scope is validated in full, whether or not it matches or wins a value.
@@ -715,7 +734,7 @@ def effective(scopes, request, invocation, resources):
         applicable.append((PRECEDENCE.index('invocation'), len(scopes), 'invocation', 'invocation', 'invocation',
                            invocation))
     applicable.sort(key=lambda item: item[:2])
-    options = {key: {'value': value, 'source': 'default'} for key, value in DEFAULTS.items()}
+    options = {key: {'value': value, 'source': 'default'} for key, value in {**DEFAULTS, **(defaults or {})}.items()}
     permissions = {action: {'value': False, 'source': 'default'} for action in ACTIONS}
     accumulated = {key: [] for key in ACCUMULATED}
     records = {'prompts': [], 'skills': [], 'preferences': []}
@@ -927,15 +946,19 @@ def resolve_prompts(records, adapters, resources, contents, selected, path_kind)
     return result
 
 
-def admit(*, request, configuration, invocation, deployment, roles, roots, transport):
+def admit(*, request, configuration, invocation, deployment, roles, roots, transport, defaults=None):
     """Resolve and structurally admit one proposed run; returns an admission result.
 
     roots maps resource root names to directories; 'repository' is the target
     checkout used for guidance. transport must provide capabilities(); no other
-    transport operation is ever called here.
+    transport operation is ever called here. defaults replaces bundled suite
+    defaults for an entry point's preset (for example incoming review's plan);
+    every configured scope still applies above it.
     """
     try:
-        return _admit(request, configuration, invocation, deployment, roles, roots, transport)
+        require(defaults is None or isinstance(defaults, dict) and not set(defaults) - set(DEFAULTS)
+                and not set(defaults) & set(ACCUMULATED), 'defaults', 'unsupported preset defaults')
+        return _admit(request, configuration, invocation, deployment, roles, roots, transport, defaults)
     except EngineUnavailable as error:
         # Local structural checks passed; the run is blocked, not structurally rejected.
         return {'preflight': 'blocked', 'structural': 'accepted', 'semantic': None,
@@ -948,7 +971,7 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
     return {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None, 'error': failure}
 
 
-def _admit(request, configuration, invocation, deployment, roles, roots, transport):
+def _admit(request, configuration, invocation, deployment, roles, roots, transport, defaults=None):
     require(isinstance(roots, dict) and 'repository' in roots, 'roots', 'repository root required')
     for name, path in roots.items():
         require(isinstance(name, str) and Path(path).is_dir(), 'roots.' + str(name), 'must be an existing directory')
@@ -959,7 +982,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     catalog = resolve_roles(roles, roots, 'roles')
     resources, contents = resolve_resources(config['resources'], roots, 'configuration.resources')
     options, permissions, records, scopes, inactive, locations = effective(config['scopes'], original, invocation,
-                                                                          resources)
+                                                                          resources, defaults)
 
     adapters = {name: check_adapter(name, value, 'baseline.' + name) for name, value in BASELINE_ADAPTERS.items()}
     custom_adapters = []

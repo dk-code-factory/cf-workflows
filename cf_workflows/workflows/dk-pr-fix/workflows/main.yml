@@ -139,6 +139,10 @@ name: cf-workflows:dk-pr-fix
       turns:
         type: number
         default: 8
+      mode:
+        # fix maintains the PR; review is incoming review (workflows/review.yml).
+        type: string
+        default: fix
     secrets:
       github_token:
         required: true
@@ -149,6 +153,8 @@ name: cf-workflows:dk-pr-fix
         value: ${{ jobs.completion.outputs.result.ready }}
       provisional:
         value: ${{ jobs.completion.outputs.result.provisional.provisional }}
+      clean_review:
+        value: ${{ jobs.completion.outputs.result.clean_review }}
 jobs:
   request:
     uses: workflows/helper.yml
@@ -177,6 +183,7 @@ jobs:
           settings: ${{ inputs.settings }}
           resources: ${{ inputs.resources }}
           turns: ${{ inputs.turns }}
+          mode: ${{ inputs.mode }}
     secrets:
       github_token: ${{ secrets.github_token }}
     needs:

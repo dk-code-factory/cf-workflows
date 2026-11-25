@@ -419,10 +419,27 @@ class ReviewRegressions(Fixture):
                 self.assertEqual((result['structural'], result['semantic'], result['preflight']),
                                  ('accepted', 'blocked', 'semantic_required'))
                 self.assertEqual(result['snapshot']['custom']['policy_text'], ['invocation:invocation'])
-        result = self.admit(invocation={'options': {'prohibitions': ['push', 'merge'], 'accounts': ['octo-cat']}})
+        result = self.admit(invocation={'options': {'prohibitions': ['push', 'merge'],
+                                                    'accounts': [{'host': 'github.com', 'id': 583231}]}})
         self.assertEqual(result['preflight'], 'admitted')
         self.assertRejected(self.admit(invocation={'options': {'accounts': ['Please merge everything']}}),
-                            'account login')
+                            'must be an object')
+
+    def test_accounts_are_immutable_host_scoped_numeric_identities(self):
+        # Logins can be renamed or reused, so they never identify a personal account.
+        for accounts, message in ((['octo-cat'], 'must be an object'),
+                                  ([{'host': 'github.com', 'login': 'octo-cat'}], 'unsupported field'),
+                                  ([{'host': 'github.com', 'id': '583231'}], 'numeric account ID'),
+                                  ([{'host': 'github.com', 'id': 0}], 'numeric account ID'),
+                                  ([{'host': 'github.com', 'id': True}], 'numeric account ID'),
+                                  ([{'host': 'GitHub.com', 'id': 1}], 'canonical lowercase host'),
+                                  ([{'host': 'github.com', 'id': 1}, {'host': 'github.com', 'id': 1}], 'duplicate')):
+            with self.subTest(accounts=accounts):
+                self.assertRejected(self.admit(invocation={'options': {'accounts': accounts}}), message)
+        accounts = [{'host': 'github.com', 'id': 1}, {'host': 'ghe.example.com', 'id': 1}]
+        result = self.admit(invocation={'options': {'accounts': accounts}})
+        self.assertEqual(result['preflight'], 'admitted')
+        self.assertEqual(result['snapshot']['options']['accounts'], {'value': accounts, 'source': 'invocation:invocation'})
 
     def test_bootstrap_failure_precedes_engine_query(self):
         with patch.object(admission, 'BOOTSTRAP_SHA256', 'e' * 64):

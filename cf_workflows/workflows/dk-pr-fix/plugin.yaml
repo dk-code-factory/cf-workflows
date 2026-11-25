@@ -10,6 +10,9 @@ skills:
   - name: dk-pr-fix
     path: skills/dk-pr-fix/SKILL.md
     workflow: workflows/main.yml
+  - name: dk-pr-review
+    path: skills/dk-pr-review/SKILL.md
+    workflow: workflows/review.yml
 resources:
   - LICENSE
   - agents.yml

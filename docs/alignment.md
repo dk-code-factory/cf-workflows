@@ -132,8 +132,9 @@ covers:
 ## What remains
 
 - Running these stages as engine-managed native sessions needs Agent Workflow
-  #129 and #130. The incoming-review task path and its alternatives gate are
-  #24. The alternatives skills and the direct manual entry are #27.
+  #129 and #130. [Incoming review](review.md) (#24) does not call the gate yet:
+  it needs these native stages in the installed workflow. The alternatives
+  skills and the direct manual entry are #27.
 - Posting an eligible finding goes through [exact-intent
   publication](publication.md). Body-only and inline placement are #25.
 - Real GitHub conformance and native-session adherence need separate

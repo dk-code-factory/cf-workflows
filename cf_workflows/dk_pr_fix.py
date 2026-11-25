@@ -50,6 +50,26 @@ UNAVAILABLE_ACTIONS = {
 }
 
 
+# Incoming review publishes nothing yet; merge keeps its own grant and readiness.
+REVIEW_ACTIONS = {'merge'}
+REVIEW_UNAVAILABLE = {'post_findings': 'finding publication from incoming review is owned by #25'}
+
+
+def _review_plan(snapshot):
+    """(path, message) when an admitted plan is not an incoming-review plan, else None."""
+    tasks = snapshot['plan']['tasks']
+    for task in tasks:
+        if task['writes']:
+            return task['path'], 'incoming review tasks cannot write'
+    for stage in snapshot['plan']['stages']:
+        if stage['kind'] in ('publication', 'responses', 'ci'):
+            return 'plan.stages', ('incoming review supports task and reviewer stages only; finding publication '
+                                   'is #25 and CI approval #35')
+    if not any(stage['kind'] == 'reviews' for stage in snapshot['plan']['stages']):
+        return 'plan.stages', 'incoming review requires a selected reviewer stage'
+    return None
+
+
 class InstallationError(ValueError):
     """The installed closure differs from its manifest."""
 
@@ -142,10 +162,15 @@ def _adapter(record):
 
 
 def preflight(*, request, configuration, invocation, deployment, repository, transport,
-              roots=None, home=None, install=INSTALL):
+              roots=None, home=None, install=INSTALL, maintain_other=None, mode='fix', defaults=None,
+              workflow=WORKFLOW, entry=ENTRY):
     """Admit one run of the installed workflow and return its declared inputs.
 
     Writes nothing. A rejected or blocked result carries the admission error.
+    maintain_other is the explicit request to maintain another author's PR
+    ({request_id, instruction, source}); it is staged with the private request.
+    mode, defaults, workflow and entry select an entry-point preset over the
+    shared workflow, such as incoming review (cf_workflows.dk_pr_review).
     """
     failure = {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None}
     try:
@@ -158,9 +183,16 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     if not Path(repository).is_dir() or not _disjoint(repository, install):
         return _reject(failure, 'repository', 'target checkout must be a directory separate from the installation')
     home = Path(home) if home is not None else state_home()
+    if maintain_other is not None:
+        if (mode != 'fix' or not isinstance(maintain_other, dict)
+                or set(maintain_other) != {'request_id', 'instruction', 'source'}
+                or not all(isinstance(value, str) and value.strip() for value in maintain_other.values())):
+            return _reject(failure, 'maintain_other', 'maintaining another author\'s PR needs an exact '
+                           '{request_id, instruction, source} request and the fix workflow')
     result = admission.admit(request=request, configuration=configuration, invocation=invocation,
                              deployment=deployment, roles=role_catalog(install),
-                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport)
+                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport,
+                             defaults=defaults)
     if result['preflight'] == 'semantic_required':
         # The installed workflow does not consume semantically admitted prompts,
         # instructions, adapters or policy text yet; never run without them.
@@ -177,9 +209,16 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     # Every remote write needs an enabled permission and an explicit request
     # authorization; the guarded publication helpers recheck both at dispatch.
     permissions = snapshot['permissions']
+    if mode == 'review':
+        rejected = _review_plan(snapshot)
+        if rejected:
+            return _reject(result, *rejected)
     for action in sorted(snapshot['request']['authorizations']):
         if action in UNAVAILABLE_ACTIONS:
             return _reject(result, 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action])
+        if mode == 'review' and action not in REVIEW_ACTIONS:
+            return _reject(result, 'request.authorizations.' + action, REVIEW_UNAVAILABLE.get(
+                action, 'incoming review never writes the PR branch, description or discussion'))
         if not permissions[action]['effective']:
             return _reject(result, 'request.authorizations.' + action,
                            'the authorized action is not enabled by accepted configuration; '
@@ -195,6 +234,8 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
               'instructions': snapshot['request']['original_instructions'],
               'logical_run': snapshot['request']['logical_run'],
               'authorizations': {action: snapshot['request']['authorizations'][action] for action in effective}}
+    if maintain_other is not None:
+        staged['maintain_other'] = dict(maintain_other)
     inputs = {
         'tasks': options['tasks'], 'finalizers': options['finalizers'], 'reviewers': options['reviewers'],
         'adapters': {name: _adapter(snapshot['adapters'][name]) for name in sorted(selected)},
@@ -208,8 +249,8 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     request_bytes = admission.canonical(staged)
     reference = 'requests/' + hashlib.sha256(request_bytes).hexdigest() + '.json'
     inputs['request'] = reference
-    return {**result, 'workflow': WORKFLOW, 'installation': {'root': str(Path(install).resolve()),
-                                                             'entry': ENTRY, 'closure_digest': closure},
+    return {**result, 'workflow': workflow, 'installation': {'root': str(Path(install).resolve()),
+                                                             'entry': entry, 'closure_digest': closure},
             'inputs': inputs,
             'state': {'namespace': str(namespace), 'mount': STATE_MOUNT, 'request': reference,
                       'request_document': staged}}

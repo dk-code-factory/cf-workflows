@@ -11,7 +11,10 @@ inventory and implements [structural configuration admission](docs/admission.md)
 engine interfaces. It also extracts the portable PR-fix example into the
 [installed `cf-workflows:dk-pr-fix` workflow](docs/dk-pr-fix.md), with preflight
 and an external state namespace, and keeps its budgets, deadlines, occurrence
-identities and explicit continuations in the logical run's ledger. One
+identities and explicit continuations in the logical run's ledger.
+[Incoming review](docs/review.md) (`cf-workflows:dk-pr-review`) is a review-mode
+preset over that workflow, and `cf-workflows:dk-pr-iter` routing picks fixing or
+review from immutable account IDs. One
 [plugin descriptor](docs/packaging.md) declares the Codex and Claude package
 inputs, with a checked resource closure and read-only runtime prerequisite
 checks. There is no runnable plugin, built package or verified host
@@ -30,6 +33,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Exact-intent publication and uncertain-effect reconciliation](docs/publication.md)
 - [Provisional analysis while PR metadata reconciles](docs/provisional.md)
 - [Current alignment over settled architectural analysis](docs/alignment.md)
+- [Incoming review and immutable-identity author routing](docs/review.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 
