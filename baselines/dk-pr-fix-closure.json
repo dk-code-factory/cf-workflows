@@ -271,5 +271,15 @@
       "upstream": "examples/pr-fix/tests/test_review_profile.py",
       "reason": "Tests the excluded review-profile generator."
     }
+  ],
+  "authored": [
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/plugin.yaml",
+      "reason": "Suite plugin descriptor; no upstream counterpart (docs/packaging.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md",
+      "reason": "Suite skill entry point; no upstream counterpart (docs/packaging.md)."
+    }
   ]
 }

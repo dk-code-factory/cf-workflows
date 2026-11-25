@@ -7,6 +7,7 @@ clones that contain the exact pinned objects:
 python3 scripts/check_baselines.py \
   --dk-workflows /path/to/dk-workflows \
   --agent-workflow /path/to/agent-workflow
+python3 -B -m cf_workflows.package
 python3 -m unittest discover -s tests -v
 ```
 
@@ -60,6 +61,12 @@ dk-workflows#244 with a disposable ledger per test and a fake GitHub transport
 whose only operation is a counted `capture()`: rejected bot and style
 suggestions, mixed threads, questions for other participants, already answered
 and optional sources, edited sources, deleted replies and denied permissions.
+[Packaging](packaging.md) tests (`tests/test_package.py`,
+`tests/test_prerequisites.py`) check the plugin descriptor and declared resource
+closure on read-only relocated copies under paths with spaces, and the runtime
+prerequisites against disposable clones with a fake host whose unconfigured
+commands fail. `python3 -B -m cf_workflows.package` checks the source plugin
+root and prints its inventory status; it builds no package.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
 gateways. They cover missing, duplicate, undeclared and nested children, digest

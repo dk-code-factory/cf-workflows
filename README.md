@@ -11,15 +11,19 @@ inventory and implements [structural configuration admission](docs/admission.md)
 engine interfaces. It also extracts the portable PR-fix example into the
 [installed `cf-workflows:dk-pr-fix` workflow](docs/dk-pr-fix.md), with preflight
 and an external state namespace, and keeps its budgets, deadlines, occurrence
-identities and explicit continuations in the logical run's ledger. There is no
-runnable plugin or verified host compatibility yet: running the installed
-workflow needs Agent Workflow #129, #130 and the #139 discovery-isolation work. Source pins are provenance, not a
-certified released engine.
+identities and explicit continuations in the logical run's ledger. One
+[plugin descriptor](docs/packaging.md) declares the Codex and Claude package
+inputs, with a checked resource closure and read-only runtime prerequisite
+checks. There is no runnable plugin, built package or verified host
+compatibility yet: running the installed workflow needs Agent Workflow #129,
+#130 and the #139 discovery-isolation work, and packaging needs #131–#133 and a
+released engine. Source pins are provenance, not a certified released engine.
 
 - [Baselines and attribution](docs/baselines.md)
 - [All 29 skills and their delivery obligations](docs/inventory.md)
 - [Version 1 configuration, invocation, report and state contracts](docs/contracts/v1/README.md)
 - [Installed dk-pr-fix workflow, preflight and state namespace](docs/dk-pr-fix.md)
+- [Plugin descriptor, resource closure and runtime prerequisites](docs/packaging.md)
 - [Feedback implementation, response obligations and thread resolution](docs/feedback.md)
 - [Supplied-skill bindings and engine-observed evidence](docs/skills.md)
 - [Exact-intent publication and uncertain-effect reconciliation](docs/publication.md)

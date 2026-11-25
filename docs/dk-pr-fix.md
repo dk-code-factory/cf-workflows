@@ -21,6 +21,9 @@ installation root:
   request shape.
 - `closure.json` holds the SHA-256 of every installed file. `LICENSE` is the
   upstream MIT notice.
+- `plugin.yaml` and `skills/dk-pr-fix/SKILL.md` are the suite's plugin
+  descriptor and skill entry point ([packaging.md](packaging.md)). They have no
+  upstream counterpart and are listed as `authored` in the provenance.
 
 The installation is never written. Python would load a cached `.pyc` instead
 of its verified source, so any `__pycache__` directory or `.pyc`/`.pyo` file

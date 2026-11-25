@@ -7,7 +7,9 @@
   "files": {
     "LICENSE": "c9c1a0955ab365663dce7d5911c1d9e5aa13a1f497cebd5bbacc15bb353a1beb",
     "agents.yml": "1b908fef92164ebc47556ebd12ee5490ccb46893c2363d402cf4456a46384929",
+    "plugin.yaml": "bcee1f81bfa360d1e7bc16c94e258c3d3bd3944e3d6cd7abc760ea2b9bb56b00",
     "request.example.json": "b37cc9b392acae54178afa4e51a1822f72294cd10b8eef1b5c2e6d158ccdfd3f",
+    "skills/dk-pr-fix/SKILL.md": "7db4ed182017730434d834eeeefcc4f3616a8e7ea79206d35ebbf4a2c1aba8a2",
     "workflows/agents/audience.yaml": "f0e77bf7a03c4fcebe21b2b0f5db040374606fbd6e3fdec71aa6e617105403de",
     "workflows/agents/fixer.yaml": "078172565995d3e80819006436f3b85608c833ef54a7b8ed2e8e8952a7bf0cce",
     "workflows/agents/leaf.yaml": "d918f6522bcd8c3fca259bb6b90b22b790cf3cc7ecadf47ca62204569eee5312",
