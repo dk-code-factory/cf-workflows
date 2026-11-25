@@ -91,6 +91,7 @@ KINDS = ('pr', 'smallest', 'alternative')
 WORK_TYPES = ('small_fix', 'feature', 'mixed')
 VOLUME_CRITERIA = ('low_loc', 'low_intrusiveness')
 MAX_READABLE = 4096
+MAX_ROUNDS = 8  # Questions about one choice after answers that named no feasible option.
 SOLUTION_FIELDS = ('id', 'kind', 'approach', 'pros', 'cons', 'handled_edges', 'unhandled_edges', 'evidence',
                    'complexity', 'intrusiveness', 'feasible', 'feasibility_reason', 'material_doubts',
                    'recommended', 'recommendation_reason', 'production_loc', 'ratings', 'rating_evidence')
@@ -150,8 +151,11 @@ def _git(repository, *args):
     return subprocess.run(['git', '-C', str(repository), *args], check=True, capture_output=True, text=True).stdout
 
 
-def pins(repository, *, scope, pr, target, head):
-    """Verified commits of the checkout; whole-branch readable files and the branch's changed paths."""
+def pins(repository, *, scope, pr, target, head, priority=()):
+    """Verified commits of the checkout; whole-branch readable files and the branch's changed paths.
+
+    Past the bound, the changed paths and the priority paths (guidance) stay readable first.
+    """
     require(isinstance(target, str) and _SHA.fullmatch(target), 'target', 'requires a full commit ID')
     require(scope != 'branch' or pr is not None, 'request.pr', 'branch analysis needs a pull request')
     if pr is None:
@@ -174,10 +178,13 @@ def pins(repository, *, scope, pr, target, head):
         mode, kind, blob = meta.split()
         if kind == 'blob' and mode != '120000':
             readable['git:' + path] = blob
-    if len(readable) > MAX_READABLE:
-        gaps.append({'subject': 'readable', 'impact': f'only the first {MAX_READABLE} files are listed'})
-        readable = dict(sorted(readable.items())[:MAX_READABLE])
     changed = sorted(filter(None, _git(repository, 'diff', '--name-only', '-z', target + '...' + head).split('\0')))
+    if len(readable) > MAX_READABLE:
+        gaps.append({'subject': 'readable', 'impact': f'only {MAX_READABLE} files are listed: the changed '
+                                                      'paths and guidance first, then the rest in path order'})
+        first = [name for name in dict.fromkeys('git:' + path for path in [*changed, *priority]) if name in readable]
+        rest = [name for name in sorted(readable) if name not in set(first)]
+        readable = {name: readable[name] for name in (first + rest)[:max(MAX_READABLE, len(first))]}
     return {'target': target, 'head': head, 'pr': pr['url'] if pr else None, 'changed': changed,
             'readable': readable, 'gaps': gaps}
 
@@ -352,6 +359,10 @@ def check_comparison(output, *, scope, decision, rubric, target, has_pr, citable
     return output
 
 
+class Unqualified(AdmissionError):
+    """An automatic pick that the selection policy cannot accept; semi-manual asks the user instead."""
+
+
 def check_selection(output, *, comparison, totals, policy, answer, citable):
     """The shared selection policy; returns the accepted selection with its helper totals."""
     by_id = {item['id']: item for item in comparison['solutions']}
@@ -380,12 +391,15 @@ def check_selection(output, *, comparison, totals, policy, answer, citable):
     for key, reason in reasons.items():
         text(reason, 'selection.rejection_reasons.' + key)
     if mode == 'auto':
-        require(policy['mode'] != 'manual' and policy['enabled'], 'selection.choice',
-                'automatic picking is disabled; a choice needs the user')
-        require(output['confident'] and not by_id[choice]['material_doubts'], 'selection.choice',
+        def qualify(condition, message):
+            if not condition:
+                raise Unqualified('selection.choice', message)
+        qualify(policy['mode'] != 'manual' and policy['enabled'], 'automatic picking is disabled; a choice needs '
+                'the user')
+        qualify(output['confident'] and not by_id[choice]['material_doubts'],
                 'a confident winner without unresolved material doubts')
         others = [totals[key] for key, item in by_id.items() if key != choice and item['feasible']]
-        require(all(totals[choice] - other >= policy['min_score_gap'] for other in others), 'selection.choice',
+        qualify(all(totals[choice] - other >= policy['min_score_gap'] for other in others),
                 'the winner needs a unique lead of at least min_score_gap')
         if not others:
             rejected = output.get('rejected_alternatives')
@@ -444,6 +458,8 @@ class _Walk:
             'evaluation': digest(values['evaluation_prompt']), 'policy': digest(values['selection']),
             'evidence': digest(self.evidence)}
         self.stages, self.dispatches, self.selections, self.gates = [], 0, {}, []
+        # Architectural stages are settled per PR; current alignment keeps its own allowance per logical run.
+        self.account = 'run-' + digest(snapshot['request']['logical_run'])[:24]
         self.pending_status = 'choice_pending'
 
     # Inputs that bind each stage. Settled stages are reused whatever these become.
@@ -486,14 +502,22 @@ class _Walk:
         operation = 'alt-' + digest({'namespace': self.namespace, 'binding': binding,
                                      'attempt': len(self.ledger.history(stage_key))})[:40]
         request = self.request if self.request is not None and stage in REFRESHED else None
+        account = self.account if stage in alignment.CURRENT else None
+        claim = self.ledger.open_claim(stage_key)
+        if claim is not None and claim['request'] is not None and request is None:
+            # An interrupted direct request owns this attempt; an automatic route never supersedes it.
+            raise _Stop('authorization_required', stage=stage_key, skill=alignment.DIRECT_SKILL,
+                        message=f'{stage_key} belongs to interrupted direct request {claim["request"]}; '
+                                f'resume it through {alignment.DIRECT_SKILL}')
         try:
             action = self.ledger.prepare(stage, decision, inputs=inputs, head=head, operation=operation,
-                                         request=request)
+                                         request=request, account=account)
         except alignment.AuthorizationRequired as error:
             raise _Stop('authorization_required', stage=stage_key, skill=alignment.DIRECT_SKILL,
                         message=str(error)) from None
         except alignment.AllowanceExhausted as error:
-            raise _Stop('exhausted', stage=stage_key, allowance=self.ledger.usage(alignment.allowance(stage)),
+            raise _Stop('exhausted', stage=stage_key,
+                        allowance=self.ledger.usage(alignment.allowance(stage, account)),
                         message=str(error)) from None
         self.stages.append({'key': stage_key, 'action': action['action'], 'reference': action['reference']})
         if action['action'] == 'reuse':
@@ -501,14 +525,24 @@ class _Walk:
         task = self.assignment(stage, decision, action['operation'], context)
         try:
             reference, session_id, output = configuration.run_session(self.transport, task)
+        except Blocked as error:
+            if error.__cause__ is not None:
+                # The transport failed: the session may have run, so its claim stays open to resume.
+                raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
+            self.ledger.abandon(action['operation'])
+            raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
+        try:
             check(output)
             record = self.ledger.finish(action['operation'], output, session=session_id)
-        except (AdmissionError, Blocked) as error:
-            raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
-        except alignment.AlignmentError as error:
-            raise _Stop('blocked', stage=stage_key, error={'path': stage_key, 'message': str(error)}) from None
-        except (TypeError, KeyError, AttributeError, ValueError) as error:
-            raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
+        except (AdmissionError, alignment.AlignmentError, TypeError, KeyError, AttributeError,
+                ValueError) as error:
+            # A rejected result never becomes current, and the next call starts a new attempt
+            # instead of resuming it; the attempt's reservation stays consumed.
+            self.ledger.abandon(action['operation'])
+            failure = ({'path': stage_key, 'message': str(error)} if isinstance(error, alignment.AlignmentError)
+                       else _failure(error))
+            raise _Stop('blocked', stage=stage_key, error=failure,
+                        **({'unqualified': True} if isinstance(error, Unqualified) else {})) from None
         self.dispatches += 1
         self.stages[-1].update(evidence='native:' + reference, session=session_id)
         return record['result']
@@ -570,31 +604,49 @@ class _Walk:
             self.stages.append({'key': stage_key, 'action': 'reuse', 'reference': found['reference']})
             return found['result']
         comparison_ref = self.ledger.latest(alignment.key('comparison', decision['id']))['reference']
-        gate_id = 'altchoice_' + digest({'namespace': self.namespace, 'comparison': comparison_ref,
-                                         'request': self.request['id'] if self.request else None})[:32]
-        answer = None
-        latest = self.ledger.latest(stage_key)
-        asked = (latest is not None and latest['result']['choice'] is None
-                 and latest['dependencies']['comparison'] == comparison_ref)
-        if policy['mode'] != 'automatic' and asked:
-            # Only a pending selection over this comparison has asked the user.
-            gates = self.read_gates(gate_id)
-            if any(gate['status'] == 'waiting' for gate in gates):
-                # An open question resumes without a new session or gate.
-                self.pending_status = 'waiting'
-                self.gates.append({'decision': decision['id'], 'request_id': gate_id, 'status': 'waiting'})
-                return {'choice': None, 'mode': 'manual'}
-            answered = [gate['answer'] for gate in gates if gate['status'] == 'answered']
-            answer = answered[-1] if answered else None
-        result = self.stage('selection', decision['id'], answer=answer, context={
-            'comparison': comparison, 'scores': totals, 'policy': policy,
-            'user_choice': copy.deepcopy(answer)},
-            check=lambda out: check_selection(out, comparison=comparison, totals=totals, policy=policy,
-                                              answer=answer, citable=self.citable))
+
+        def gate_id(round_):
+            return 'altchoice_' + digest({'namespace': self.namespace, 'comparison': comparison_ref, 'round': round_,
+                                          'request': self.request['id'] if self.request else None})[:32]
+        answer, round_, rejected = None, 0, []
+        if policy['mode'] != 'automatic':
+            # Gates are found by their own identity, so issue-only runs without a record find them too.
+            feasible = {item['id'] for item in comparison['solutions'] if item['feasible']}
+            while True:
+                gates = self.read_gates(gate_id(round_))
+                if any(gate['status'] == 'waiting' for gate in gates):
+                    # An open question resumes without a new session or gate.
+                    self.pending_status = 'waiting'
+                    self.gates.append({'decision': decision['id'], 'request_id': gate_id(round_),
+                                       'status': 'waiting'})
+                    return {'choice': None, 'mode': 'manual'}
+                answered = [gate['answer'] for gate in gates if gate['status'] == 'answered']
+                if not answered:
+                    break
+                if answered[-1]['value'] in feasible:
+                    answer = answered[-1]
+                    break
+                # Not an evaluated feasible option: ask again in a new round, never dispatch it.
+                rejected.append(answered[-1]['answer_id'])
+                round_ += 1
+                if round_ > MAX_ROUNDS:
+                    raise _Stop('blocked', stage=stage_key, error={'path': 'gates', 'message':
+                                                                   'too many answers that name no feasible option'})
+        try:
+            result = self.stage('selection', decision['id'], answer=answer, context={
+                'comparison': comparison, 'scores': totals, 'policy': policy,
+                'user_choice': copy.deepcopy(answer)},
+                check=lambda out: check_selection(out, comparison=comparison, totals=totals, policy=policy,
+                                                  answer=answer, citable=self.citable))
+        except _Stop as stop:
+            # Semi-manual asks the user when the automatic checks cannot settle the choice.
+            if not (stop.detail.get('unqualified') and policy['mode'] == 'semi-manual' and answer is None):
+                raise
+            result = {'choice': None, 'mode': 'auto'}
         if result['choice'] is None and policy['mode'] != 'automatic':
-            request = {'request_id': gate_id, 'evidence_id': self.stages[-1]['reference'],
+            request = {'request_id': gate_id(round_), 'evidence_id': self.stages[-1]['reference'],
                        'prompt': 'Choose one evaluated feasible option for this decision.',
-                       'payload': {'decision': decision['id'], 'scores': totals,
+                       'payload': {'decision': decision['id'], 'scores': totals, 'rejected_answers': rejected,
                                    'options': [{'id': item['id'], 'kind': item['kind'], 'approach': item['approach'],
                                                 'feasible': item['feasible']} for item in comparison['solutions']]}}
             try:
@@ -606,8 +658,8 @@ class _Walk:
                 raise _Stop('blocked', stage=stage_key, error={'path': 'gates', 'message': 'input gate failed: '
                                                                + type(failure).__name__}) from None
             self.pending_status = 'waiting'
-            self.gates.append({'decision': decision['id'], 'request_id': gate_id, 'gate_id': opened['gate_id'],
-                               'status': 'waiting'})
+            self.gates.append({'decision': decision['id'], 'request_id': gate_id(round_),
+                               'gate_id': opened['gate_id'], 'status': 'waiting'})
         return result
 
     def read_gates(self, gate_id):
@@ -676,7 +728,8 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
     repository_id = pr['repository'] if pr else snapshot['request']['repository']
     try:
         reqs = _requirements(requirements, scope)
-        pinned = pins(repository, scope=scope, pr=pr, target=target, head=head)
+        pinned = pins(repository, scope=scope, pr=pr, target=target, head=head,
+                      priority=list(snapshot['resources']['guidance']['files']))
         require(through == 'analysis' or pr is not None, 'request.pr', 'current alignment needs a pull request')
     except AdmissionError as error:
         return {'status': 'rejected', 'error': _failure(error), 'admission': admitted}
@@ -726,7 +779,8 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
                             'tests_required': current['alignment'] == 'mismatch'}
             except _Stop as stop:
                 outcome = {'status': stop.status, **stop.detail}
-            usage = {name_: ledger.usage(name_) for name_ in alignment.LIMITS}
+            usage = {'architecture': ledger.usage('architecture'),
+                     'alignment': ledger.usage(alignment.allowance('alignment', walk.account))}
         finally:
             ledger.close()
     return {**base, **outcome, 'persisted': persisted, 'stages': walk.stages, 'dispatches': walk.dispatches,

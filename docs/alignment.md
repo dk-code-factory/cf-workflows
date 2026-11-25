@@ -52,6 +52,12 @@ returns one action:
 
 The first reservation fixes the allowance's ceiling for the logical run. A later
 run or configuration can only narrow it; only an explicit `grant` adds capacity.
+`prepare(..., account=...)` keeps a separate count, `<allowance>:<account>`, with
+the same default ceiling; the [alternatives entries](alternatives.md) count
+alignment per logical run on a record kept per PR. `abandon(operation)` closes a
+claim whose result was rejected: its reservation stays consumed and the next
+`prepare` starts a new attempt. A direct request has consumed a stage only when
+an attempt under it completed.
 Replaying an operation never consumes twice. When a later head arrives before an
 interrupted claim finishes, the claim is `superseded`: it keeps its reservation,
 and a late result is retained but never becomes current. `finish` accepts one

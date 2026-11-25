@@ -45,6 +45,12 @@ it may read. The engine observation must show the claim, role, digest and agent,
 no loaded skill and only reads of those files. The helper then checks the output
 before the [alignment ledger](alignment.md#ledger) accepts it. Evidence must cite
 a requirement source or a file of the pinned head, optionally with a line range.
+Past 4096 files, the changed paths and the guidance files stay readable first.
+
+A rejected output or observation closes its attempt: the result never becomes
+current, the reservation stays consumed, and the next call starts a new attempt.
+A lost transport response keeps the claim open, so the next call resumes it and
+the engine returns the original result.
 
 | Stage | Checks |
 | --- | --- |
@@ -82,14 +88,18 @@ routes, sessions, heads and guidance versions.
 | --- | --- |
 | `automatic` | The session may pick a winner that passes the checks. Otherwise the choice stays pending. Nothing asks the user, and a repeated call starts no session |
 | `manual` | The helper refuses an automatic pick. A pending choice opens one engine input gate with the evaluated options |
-| `semi-manual` | Like `automatic`, but a pending choice opens the gate |
+| `semi-manual` | Like `automatic`, but a pending choice, or an automatic pick that fails the checks, opens the gate |
 
 An automatic pick must be feasible and confident, have no material doubts, and
 lead every other feasible option by at least `min_score_gap`. A sole feasible
 option substantiates every rejection. `enabled: false` disables automatic picks.
 Every settled choice explains why each other option was rejected. A manual
-choice must cite the recorded gate answer and match it. A waiting gate returns
-`waiting` with no new session or gate. An answer refreshes only that selection.
+choice must cite the recorded gate answer and match it. Gates are found by their
+own identity (the comparison, request and question round), so issue-only runs
+without a record find them too. A waiting gate returns `waiting` with no new
+session or gate. An answer that names no evaluated feasible option is never
+dispatched; the next round asks again and lists the rejected answers. A valid
+answer refreshes only that selection.
 A choice grants no edit or publication permission.
 
 ## Settled analysis and fresh comparison
@@ -115,7 +125,13 @@ claims ordinary review or readiness.
 
 Current alignment binds the head, the requirements, the instructions, the
 guidance and new evidence. A later head or new evidence refreshes alignment (and
-verification of a mismatch) without any architectural session.
+verification of a mismatch) without any architectural session. The architectural
+allowance is kept per PR, because that analysis is settled per PR. Alignment and
+verification keep their allowance per logical run, as in [alignment](alignment.md):
+a new logical run of the same PR gets its own alignment count.
+
+An automatic route never supersedes an open attempt of an interrupted direct
+request. It returns `authorization_required`, and the request resumes its claim.
 
 ## Composition
 
@@ -160,14 +176,19 @@ asserts its transport call counts or new sessions per stage.
   engine claims; separate whole-problem and branch records; each scope's
   inventory and comparison contract; inherited decisions inventoried and compared.
 - **Selection.** Automatic mode that never prompts and never chooses over time,
-  a refused pick without the score lead, manual gates asked once and resumed,
-  and an invented user source.
+  a refused pick without the score lead, a semi-manual question instead of an
+  unqualified pick, manual gates asked once and resumed, answers that name no
+  feasible option asked again, issue-only questions asked once, and an invented
+  user source.
 - **Boundary.** Analysis settled across requirements, guidance, options, heads
   and routes; dk-workflows#241 and #239 alignment refresh with no architectural
   session; independent verification; fresh comparison once per direct request
   with retained allowances and an explicit grant; rejected agent, delegated,
   composed and mismatched requests; interrupted automatic and manual work
-  resumed through its claim; exhausted allowances never renewed.
+  resumed through its claim; an automatic route that does not supersede an
+  interrupted direct request; rejected outputs that start a new attempt;
+  alignment allowances per logical run; changed paths and guidance readable past
+  the bound; exhausted allowances never renewed.
 - **Composition.** The fix handoff and its alignment refresh at a later head;
   coordinators limited to their scope.
 - **Compatibility.** Both routes under the entry's identity, reuse of the
