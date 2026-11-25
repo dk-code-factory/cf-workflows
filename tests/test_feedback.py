@@ -10,7 +10,9 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cf_workflows import feedback  # noqa: E402
+import dk_pr_fix  # noqa: E402,F401  (puts the installed helpers on sys.path without bytecode)
+from cf_workflows import admission  # noqa: E402
+from prfix import feedback  # noqa: E402
 
 PR = {'url': 'https://github.com/owner/repo/pull/7', 'number': 7}
 URL = 'https://github.com/owner/repo/pull/7'
@@ -437,6 +439,22 @@ class Evidence(Feedback):
         connection.close()
         with self.assertRaisesRegex(feedback.FeedbackError, 'unsupported feedback ledger version'):
             feedback.Ledger(newer, logical_run='run-1', pr=PR)
+        # The installed copy binds the same suite as admission.
+        self.assertEqual(feedback.SUITE, admission.SUITE)
+
+    def test_read_only_open_never_creates_or_changes_the_record(self):
+        missing = self.state / 'runs' / 'missing.feedback.sqlite'
+        with self.assertRaisesRegex(feedback.FeedbackError, 'unavailable'):
+            feedback.Ledger(missing, logical_run='run-1', pr=PR, read_only=True)
+        self.assertFalse(missing.exists())
+        reader = feedback.Ledger(self.path, logical_run='run-1', pr=PR, read_only=True)
+        self.addCleanup(reader.close)
+        with self.assertRaises(sqlite3.OperationalError):
+            reader.db.execute("INSERT INTO meta VALUES ('x', 'y')")
+        with self.assertRaisesRegex(feedback.FeedbackError, 'another logical run'):
+            feedback.Ledger(self.path, logical_run='run-2', pr=PR, read_only=True)
+        view = self.view()
+        self.assertEqual(feedback.stage(feedback.Unrecorded(), view, BOTH)['status'], 'complete')
 
     def test_unconfigured_operations_fail_without_live_fallback(self):
         with self.assertRaisesRegex(AssertionError, 'unconfigured fixture operation: request'):

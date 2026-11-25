@@ -1,18 +1,17 @@
 # Feedback obligations
 
-[`cf_workflows/feedback.py`](../cf_workflows/feedback.py) keeps three decisions
+[`prfix/feedback.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py) keeps three decisions
 apart for every PR feedback source, as required by
 [dk-workflows#244](https://github.com/dk-code-factory/dk-workflows/issues/244):
 
 | Decision | Values | Owner of the effect |
 | --- | --- | --- |
 | Implementation | `fixed`, `intentional`, `rejected`, `deferred`, `none` | The fixing task and its commits |
-| Response | `reply`, `already_answered`, `no_reply` with a sourced reason | The reply stage (#21) through guarded publication (#17) |
+| Response | `reply`, `already_answered`, `no_reply` with a sourced reason | The [response stage](responses.md) through guarded publication (#17) |
 | Thread resolution | Allowed or blocked, with reasons | A separately authorized `resolve_thread` publication |
 
-Like admission, this is a library operation. No installed workflow calls it yet:
-the reply stage before independent review and its publication wiring belong to
-#21, after exact-intent publication (#17).
+The module is part of the installed helper closure, standard library only, so
+helper containers can run it. The [response stage](responses.md) drives it.
 
 ## Sources
 
@@ -96,13 +95,12 @@ Each logical run has its own record, `runs/<sha256(logical_run)>.feedback.sqlite
 in the [state namespace](dk-pr-fix.md#state-namespace), next to the run ledger.
 It holds source identities, assessments and recorded replies.
 `PRAGMA user_version = 1` and a `meta` table bind the suite, kind, logical run and
-PR. Any other version, database or binding is refused.
+PR. Any other version, database or binding is refused. A read-only open never
+creates or changes the record; with no record yet, `Unrecorded` stands in.
 
 ## Not established here
 
-- Publishing replies, settling them before the first independent review and
-  preserving them on resume: #21, after #17.
-- Producing assessments in native sessions: the address-feedback and reply
-  tasks still need Agent Workflow #129 and #130 to run.
+- Producing assessments in native sessions: the responder still needs Agent
+  Workflow #129 and #130 to run.
 - Real GitHub conformance. The tests use a fake transport whose only operation is
   `capture()`.

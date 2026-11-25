@@ -65,8 +65,12 @@ def session_plan(admitted):
     admitted_skills = snapshot['resources']['skills']
     ordinals, occurrences = {}, []
     for task in snapshot['plan']['tasks']:
-        context = 'reviews' if task['id'] in reviewers else 'tasks'
-        ident = occurrence_id(task['phase'], context, task['adapter'], task['instructions'], ordinals)
+        if task['kind'] == 'reply':
+            # Every response stage shares one responder occurrence, independent of its phase.
+            ident = occurrence_id('responses', 'responses', task['adapter'], task['instructions'], ordinals)
+        else:
+            context = 'reviews' if task['id'] in reviewers else 'tasks'
+            ident = occurrence_id(task['phase'], context, task['adapter'], task['instructions'], ordinals)
         skill = admitted_skills[task['skill']] if task['skill'] is not None else None
         loaded = [] if skill is None else [{**{key: skill[key] for key in ('id', 'name', 'entry', 'sha256', 'files')},
                                             'namespace': namespace(skill['sha256'])}]

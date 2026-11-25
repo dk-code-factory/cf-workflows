@@ -76,6 +76,11 @@ closure on read-only relocated copies under paths with spaces, and the runtime
 prerequisites against disposable clones with a fake host whose unconfigured
 commands fail. `python3 -B -m cf_workflows.package` checks the source plugin
 root and prints its inventory status; it builds no package.
+[Response stage](responses.md) tests (`tests/test_dk_pr_fix_responses.py`) cover
+dk-workflows#255 with the installed helpers and a fake GitHub transport that
+counts captures and writes: replies settled before a failing review and kept on
+resume, reply response loss, changed comments, disabled resolution, denied
+reply authority and custom or empty plans.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
 gateways. They cover missing, duplicate, undeclared and nested children, digest

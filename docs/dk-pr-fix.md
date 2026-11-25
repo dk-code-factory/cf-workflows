@@ -70,6 +70,10 @@ Adaptations to the example:
 - Publication uses the contract's journal states, per-action authority, a
   retained audience, a lock, unique effects and fresh attempts instead of
   replay, and adds review submission: see [exact-intent publication](publication.md).
+- A `responses` stage answers feedback after the fix publication and before
+  review, and again as a finalizer: see the [response stage](responses.md).
+  Its files (`responses.yml`, `prfix/responses.py` and `prfix/feedback.py`)
+  originate here and are listed as `authored` in the provenance.
 
 ## Configuration split
 

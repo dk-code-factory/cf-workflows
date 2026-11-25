@@ -97,7 +97,7 @@ class Reuse(Ledgered):
             ('unused role definition', lambda: self.roles['reviewer'].update(sha256=self.write(
                 self.roles_root, 'reviewer.yaml', 'name: "reviewer"\ndescription: "Fixture"\ninstructions: "Look."\n'))),
             ('selected tasks reordered', lambda: self.invocation['options'].update(
-                finalizers=['sync-guidance', 'inspect-commits', {'stage': 'ci'}])),
+                finalizers=['sync-guidance', 'inspect-commits', {'stage': 'responses'}, {'stage': 'ci'}])),
             ('prompt moved to another scope', lambda: (setattr(self, 'saved', moved),
                                                        self.invocation.pop('prompts'))),
         ]:

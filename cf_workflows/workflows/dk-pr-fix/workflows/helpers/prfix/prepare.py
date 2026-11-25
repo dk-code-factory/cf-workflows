@@ -33,7 +33,11 @@ TASK_ALIASES = {
 }
 ADAPTER_ALIASES = {**TASK_ALIASES, **{name: legacy for legacy, name in TASK_ALIASES.items()}}
 STAGE_ALIASES = {"dk-workflows:dk-pr-publish": "publication", "dk-workflows:dk-ci": "ci",
-                 "dk-workflows:dk-pr-reviewers-run": "reviews"}
+                 "dk-workflows:dk-pr-reviewers-run": "reviews",
+                 "dk-workflows:dk-pr-feedback-reply": "responses"}
+# The response stage's read-only adapter. It runs only inside that stage, and
+# every response stage of a plan shares its one occurrence (see responses.py).
+RESPONDER = "reply-feedback"
 
 
 def _selection(raw):
@@ -57,7 +61,7 @@ def _selection(raw):
         return _selection({"skill": call["task"], **{key: value for key, value in call.items() if key != "task"}})
     if "stage" in call:
         stage = call["stage"]
-        if not isinstance(stage, str) or stage not in {"publication", "reviews", "ci"}:
+        if not isinstance(stage, str) or stage not in {"publication", "responses", "reviews", "ci"}:
             raise ValueError("unsupported managed stage")
         if set(call) - ({"stage", "reviewers"} if stage == "reviews" else {"stage"}):
             raise ValueError("unsupported managed stage controls")
@@ -232,8 +236,10 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         else:
             raise ValueError("unavailable selected adapter: " + name)
         kind = adapter.get("kind", fallback or "task")
-        if kind not in {"review", "inspection", "decisions", "fix", "scope", "description", "cleanup", "synchronization", "task"}:
+        if kind not in {"review", "inspection", "decisions", "fix", "scope", "description", "cleanup", "synchronization", "reply", "task"}:
             raise ValueError("unsupported adapter kind")
+        if (kind == "reply") != (context == "responses"):
+            raise ValueError("reply adapters run only inside the response stage")
         role = adapter.get("definition", "reviewer" if kind == "review" else "leaf")
         if role not in definitions:
             raise ValueError("adapter references undeclared native definition")
@@ -250,9 +256,12 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             raise ValueError("invalid task checklist")
         if task["writes"] and kind == "review":
             raise ValueError("reviewers cannot write")
+        if task["writes"] and kind == "reply":
+            raise ValueError("the response stage cannot write")
         tasks.append(task)
         return task["id"]
 
+    responder = []
     selections = [("tasks", options.get("tasks", [])),
                   ("finalizers", options.get("finalizers", []))]
     for phase, selected in selections:
@@ -262,6 +271,11 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             stage = group[0].get("stage")
             if stage in {"publication", "ci"}:
                 stages.append({"kind": stage, "phase": phase})
+                continue
+            if stage == "responses":
+                if not responder:
+                    responder.append(task_call({"task": RESPONDER}, "responses", "responses", "reply"))
+                stages.append({"kind": "responses", "phase": phase, "task": responder[0]})
                 continue
             if stage == "reviews":
                 reviewers = group[0].get("reviewers", options.get("reviewers", []))
@@ -322,7 +336,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     # Conditional CI repairs and publication audiences do not reserve workers here.
     selection_weight_per_cycle = sum(sum(len(group["tasks"]) for group in stage["groups"]) + (2 if stage["review"] else 0)
                            if stage["kind"] in {"tasks", "reviews"} else
-                           1 if stage["kind"] == "ci" else 0 for stage in stages)
+                           1 if stage["kind"] == "ci" else 0 for stage in stages) + len(responder)
     selection_weight = selection_weight_per_cycle * limits["review_cycles"] + (1 if "merge" in authorizations else 0)
     if len(tasks) > 40 or selection_weight > 64:
         raise ValueError("portable plan exceeds bounded selection size")

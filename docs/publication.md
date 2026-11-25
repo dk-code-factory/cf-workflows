@@ -44,6 +44,11 @@ effect, an effect key when it creates a unique object, and preparation,
 dispatch and reconciliation fixtures with response loss before and after the
 effect. Until then it stays in `EXTENSIONS` and denies.
 
+Replies to feedback sources and thread resolutions come from the selected
+[response stage](responses.md) through the `responses` listing. When that stage
+is selected, the ordinary barrier skips native reply proposals that name a
+feedback source.
+
 ## Intents
 
 Preparation records an immutable intent in the logical run's SQLite ledger. The
@@ -126,6 +131,10 @@ the exact head, the review with its exact inline comments, the merge commit
 with the exact parents, and so on. An unchanged branch, a missing comment or
 reviewer, a timeout or a generic error keeps the intent `pending`. Executing a
 `pending` intent again only reconciles; it never sends the write again.
+
+A reply receipt stays valid after the reply itself changes. Validation compares
+the reply's ID, body, author and parent, not reactions or `updated_at`. The
+discussion baseline also uses those fields to strip the run's own replies.
 
 While an intent is `pending`, no other write of the run can dispatch. There is
 no automatic override.

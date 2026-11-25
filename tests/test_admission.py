@@ -126,7 +126,8 @@ class DefaultPlan(Fixture):
         self.assertEqual(snapshot['request']['pr']['url'], 'https://github.com/owner/repo/pull/7')
         self.assertEqual(set(snapshot['resources']['guidance']['files']), {'AGENTS.md', 'docs/guide.md'})
         self.assertEqual([stage['kind'] for stage in snapshot['plan']['stages']],
-                         ['tasks'] * 3 + ['publication', 'tasks', 'tasks', 'reviews', 'publication', 'tasks', 'tasks', 'ci'])
+                         ['tasks'] * 3 + ['publication', 'responses', 'tasks', 'tasks', 'reviews', 'publication', 'tasks', 'tasks',
+                          'responses', 'ci'])
         self.assertTrue(all(entry['instructions'] is None for entry in snapshot['plan']['tasks']))
         self.assertFalse(any(item['effective'] or item['enabled'] for item in snapshot['permissions'].values()))
         self.assertEqual(self.transport.calls['capabilities'], 1)

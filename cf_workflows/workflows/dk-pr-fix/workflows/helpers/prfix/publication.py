@@ -302,6 +302,19 @@ def effect_key(intent, receipt):
     return None
 
 
+def reply_identity(item):
+    """The fields that make a posted reply this exact effect.
+
+    Reactions, updated_at and other metadata on our own reply change over time
+    without changing the effect, so receipts compare only these.
+    """
+    if not isinstance(item, dict):
+        return None
+    user = item.get("user") if isinstance(item.get("user"), dict) else {}
+    return {"id": item.get("id"), "body": item.get("body"), "user": user.get("id"),
+            "in_reply_to_id": item.get("in_reply_to_id")}
+
+
 def original_discussion(ledger, plan, discussion):
     """Remove only exact, reconciled effects created by this logical run."""
     result = copy.deepcopy(discussion)
@@ -318,7 +331,8 @@ def original_discussion(ledger, plan, discussion):
             key = "comments" if kind == "reply" else "inline"
             if (isinstance(observed, dict) and observed.get("body") == payload["body"]
                     and observed.get("user", {}).get("id") == intent["actor_id"]):
-                result[key] = [item for item in result[key] if item != observed]
+                # Reactions and updated_at on our own reply do not make it someone else's.
+                result[key] = [item for item in result[key] if reply_identity(item) != reply_identity(observed)]
         elif kind == "edit_pr" and observed == payload and all(result.get(key) == value for key, value in payload.items()):
             result.update(intent["before"])
         elif kind == "resolve_thread" and isinstance(observed, dict):
@@ -1226,7 +1240,14 @@ class Publication:
         if receipt != expected:
             return False
         observed = self._observe(dict(saved, response=receipt.get("result", {})), ev)
-        return observed.get("outcome") == "completed" and observed.get("result") == receipt
+        if observed.get("outcome") != "completed":
+            return False
+        if saved["intent"]["kind"] in ("reply", "reply_inline"):
+            # The same reply, even after reactions or metadata updates on it.
+            return ({k: v for k, v in observed["result"].items() if k != "result"}
+                    == {k: v for k, v in receipt.items() if k != "result"}
+                    and reply_identity(observed["result"].get("result")) == reply_identity(receipt.get("result")))
+        return observed.get("result") == receipt
 
     def validate(self, ident, receipt):
         """Read-only current exact-effect validation for action checkpoints."""
