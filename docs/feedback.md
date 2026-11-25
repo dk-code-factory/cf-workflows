@@ -21,8 +21,9 @@ inline comments and review threads. A source is any nonempty comment, review bod
 or inline comment whose author is neither the PR author nor the authenticated
 publishing actor. Bots are sources like anyone else. Each source keeps its
 identity (kind, database ID, author ID and inline thread root) and a fingerprint
-of its body. Missing collections, a different PR, duplicate items and inline
-replies to unobserved comments reject.
+of its body. Missing collections, a different PR, duplicate items, inline
+replies to unobserved comments and inline comments without an enumerated review
+thread (a truncated thread enumeration) reject.
 
 ## Assessments
 
@@ -54,8 +55,13 @@ nothing. A reassessment may add obligations but never drop one whose excerpt the
 source still contains, including after an edit: a required request stays
 required under its ID, and a question for another participant stays addressed
 to that participant unless it becomes required. Only an edit that removes the
-quoted text releases it. An edited source has a new fingerprint and needs a new
-assessment; the earlier record and replies remain.
+quoted text releases it. A settled implementation decision (anything but `none`,
+a deliberate deferral included) stays as it was for the same source version.
+An edited source has a new fingerprint and needs a new assessment, which may
+decide again; the earlier record and replies remain. `check()` applies the same
+rules read-only, before anything is retained. The
+[feedback entries](feedback-skills.md) retain read and address assessments in
+this record too.
 
 ## Response-stage completion
 

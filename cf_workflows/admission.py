@@ -59,6 +59,13 @@ PREFERENCE_MODES = ('implementation', 'review')
 SELECTOR_TYPES = ('file', 'directory', 'glob')
 # The response stage's read-only adapter; it runs only inside that stage (docs/responses.md).
 RESPONDER = 'reply-feedback'
+# dk-pr-feedback-reply's default reply_prompt (claude/skills/dk-pr-feedback-reply/config.json at the
+# pinned baseline, MIT). The shared responder applies it in standalone and composed runs alike.
+REPLY_PROMPT = ('Keep replies concise. When it is simply fixed, reply with "Addressed", "Agreed, fixed", "Done", or '
+                'similar. Use your judgment about whether more detail is necessary; stay concise when you add it. '
+                "Never mention the fixing commit's ID or link to that commit. When referencing code, use a GitHub "
+                'permalink pinned to a full commit SHA with line anchors, never a branch URL or branch-relative '
+                'reference. Keep internal workflow details private.')
 # The simplification reviewer; it never substitutes for ordinary review coverage (docs/review.md).
 SIMPLIFIER = 'simplify'
 PROMPT_SLOTS = ('task', 'reviewer', 'finalizer', 'assessment', 'selection', 'reconciliation',
@@ -106,7 +113,8 @@ BASELINE_ADAPTERS = {
         'account for every changed path.'},
     'reply-feedback': {'kind': 'reply', 'writes': False, 'definition': 'leaf', 'assignment':
         'Assess every feedback source against the published changes: quote each request, its addressee, implementation '
-        'disposition and response disposition. Draft one exact reply for each source that needs an answer. Do not publish.'},
+        'disposition and response disposition. Draft one exact reply for each source that needs an answer. Do not publish. '
+        'Reply prompt: ' + REPLY_PROMPT},
     'review': {'kind': 'review', 'writes': False, 'definition': 'reviewer', 'assignment':
         'Review the actual changes against the originating issue, documented repository standards and accepted user scope. '
         'Return supported actionable findings or an evidenced no-findings report.', 'checklist': [

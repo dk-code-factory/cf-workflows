@@ -125,6 +125,11 @@ disposable repository and state namespace and a fake engine with durable gates
 and claim-reconciled native sessions scripted per stage. They count new sessions
 per stage across settled reuse, fresh direct requests, interruptions and
 exhausted allowances.
+[Feedback entry](feedback-skills.md#verification) tests
+(`tests/test_feedback_skills.py`) drive dk-pr-feedback-read, -address and -reply
+from their preflight inputs through the installed helpers. They use a paginated
+fake behind the real gh capture and fail-closed capture and publication fakes,
+and count sessions, pages, commits and writes across resume and composed runs.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

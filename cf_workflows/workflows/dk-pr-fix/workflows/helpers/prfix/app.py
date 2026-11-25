@@ -378,6 +378,11 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             "head revision, {kind:commit_message,commit} for a PR commit's message, or {kind:pr_title} / "
             "{kind:pr_description}. Use null for fields a kind does not use. Never name a nearby changed line "
             "instead of the real location, and keep local paths and workflow diagnostics out of finding text.")
+    from .responses import context as feedback_context, role as feedback_role
+    if feedback_role(task):
+        # Feedback occurrences receive the retained assessments, so standalone and composed
+        # runs keep request IDs and settled decisions and never implement or answer twice.
+        assignment["feedback"] = feedback_context(root, provider, plan)
     reference = artifact(root, assignment)
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
@@ -563,6 +568,8 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
+    from .feedback import FeedbackError
+    from .responses import check_feedback, retain_feedback, role as feedback_role
     claim = _active(_claim(ledger, inputs["claim"]))
     task = _task(plan, claim["task"])
     agent = text(inputs.get("agent"), "opaque native agent reference")
@@ -595,12 +602,18 @@ def accept(root, provider, ledger, plan, inputs):
         _dispositions(root, ledger, plan, task, report, agent, assignment)
         if task["kind"] == "reply" and complete:
             # The responder must account for every current source and draft every owed reply.
-            from .feedback import FeedbackError
             from .responses import accept as retain_responses
             try:
                 retain_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
+        elif feedback_role(task) and complete:
+            # Reading or addressing feedback must leave every current source assessed; its
+            # assessments are retained only once the report's effects are committed below.
+            try:
+                check_feedback(root, provider, plan, task, report)
+            except FeedbackError as error:
+                raise ReportContractError("feedback assessments: " + str(error)) from error
     except ReportContractError as error:
         return _reject_report(root, provider, ledger, plan, claim, assignment,
                               report, agent, round_number, error)
@@ -647,6 +660,8 @@ def accept(root, provider, ledger, plan, inputs):
         if complete:
             ledger.db.execute("INSERT OR IGNORE INTO accepted_reports VALUES(?,?,?,?,?,?)",
                               (reference, task["id"], task["kind"], coverage, agent, encoded))
+    if complete and feedback_role(task) in ("read", "address"):
+        retain_feedback(root, provider, plan, task, report)
     if (complete or settled_optional) and task["writes"]:
         writer_lease(root, plan["logical_run"], claim["id"], release=True)
     return {"claim": claim["id"], "complete": complete, "agent": agent,
@@ -890,9 +905,10 @@ def coverage(root, provider, ledger, plan, inputs):
             missing.append("current_head_ci")
     # A selected response stage completes only with every owed reply verified. An
     # unselected one is reported as such, never as settled.
-    from .responses import status as response_status
+    # Uncertain or refused replies and thread resolutions keep it unsettled.
+    from .responses import status as response_status, summary as feedback_summary
     responses = response_status(root, provider, ledger, plan)
-    if responses["selected"] and responses["status"] != "complete":
+    if responses["selected"] and not responses["settled"]:
         missing.append("feedback_responses")
     # Selected-plan coverage, current identity agreement and readiness stay
     # separate. Provisional coverage is private analysis of the pinned revision.
@@ -906,5 +922,7 @@ def coverage(root, provider, ledger, plan, inputs):
             "waiting": waits is not None and not waits["exhausted"],
             "settled": analyzed and (waits is None or waits["exhausted"]),
             "missing": missing, "withheld": withheld, "unresolved": unresolved, "responses": responses,
+            # Remaining response obligations of a plan that reads or addresses feedback.
+            "feedback": feedback_summary(root, provider, plan),
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

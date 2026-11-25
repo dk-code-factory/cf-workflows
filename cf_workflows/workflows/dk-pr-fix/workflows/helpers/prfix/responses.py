@@ -21,6 +21,11 @@ from .core import bounded_json, digest, state_directory, text
 
 REPLY_KINDS = ("reply", "reply_inline")
 DRAFT_FIELDS = {"assessments", "replies"}
+# The feedback read and address adapters (cf-workflows:dk-pr-feedback-read and -address,
+# docs/feedback-skills.md) with their legacy selectors and kinds. Their reports retain
+# assessments in the same record the response stage settles.
+FEEDBACK_TASKS = {"read-feedback": ("read", "inspection"), "dk-workflows:dk-pr-feedback-read": ("read", "inspection"),
+                  "address-feedback": ("address", "fix"), "dk-workflows:dk-pr-feedback-address": ("address", "fix")}
 
 
 def responder(plan):
@@ -93,6 +98,115 @@ def accept(root, provider, plan, report):
     feedback.require(not missing, "responder drafted no reply for: " + ", ".join(missing))
     unknown = sorted(set(bodies) - set(view.sources))
     feedback.require(not unknown, "drafted replies name no current feedback source: " + ", ".join(unknown))
+
+
+def role(task):
+    """``read``, ``address`` or ``reply`` for a feedback occurrence; None for any other task."""
+    if task["kind"] == "reply":
+        return "reply"
+    entry = FEEDBACK_TASKS.get(task.get("skill"))
+    return entry[0] if entry and entry[1] == task["kind"] else None
+
+
+def context(root, provider, plan):
+    """Retained feedback for a feedback occurrence's assignment.
+
+    Every current source with its stable identity, thread and current assessment, so a
+    later occurrence, standalone or composed, keeps the original request IDs and settled
+    decisions instead of deciding or implementing them again.
+    """
+    _, view = _observe(provider, plan)
+    record = _record(root, plan, read_only=True)
+    try:
+        sources = []
+        for key, source in sorted(view.sources.items()):
+            fingerprint = feedback.View.fingerprint(source)
+            current = record.current(key, fingerprint)
+            sources.append({"source": key, "identity": view.identity(source), "url": source["url"],
+                            "thread": source.get("thread"), "fingerprint": fingerprint, "current": current,
+                            "changed": current is None and bool(record.history(key))})
+    finally:
+        record.close()
+    return {"sources": sources}
+
+
+def _assessments(report):
+    deliverables = report.get("deliverables") if isinstance(report, dict) else None
+    value = deliverables.get("feedback") if isinstance(deliverables, dict) else None
+    if value is None:
+        return []
+    feedback.require(isinstance(value, dict) and set(value) == {"assessments"}
+                     and isinstance(value["assessments"], list),
+                     "deliverables.feedback requires exactly an assessments array")
+    return value["assessments"]
+
+
+def check_feedback(root, provider, plan, task, report):
+    """Validate a read or address report's assessments without retaining them.
+
+    Afterwards every current source must have a current assessment; a report may omit a
+    source that already has one. A read decides no implementation. An address ``fixed``
+    decision needs this report's changes or an earlier retained ``fixed`` decision for the
+    same request, so a resumed or composed occurrence never implements it again. Every
+    ledger rule applies: obligations are never dropped and settled decisions never change.
+    """
+    kind = role(task)
+    assessments = _assessments(report)
+    _, view = _observe(provider, plan)
+    record = _record(root, plan, read_only=True)
+    try:
+        assessed = set()
+        for assessment in assessments:
+            value = feedback.check(record, view, assessment)
+            feedback.require(value["source"] not in assessed, "duplicate assessment for " + value["source"])
+            assessed.add(value["source"])
+            current = record.current(value["source"], value["fingerprint"]) or {"requests": []}
+            settled = {request["id"]: request["implementation"] for request in current["requests"]}
+            for request in value["requests"]:
+                decision = request["implementation"]
+                if kind == "read":
+                    feedback.require(decision in ("none", settled.get(request["id"])),
+                                     f"{request['id']}: reading feedback decides no implementation")
+                elif decision == "fixed":
+                    feedback.require(bool(report.get("changes"))
+                                     or record.decided(value["source"], request["id"], "fixed"),
+                                     f"{request['id']}: a fixed decision needs this report's changes or an "
+                                     "earlier retained fix")
+        missing = [key for key, source in sorted(view.sources.items()) if key not in assessed
+                   and record.current(key, feedback.View.fingerprint(source)) is None]
+        feedback.require(not missing, "feedback sources left unassessed: " + ", ".join(missing))
+    finally:
+        record.close()
+    return view, assessments
+
+
+def retain_feedback(root, provider, plan, task, report):
+    """Retain an accepted read or address report's assessments after its effects are committed."""
+    view, assessments = check_feedback(root, provider, plan, task, report)
+    record = _record(root, plan, read_only=False)
+    try:
+        for assessment in assessments:
+            record.assess(view, assessment)
+    finally:
+        record.close()
+
+
+def summary(root, provider, plan):
+    """Read-only feedback obligations for a plan that reads or addresses feedback, or None.
+
+    This is the private result of the read and address entries: every source with its
+    current requests and settlement, the replies still owed and the no-reply decisions.
+    """
+    if not any(role(task) in ("read", "address") for task in plan["tasks"]):
+        return None
+    _, view = _observe(provider, plan)
+    record = _record(root, plan, read_only=True)
+    try:
+        result = feedback.stage(record, view, permissions(plan))
+    finally:
+        record.close()
+    return {"sources": result["sources"], "unassessed": result["unassessed"],
+            "replies_needed": result["replies_needed"], "unanswered": result["unanswered"]}
 
 
 def _intents(ledger, plan, states):
@@ -239,8 +353,8 @@ def settle(root, provider, ledger, plan, inputs):
 def status(root, provider, ledger, plan, inputs=None):
     """Response-stage status. Read-only; an unselected stage never reports complete."""
     if responder(plan) is None:
-        return {"selected": False, "status": "not_selected", "replies_needed": [], "unassessed": [],
-                "unanswered": [], "uncertain": [],
+        return {"selected": False, "status": "not_selected", "settled": False, "replies_needed": [],
+                "unassessed": [], "unanswered": [], "uncertain": [], "refused": [],
                 "blockers": ["no response stage is selected; feedback replies are not settled by this plan"]}
     _, view = _observe(provider, plan)
     record = _record(root, plan, read_only=True)
@@ -259,6 +373,38 @@ def status(root, provider, ledger, plan, inputs=None):
         if (key in result["replies_needed"] and key in view.sources
                 and source.get("version") == feedback.View.fingerprint(view.sources[key])):
             blockers.append(f"applied reply {saved['id']} does not answer {key} in its own location")
-    return {"selected": True, "status": result["status"], "replies_needed": result["replies_needed"],
-            "unassessed": result["unassessed"], "unanswered": result["unanswered"], "uncertain": uncertain,
+    # A refused or blocked latest attempt never counts: its reply is still owed, or its
+    # thread stays unresolved, until a fresh attempt is observed.
+    refused = []
+    for saved in _latest(ledger, plan).values():
+        intent, state = saved["intent"], saved["state"]
+        if state not in ("not_applied", "blocked"):
+            continue
+        if intent["kind"] == "resolve_thread":
+            thread = view.threads.get(intent["payload"].get("thread_id"))
+            if thread is None or thread["resolved"]:
+                continue
+            what = "resolution of " + thread["id"]
+        else:
+            source = intent.get("source") or {}
+            key = f"{source.get('kind')}:{source.get('id')}"
+            if key not in result["replies_needed"]:
+                continue
+            what = "reply to " + key
+        refused.append(saved["id"])
+        blockers.append(f"{what} was {state} ({saved['id']}); it settles nothing until a fresh attempt is observed")
+    # Selected-plan completion needs every owed reply verified and no uncertain or refused
+    # reply or thread resolution of this run left behind.
+    settled = result["status"] == "complete" and not uncertain and not refused
+    return {"selected": True, "status": result["status"], "settled": settled,
+            "replies_needed": result["replies_needed"], "unassessed": result["unassessed"],
+            "unanswered": result["unanswered"], "uncertain": uncertain, "refused": refused,
             "blockers": blockers}
+
+
+def _latest(ledger, plan):
+    """The latest attempt of each reply or resolution proposal of this run (fresh attempts are ``<id>.rN``)."""
+    latest = {}
+    for saved in _intents(ledger, plan, ("prepared", "pending", "applied", "not_applied", "blocked")):
+        latest[saved["id"].split(".r", 1)[0]] = saved
+    return latest
