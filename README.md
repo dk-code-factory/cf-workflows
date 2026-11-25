@@ -20,6 +20,7 @@ certified released engine.
 - [All 29 skills and their delivery obligations](docs/inventory.md)
 - [Version 1 configuration, invocation, report and state contracts](docs/contracts/v1/README.md)
 - [Installed dk-pr-fix workflow, preflight and state namespace](docs/dk-pr-fix.md)
+- [Feedback implementation, response obligations and thread resolution](docs/feedback.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

@@ -10,7 +10,7 @@ Back to the [contract index](README.md). `kind` is `application_state`.
 | `engine_refs` | Engine run, admitted closure, native claim/session and result references; never a competing scheduler |
 | `occurrences` | Stable task keys, selected plan, dependencies, pins, status, original output refs and accepted checklist refs |
 | `budgets` | Per-run consumed/reserved review, fix, retry, checklist, CI repair/rerun allowances and absolute deadlines |
-| `feedback` | Separate implementation dispositions, concrete response obligations and resolution evidence |
+| `feedback` | Separate implementation dispositions, concrete response obligations and resolution evidence ([feedback.md](../../feedback.md)) |
 | `decisions`, `alignment` | Original selections/sourced resolutions, current commitments and freshness bindings |
 | `publications` | Exact-intent journal refs, original request, actor, target/payload digests and uncertainty/receipt status |
 | `upgrade` | Original version/ref, target version, transaction status and recovery refs, or null |

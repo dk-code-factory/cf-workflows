@@ -52,6 +52,11 @@ that unrelated changes and fresh sessions run no session or gate read. They cove
 clarified acceptances, lost gate responses, lost write responses, interruption
 before and after a write, another writer, compare-and-swap rejection, a
 preserved earlier sibling, backup and restore, and refusal of foreign state.
+[Feedback obligation](feedback.md) tests (`tests/test_feedback.py`) cover
+dk-workflows#244 with a disposable ledger per test and a fake GitHub transport
+whose only operation is a counted `capture()`: rejected bot and style
+suggestions, mixed threads, questions for other participants, already answered
+and optional sources, edited sources, deleted replies and denied permissions.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture
