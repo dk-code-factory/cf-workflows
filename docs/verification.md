@@ -20,6 +20,16 @@ resource closure or semantic correctness of the descriptions. Review the latter
 against the pinned entries and [contracts](contracts/v1/README.md).
 The regression test verifies that missing or extra host-manifest entries reject
 before any source-object reads, instead of silently checking a partial host set.
+The checker also verifies the [dk-pr-fix extraction](dk-pr-fix.md). Every file of
+the pinned `examples/pr-fix/` must be copied or excluded with a reason. Each copied
+file must match its recorded upstream digest. `verbatim` files must be identical,
+and the YAML roles must equal the canonical conversion of the pinned TOML.
+
+[dk-pr-fix tests](dk-pr-fix.md#verification) (`tests/test_dk_pr_fix.py`, plus the
+ported example tests in `tests/dk_pr_fix/`) use disposable repositories, a fresh
+state namespace per test, a fail-closed fake engine transport and a fail-closed
+fake GitHub transport. They assert invocation counts and run the installed helpers
+from a relocated read-only copy against a separate checkout.
 
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any

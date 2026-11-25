@@ -1,0 +1,17 @@
+# Replace this placeholder with an existing local content ID or registry digest.
+controller:
+  run-timeout: 2h
+execution:
+  mode: container
+  image: registry.example.com/team/python-git-gh@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  runtime: docker
+  network: bridge
+  writable: true
+agents:
+  codex:
+    provider: codex-app-server
+    execution:
+      mode: local
+    sandbox: workspace-write
+    authentication:
+      mode: native

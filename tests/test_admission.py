@@ -55,9 +55,9 @@ class Fixture(unittest.TestCase):
         self.roles_root = self.base / 'roles'
         self.roles = {}
         for name in admission.ADMITTED_ROLES:
-            body = f'name = "{name}"\ndescription = "Fixture role"\ndeveloper_instructions = "Follow the assignment."\n'
-            self.write(self.roles_root, name + '.toml', body)
-            self.roles[name] = {'root': 'roles', 'path': name + '.toml', 'sha256': sha(body)}
+            body = f'name: "{name}"\ndescription: "Fixture role"\ninstructions: "Follow the assignment."\n'
+            self.write(self.roles_root, name + '.yaml', body)
+            self.roles[name] = {'root': 'roles', 'path': name + '.yaml', 'sha256': sha(body)}
         self.skills_root = self.base / 'skills'
         self.write(self.skills_root, 'lint/SKILL.md', 'Use [rules](refs/rules.md).\n')
         self.write(self.skills_root, 'lint/refs/rules.md', 'Rule one.\n')

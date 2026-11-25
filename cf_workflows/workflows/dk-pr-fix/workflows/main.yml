@@ -1,0 +1,220 @@
+# Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
+# Checked-in orchestration; helper calls retain separate operation boundaries.
+name: cf-workflows:dk-pr-fix
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - read-feedback
+        - reconcile-decisions
+        - address-feedback
+        - stage: publication
+        - assess-scope
+        - describe-pr
+        - stage: reviews
+        - stage: publication
+      finalizers:
+        type: array
+        default:
+        - inspect-commits
+        - sync-guidance
+        - stage: ci
+      reviewers:
+        type: array
+        default:
+        - review
+      adapters:
+        type: object
+        default:
+          read-feedback:
+            kind: inspection
+            writes: false
+            assignment: Capture all actionable inline threads, review bodies and general comments; preserve source
+              identities and obligations.
+            definition: leaf
+          reconcile-decisions:
+            kind: decisions
+            writes: false
+            assignment: Reconcile settled decisions from original sources, exact request and repository guidance;
+              do not invent user authority.
+            definition: leaf
+          address-feedback:
+            kind: fix
+            writes: true
+            assignment: Verify actionable feedback and implement focused changes. Account for original findings
+              and every changed file; preserve unrelated work.
+            definition: leaf
+          assess-scope:
+            kind: scope
+            writes: false
+            assignment: Assess the complete diff against the selected size/scope policies; report concrete boundaries
+              and ownership evidence. Splitting publication requires separately supplied explicit authority.
+            definition: leaf
+          describe-pr:
+            kind: description
+            writes: false
+            assignment: Prepare a repository-native PR title and description from the actual final diff and accepted
+              issue; propose exact authorized publication operations only.
+            definition: leaf
+          inspect-commits:
+            kind: cleanup
+            writes: false
+            assignment: Inspect the entire commit series against selected commit policy and final tree. Report blockers
+              and exact justified history proposals; do not rewrite Git directly.
+            definition: leaf
+          sync-guidance:
+            kind: synchronization
+            writes: true
+            assignment: Synchronize governing repository content only where the exact original request and selected
+              policy require changes; account for every changed path.
+            definition: leaf
+          review:
+            kind: review
+            definition: reviewer
+            writes: false
+            assignment: Review the actual changes against the originating issue, documented repository standards
+              and accepted user scope. Return supported actionable findings or an evidenced no-findings report.
+            checklist:
+            - id: assignment
+              text: Inspect the actual diff and originating requirements.
+            - id: evidence
+              text: Verify source evidence and every concrete finding.
+            - id: scope
+              text: Account for repository rules, changed tests and unresolved checks.
+            resources: []
+            history: false
+            head_sensitive: false
+            cacheable: true
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+      permissions:
+        type: object
+        default:
+          push_commits: false
+          rewrite_commits: false
+          edit_pr: false
+          reply_to_feedback: false
+          resolve_threads: false
+          create_draft_prs: false
+          request_review: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.completion.outputs.result.complete }}
+      ready:
+        value: ${{ jobs.completion.outputs.result.ready }}
+jobs:
+  request:
+    uses: workflows/helper.yml
+    with:
+      operation: snapshot_request
+      payload:
+        request: ${{ inputs.request }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  prepare:
+    uses: workflows/helper.yml
+    with:
+      operation: prepare
+      payload:
+        snapshot: ${{ needs.request.outputs.result.snapshot }}
+        controls:
+          tasks: ${{ inputs.tasks }}
+          finalizers: ${{ inputs.finalizers }}
+          reviewers: ${{ inputs.reviewers }}
+          adapters: ${{ inputs.adapters }}
+          limits: ${{ inputs.limits }}
+          permissions: ${{ inputs.permissions }}
+          ci: ${{ inputs.ci }}
+          merge_method: ${{ inputs.merge_method }}
+          accounts: ${{ inputs.accounts }}
+          settings: ${{ inputs.settings }}
+          resources: ${{ inputs.resources }}
+          turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - request
+  cycles:
+    uses: workflows/cycle.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+      stages: ${{ needs.prepare.outputs.result.stages }}
+      cycle: ${{ iteration.number }}
+      repairs: ${{ needs.prepare.outputs.result.limits.ci_repairs_per_cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: prepare
+    if: ${{ needs.prepare.status != 'failed' and needs.prepare.status != 'needs_attention' and needs.prepare.status
+      != 'canceled' }}
+    repeat:
+      max-attempts: ${{ needs.prepare.outputs.result.limits.review_cycles }}
+      until: ${{ iteration.outputs.complete }}
+  completion:
+    uses: workflows/helper.yml
+    with:
+      operation: completion
+      payload:
+        plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - cycles
+  merge_proposal:
+    uses: workflows/helper.yml
+    with:
+      operation: merge_proposal
+      payload:
+        plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - completion
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.completion.outputs.result.ready }}
+  merge:
+    uses: workflows/publication.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+      proposal: ${{ needs.merge_proposal.outputs.result.proposal }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - merge_proposal
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.merge_proposal.outputs.result.invoke }}
