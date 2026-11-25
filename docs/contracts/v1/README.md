@@ -4,7 +4,8 @@ These are normative design contracts for the independent `cf-workflows` suite,
 version `0.1.0-dev`. They are not an installed plugin or executable schema validator.
 The machine-readable identity lives in [sources.json](../../../baselines/sources.json).
 Configuration admission is implemented under issues #11–#13; structural
-admission is in [admission.md](../../admission.md). Installed execution
+admission is in [admission.md](../../admission.md) and semantic assessment in
+[semantic.md](../../semantic.md). Installed execution
 and host observation require their actual upstream capabilities. All inventory
 rows currently have `not_implemented` status. Neither the historical adapter
 aliases nor this documentation establish native skill parity.

@@ -5,8 +5,9 @@ An independent successor to
 and Claude on [Agent Workflow](https://github.com/dk-code-factory/agent-workflow).
 
 Version `0.1.0-dev` establishes the suite's contracts and complete 29-skill
-inventory and implements [structural configuration admission](docs/admission.md).
-There is no runnable plugin, semantic admission or verified host compatibility yet. Source pins are provenance, not a certified released engine.
+inventory and implements [structural configuration admission](docs/admission.md)
+and [semantic assessment of custom inputs](docs/semantic.md) against engine
+interfaces. There is no runnable plugin or verified host compatibility yet. Source pins are provenance, not a certified released engine.
 
 - [Baselines and attribution](docs/baselines.md)
 - [All 29 skills and their delivery obligations](docs/inventory.md)

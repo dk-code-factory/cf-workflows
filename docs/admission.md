@@ -60,8 +60,9 @@ After every local check passes, admission makes one read-only `capabilities()`
 call. If that query fails, the result is `preflight: blocked` with structural
 status `accepted`, not a structural rejection. Each deployed provider must offer `native_session` and `admitted_roles`,
 plus `session_scoped_skills` when a supplied skill is applicable and
-`merge_guard` when merge is effectively granted. Admission calls no other
-transport operation.
+`merge_guard` when merge is effectively granted. When custom inputs apply, the
+engine must also offer `durable_input` in `engine.capabilities` for
+clarification gates. Admission calls no other transport operation.
 
 ## Result
 
@@ -69,7 +70,8 @@ On success the result holds a deterministic `snapshot` and `snapshot_digest`, th
 contract `admission` record (request ID and context, resource and capability
 digests) and a bounded `admission_input` (at most 1 MiB). That input lists
 configured requirements, effective permissions, prohibitions, capability
-bindings, source identities and every applicable custom input. The original
+bindings, source identities and every applicable custom input with its exact
+configuration path. The original
 request text is kept byte-for-byte and apart from adapter assignments and
 per-task `instructions`. Remote writes default off. A permission is effective
 only when it is enabled, explicitly authorized and not prohibited.
@@ -83,11 +85,12 @@ Custom inputs are:
 - selected adapters that differ from the baseline;
 - supplied skills referenced by a selection.
 
-When any exist, the result is structurally `accepted` and semantically
-`blocked`, and preflight rejects. This lasts until semantic assessment (#12) and
-supplied-skill execution (#16) land. The bundled validator check runs before the
-engine query. The default plan has no custom inputs, so it is admitted with
-`semantic: null` and needs no validator session.
+When any exist, the result is structurally `accepted`, semantically `blocked`
+and its preflight is `semantic_required`. Structural success never admits it;
+[semantic assessment](semantic.md) decides. A selected supplied skill still
+rejects preflight until supplied-skill execution (#16) lands. The bundled
+validator check runs before the engine query. The default plan has no custom
+inputs, so it is admitted with `semantic: null` and needs no validator session.
 
 ## Bootstrap boundary
 
@@ -101,7 +104,7 @@ after one level.
 
 ## Not established here
 
-- Running the validator, its verdicts and reconciliation: #12.
+- Running the validator, its verdicts and reconciliation: [semantic.md](semantic.md).
 - Reusing acceptance: #13.
 - Snapshot capture of PR metadata: #14.
 - Supplied-skill sessions: #16, which needs Agent Workflow #139.

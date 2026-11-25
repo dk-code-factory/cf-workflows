@@ -4,8 +4,10 @@ Admission reads and hashes declared inputs. It never loads or executes a
 user-supplied skill, starts a provider session, runs a target task or performs a
 remote write. The only external operation is one read-only capability query on
 the supplied engine transport, made after every local structural check passes.
-Semantic assessment of custom prompts and supplied skills is not implemented
-here; until it is, such proposals are rejected at preflight.
+A proposal with custom inputs is structurally accepted but never admitted here:
+its preflight is `semantic_required` until cf_workflows.semantic assesses it.
+Supplied skills remain rejected at preflight until session-scoped execution
+(#16) lands.
 
 Baseline adapter texts and selection rules are adapted from the pinned portable
 PR-fix example (Agent Workflow, MIT; see licenses/agent-workflow-MIT.txt).
@@ -53,6 +55,8 @@ LIMIT_BOUNDS = {'review_cycles': (1, 10), 'retries_per_task': (0, 1),
 BASE_CAPABILITIES = ('native_session', 'admitted_roles')
 SKILL_CAPABILITY = 'session_scoped_skills'
 MERGE_CAPABILITY = 'merge_guard'
+INPUT_CAPABILITY = 'durable_input'  # Engine-level: request-bound clarification gates.
+SUPPLIED_SKILL_EXECUTION = False  # Session-scoped supplied-skill execution lands in #16.
 
 VALIDATOR_ROLE = 'configuration-validator'
 BOOTSTRAP_DEFINITION = Path(__file__).resolve().parent / 'bootstrap' / 'configuration-validator.toml'
@@ -628,6 +632,7 @@ def effective(scopes, request, invocation, resources):
     Records of non-matching scopes are returned separately for structural checks.
     """
     applicable, inactive = [], []
+    locations = {'default': 'default'}
     seen = set()
     for index, scope in enumerate(scopes):
         where = f'configuration.scopes[{index}]'
@@ -652,9 +657,11 @@ def effective(scopes, request, invocation, resources):
     level = {}
     for rank, _, kind, scope_id, where, scope in applicable:
         source = f'{kind}:{scope_id}'
+        locations[source] = where
         for key, value in scope.get('options', {}).items():
             if key in ACCUMULATED:
-                accumulated[key].extend({'text': item, 'source': source} for item in value)
+                accumulated[key].extend({'text': item, 'source': source, 'path': f'{where}.options.{key}[{index}]'}
+                                        for index, item in enumerate(value))
                 continue
             previous = level.get(('option', key))
             require(not previous or previous[0] != rank or previous[1] == value, f'{where}.options.{key}',
@@ -673,7 +680,7 @@ def effective(scopes, request, invocation, resources):
     for key in ACCUMULATED:
         options[key] = {'value': accumulated[key], 'source': 'accumulated'}
     return (options, permissions, records, [f'{kind}:{scope_id}' for _, _, kind, scope_id, _, _ in applicable],
-            inactive)
+            inactive, locations)
 
 
 # -- Selections -------------------------------------------------------------------------------
@@ -740,8 +747,12 @@ def check_adapter(name, adapter, path):
             'cacheable': adapter.get('cacheable', True)}
 
 
-def build_plan(options, adapters, roles, skills, resources):
+def build_plan(options, adapters, roles, skills, resources, locations):
     tasks, stages = [], []
+
+    def at(raw, index, n):
+        """Exact selection path inside a raw plan: [index] or [index][n] for a parallel group."""
+        return f'[{index}][{n}]' if isinstance(raw[index], list) else f'[{index}]'
 
     def task(call, path, phase, fallback=None):
         name = call['task']
@@ -757,13 +768,15 @@ def build_plan(options, adapters, roles, skills, resources):
                  'definition_sha256': roles[adapter['definition']]['sha256'],
                  'assignment_sha256': hashlib.sha256(adapter['assignment'].encode()).hexdigest(),
                  'instructions': call.get('instructions'), 'required': call.get('required', True),
-                 'skill': skill, 'resources': adapter['resources']}
+                 'skill': skill, 'resources': adapter['resources'], 'path': path}
         tasks.append(entry)
         require(len(tasks) <= MAX_TASKS, path, 'plan exceeds bounded task count')
         return entry
 
     for phase in ('tasks', 'finalizers'):
-        for index, group in enumerate(groups(options[phase]['value'], 'options.' + phase)):
+        raw = options[phase]['value']
+        base = f"{locations[options[phase]['source']]}.options.{phase}"
+        for index, group in enumerate(groups(raw, 'options.' + phase)):
             where = f'options.{phase}[{index}]'
             if len(group) > 1:
                 require(not any('stage' in call for call in group), where, 'managed stages cannot run in a parallel group')
@@ -771,13 +784,18 @@ def build_plan(options, adapters, roles, skills, resources):
             if stage in ('publication', 'ci'):
                 stages.append({'kind': stage, 'phase': phase})
             elif stage == 'reviews':
-                reviewers = group[0].get('reviewers', options['reviewers']['value'])
+                if 'reviewers' in group[0]:
+                    reviewers, prefix = group[0]['reviewers'], base + at(raw, index, 0) + '.reviewers'
+                else:
+                    reviewers = options['reviewers']['value']
+                    prefix = f"{locations[options['reviewers']['source']]}.options.reviewers"
                 require(reviewers, where, 'selected reviewer stage requires explicit reviewers')
-                review_groups = [[task(call, f'{where}.reviewers', phase, 'review')['id'] for call in reviewer_group]
-                                 for reviewer_group in groups(reviewers, where + '.reviewers')]
+                review_groups = [[task(call, prefix + at(reviewers, number, n), phase, 'review')['id']
+                                  for n, call in enumerate(reviewer_group)]
+                                 for number, reviewer_group in enumerate(groups(reviewers, where + '.reviewers'))]
                 stages.append({'kind': 'reviews', 'phase': phase, 'groups': review_groups})
             else:
-                entries = [task(call, where, phase) for call in group]
+                entries = [task(call, base + at(raw, index, n), phase) for n, call in enumerate(group)]
                 require(len(entries) == 1 or not any(entry['writes'] for entry in entries), where,
                         'parallel writing tasks share a Git index and are unsupported')
                 stages.append({'kind': 'tasks', 'phase': phase, 'groups': [[entry['id'] for entry in entries]]})
@@ -865,7 +883,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     runtime = resolve_deployment(deployment)
     catalog = resolve_roles(roles, roots, 'roles')
     resources, contents = resolve_resources(config['resources'], roots, 'configuration.resources')
-    options, permissions, records, scopes, inactive = effective(config['scopes'], original, invocation, resources)
+    options, permissions, records, scopes, inactive, locations = effective(config['scopes'], original, invocation,
+                                                                          resources)
 
     adapters = {name: check_adapter(name, value, 'baseline.' + name) for name, value in BASELINE_ADAPTERS.items()}
     custom_adapters = []
@@ -881,7 +900,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         skill = resolve_skill(record, roots, where)
         require(skill['id'] not in skills, where + '.id', 'duplicate supplied skill id')
         skills[skill['id']] = {**skill, 'source': source, 'path_ref': where}
-    tasks, stages = build_plan(options, adapters, catalog, skills, resources)
+    tasks, stages = build_plan(options, adapters, catalog, skills, resources, locations)
     selected = {entry['adapter'] for entry in tasks}
     prompts = resolve_prompts(records['prompts'], adapters, resources, contents, selected, 'prompts')
     preferences = resolve_prompts(records['preferences'], adapters, resources, contents, selected, 'preferences')
@@ -925,6 +944,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     if effective_permissions['merge']['effective']:
         required.add(MERGE_CAPABILITY)
     semantic_required = any(custom.values())
+    engine_required = {INPUT_CAPABILITY} if semantic_required else set()
     # The bundled validator check is local and structural, so it also precedes the engine query.
     validator = bootstrap() if semantic_required else None
 
@@ -934,7 +954,12 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     except Exception as error:  # Any transport failure; never mistaken for malformed configuration.
         raise EngineUnavailable('engine capability query failed: ' + type(error).__name__) from error
     fields(capabilities, 'capabilities', ('engine', 'providers'))
-    fields(capabilities['engine'], 'capabilities.engine', ('version',))
+    fields(capabilities['engine'], 'capabilities.engine', ('version',), ('capabilities',))
+    engine_offered = capabilities['engine'].get('capabilities', [])
+    require(isinstance(engine_offered, list) and all(isinstance(item, str) for item in engine_offered),
+            'capabilities.engine.capabilities', 'must be an array of strings')
+    missing = sorted(engine_required - set(engine_offered))
+    require(not missing, 'capabilities.engine', 'unsupported engine capability: ' + ', '.join(missing))
     require(isinstance(capabilities['providers'], dict), 'capabilities.providers', 'must be an object')
     bindings = {}
     for agent, provider in runtime['providers'].items():
@@ -949,7 +974,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     request_record = {'original_instructions': original['original_instructions'], 'logical_run': original['logical_run'],
                       'pr': original['pr'], 'upstream': original['upstream'],
                       'authorizations': original['authorizations']}
-    capability_record = {'engine': engine, 'required': sorted(required), 'bindings': bindings}
+    capability_record = {'engine': engine, 'engine_required': sorted(engine_required),
+                         'required': sorted(required), 'bindings': bindings}
     resource_record = {'configured': resources, 'guidance': guidance, 'roles': catalog,
                        'skills': {key: {k: v for k, v in skill.items() if k != 'path_ref'} for key, skill in skills.items()}}
     snapshot = {
@@ -984,10 +1010,15 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         'custom': {
             'prompts': [{key: entry[key] for key in ('id', 'slot', 'target', 'source', 'path', 'text', 'resources')}
                         for entry in prompts + preferences if entry['applicable']],
-            'instructions': [{'task': entry['id'], 'adapter': entry['adapter'], 'text': entry['instructions']}
+            'instructions': [{'task': entry['id'], 'adapter': entry['adapter'], 'text': entry['instructions'],
+                              'path': entry['path'] + '.instructions'}
                              for entry in tasks if entry['instructions'] is not None],
-            'adapters': {name: adapters[name] for name in custom['adapters']},
-            'skills': {key: {k: skills[key][k] for k in ('name', 'root', 'path', 'entry', 'sha256', 'files', 'source')}
+            'adapters': {name: {**adapters[name],
+                                'path': f"{locations[options['adapters']['source']]}.options.adapters.{name}"}
+                         for name in custom['adapters']},
+            'skills': {key: {**{k: skills[key][k] for k in ('name', 'root', 'path', 'entry', 'sha256', 'files', 'source')},
+                             'record': skills[key]['path_ref'],
+                             'references': [entry['path'] + '.skill' for entry in tasks if entry['skill'] == key]}
                        for key in custom['skills']},
         },
         'sources': {'configuration_revision': config['revision'], 'scopes': scopes,
@@ -1006,10 +1037,13 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
                       'evidence_refs': ['snapshot:' + digest(snapshot)]},
         'snapshot': snapshot, 'snapshot_digest': digest(snapshot), 'admission_input': admission_input,
     }
-    if semantic_required:
+    if custom['skills'] and not SUPPLIED_SKILL_EXECUTION:
         result['preflight'] = 'rejected'
-        result['error'] = {'path': 'custom', 'message': 'custom prompts and supplied skills need semantic '
-                           'configuration assessment, which is not available yet'}
+        result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution, '
+                           'which is not available yet'}
+    elif semantic_required:
+        # Structural success never substitutes for semantic acceptance of custom inputs.
+        result['preflight'] = 'semantic_required'
     else:
         result['preflight'] = 'admitted'
     return result
