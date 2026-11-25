@@ -9,9 +9,9 @@ rules of the [invocation](contracts/v1/invocation.md) and
 Provisional PR identity is [provisional.md](provisional.md).
 
 Like [feedback obligations](feedback.md), this is a library operation that no
-installed workflow calls yet. The incoming-review stages (#24) and the
-alternatives skills (#27) consume it. Native sessions for these stages need Agent
-Workflow #129 and #130.
+installed workflow calls yet. The [alternatives entries](alternatives.md) (#27)
+drive its stages; incoming review (#24) will consume it. Native sessions for
+these stages need Agent Workflow #129 and #130.
 
 ## Stages
 
@@ -105,7 +105,10 @@ Each logical run has its own record, `runs/<sha256(logical_run)>.alignment.sqlit
 in the [state namespace](dk-pr-fix.md#state-namespace), next to the run ledger.
 It holds attempts, direct requests, reservations and grants.
 `PRAGMA user_version = 1` and a `meta` table bind the suite, kind, logical run
-and PR. Any other version, database or binding is refused.
+and PR. Any other version, database or binding is refused. Whole-problem
+analysis (`scope='whole-problem'`) has its own record,
+`<name>.whole-problem.alignment.sqlite`, whose `meta` also binds the scope.
+Without a PR it binds a repository `subject` instead and invents no PR.
 
 ## Verification
 
@@ -134,7 +137,8 @@ covers:
 - Running these stages as engine-managed native sessions needs Agent Workflow
   #129 and #130. [Incoming review](review.md) (#24) does not call the gate yet:
   it needs these native stages in the installed workflow. The alternatives
-  skills and the direct manual entry are #27.
+  entries and the direct manual entry drive them as library procedures
+  ([alternatives](alternatives.md)).
 - Posting an eligible finding goes through [exact-intent
   publication](publication.md). Incoming review applies the same rules in its
   [finding publication](review.md#finding-publication); it does not call this

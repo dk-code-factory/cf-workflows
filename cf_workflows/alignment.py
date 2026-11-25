@@ -161,10 +161,18 @@ CREATE TABLE grants (id TEXT PRIMARY KEY, name TEXT NOT NULL, amount INTEGER NOT
 """
 
 
-def ledger_path(state_directory, logical_run):
-    """The logical run's alignment record, next to its run ledger; run text never forms a path."""
+SCOPES = ('branch', 'whole-problem')
+
+
+def ledger_path(state_directory, logical_run, scope='branch'):
+    """The logical run's alignment record, next to its run ledger; run text never forms a path.
+
+    The branch scope (PR architecture) keeps its original name. Whole-problem analysis
+    (cf-workflows:dk-issue-alternatives) has its own record and never shares stage keys.
+    """
+    require(scope in SCOPES, 'unknown alternatives scope')
     name = hashlib.sha256(_text(logical_run, 'logical run').encode()).hexdigest()
-    return Path(state_directory) / 'runs' / (name + '.alignment.sqlite')
+    return Path(state_directory) / 'runs' / (name + ('' if scope == 'branch' else '.' + scope) + '.alignment.sqlite')
 
 
 def dumps(value):
@@ -178,14 +186,21 @@ def _reference(row):
 class Ledger:
     """Retained architectural analysis, current alignment and allowances for one logical run and PR."""
 
-    def __init__(self, path, *, logical_run, pr):
+    def __init__(self, path, *, logical_run, pr=None, subject=None, scope='branch'):
+        """A PR's record binds its URL. Whole-problem analysis without a PR binds its repository
+        subject instead and never invents a PR identity."""
+        require(scope in SCOPES and (pr is None) != (subject is None) and (pr is not None or scope != 'branch'),
+                'alignment ledger requires a PR, or a subject for whole-problem analysis')
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         require(not self.path.is_symlink(), 'alignment ledger must not be a symlink')
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
         self.db.row_factory = sqlite3.Row
         os.chmod(self.path, 0o600)
-        expected = {'suite': admission.SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr['url'].lower()}
+        expected = {'suite': admission.SUITE, 'kind': KIND, 'logical_run': logical_run}
+        expected.update({'pr': pr['url'].lower()} if pr is not None else {'subject': _text(subject, 'subject')})
+        if scope != 'branch':
+            expected['scope'] = scope
         try:
             with self.transaction():
                 version = self.db.execute('PRAGMA user_version').fetchone()[0]

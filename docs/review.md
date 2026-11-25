@@ -220,7 +220,8 @@ publication helpers list only verified findings and the final merge there.
   runs routing before the selected entry. Today routing is a library operation
   called before preflight.
 - [Alignment](alignment.md) gating of ordinary review runs only as a library.
-  Its native stages and the alternatives skills are #27.
+  The [alternatives entries](alternatives.md) drive its stages as library
+  procedures; the installed review workflow rejects their adapters.
 - A profile built from an installed code-review-ad package uses custom adapters.
   These need semantic admission (#12/#13) and workflow inputs for accepted
   custom inputs. Supplied reviewer skills need #16 and Agent Workflow #139.

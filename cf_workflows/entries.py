@@ -1,10 +1,12 @@
-"""Configuration entry points as thin presets over the shared workflow (contract v1).
+"""Supporting entry points as thin presets over the shared workflow (contract v1).
 
-cf-workflows:dk-repo-onboard, dk-config and dk-preferences add no orchestration.
+Configuration (cf-workflows:dk-repo-onboard, dk-config, dk-preferences) and
+alternatives (dk-issue-alternatives, dk-pr-alternatives, the dk-alternatives-review
+compatibility entry and the manual dk-pr-review-alternatives) add no orchestration.
 Each entry is a preset selection for the shared plan (one bundled adapter task,
 explicitly empty finalizers and reviewers), the adapter procedure that task runs
 (admitted role, bundled assignment and the helper operations in
-cf_workflows.configuration) and the entry's original options. Preflight runs the
+cf_workflows.configuration or cf_workflows.alternatives) and the entry's original options. Preflight runs the
 same structural and semantic admission as every other run. No skill is loaded,
 and no entry accepts a remote-write authorization.
 
@@ -52,15 +54,108 @@ ENTRIES = {
     },
 }
 
+# Options of both alternatives skills (their baseline config.json defaults, identical for issue and
+# PR). Non-default prompt text is custom input for the shared semantic admission (cf_workflows.alternatives).
+_ASSESSMENT = ('Assess purpose, requirements and repository evidence before comparing approaches. For small fixes '
+               'favor focused implementation changes and relevant edge-case coverage. For features exclude code-change '
+               'volume from ranking and assess design and maintainability through actual consequences. For mixed work '
+               'identify scopes and assign applicable rubrics. Select criteria, positive percentage weights totaling '
+               '100 and explicit 0/50/100 anchors, rationale, mandatory constraints and original source references. '
+               'Judge architectural decisions with that rubric and supplied evaluation guidance, without a predefined '
+               'defect checklist.')
+ALTERNATIVES_OPTIONS = {
+    'assessment_prompt': _ASSESSMENT,
+    'evaluation_prompt': '',
+    'scoring': {
+        'profile': 'auto',
+        'profile_selection_prompt': 'Assess purpose and scope to select criteria, percentage weights and scoring '
+                                    'anchors with an evidence-backed rationale. Favor focused changes and relevant '
+                                    'edge coverage for small fixes; exclude change volume when ranking feature '
+                                    'approaches. Assign applicable rubrics to mixed scopes.',
+        'custom_prompt': None,
+    },
+    'selection': {
+        'enabled': True,
+        'prompt': 'Assess confidence and sensitivity to LOC and complexity estimates. Accept a clear winner only with '
+                  'supported feasibility, adequate score lead and no unresolved material doubts. For a sole feasible '
+                  'option substantiate rejection of every alternative.',
+        'min_score_gap': 10,
+        'mode': 'semi-manual',
+    },
+}
+ALTERNATIVES_RULES = {
+    'scoring.profile': ('auto', 'minimal_change_edge_coverage', 'quality', 'minimal_change', 'custom'),
+    'selection.mode': ('automatic', 'manual', 'semi-manual'),
+    'selection.min_score_gap': range(0, 101),
+}
+ENTRIES.update({
+    'dk-issue-alternatives': {
+        'skill': 'cf-workflows:dk-issue-alternatives', 'adapter': 'issue-alternatives', 'saves': False,
+        'role_prompt': 'Compare whole-problem implementation approaches from issue requirements, optionally including '
+                       'an existing PR.\n',
+        'baseline_prompt': 'claude/skills/dk-issue-alternatives/prompts/default.md',
+        'options': ALTERNATIVES_OPTIONS, 'rules': ALTERNATIVES_RULES,
+        'operations': ('pins', 'prepare', 'scores', 'check_stage', 'finish', 'gate'), 'domains': (),
+    },
+    'dk-pr-alternatives': {
+        'skill': 'cf-workflows:dk-pr-alternatives', 'adapter': 'pr-alternatives', 'saves': False,
+        'role_prompt': 'Inventory branch architecture including inherited decisions, then compare questionable '
+                       'decisions under the shared PR rubric.\n',
+        'baseline_prompt': 'claude/skills/dk-pr-alternatives/prompts/default.md',
+        'options': ALTERNATIVES_OPTIONS, 'rules': ALTERNATIVES_RULES,
+        'operations': ('pins', 'prepare', 'scores', 'check_stage', 'finish', 'gate'), 'domains': (),
+    },
+    # The compatibility and manual entries run a delegate's adapter under their own identity and
+    # options (none); the delegate's options are passed separately and checked as the delegate's.
+    'dk-alternatives-review': {
+        'skill': 'cf-workflows:dk-alternatives-review', 'adapter': 'issue-alternatives', 'saves': False,
+        'role_prompt': 'Compatibility entry for dk-issue-alternatives and retained whole-problem managed '
+                       'assignments.\n',
+        'baseline_prompt': 'claude/skills/dk-alternatives-review/prompts/default.md',
+        'options': {}, 'operations': ('route',), 'domains': (),
+        'delegates': {'whole-problem': 'dk-issue-alternatives', 'branch': 'dk-pr-alternatives'},
+    },
+    'dk-pr-review-alternatives': {
+        'skill': 'cf-workflows:dk-pr-review-alternatives', 'adapter': 'pr-alternatives', 'saves': False,
+        'role_prompt': 'Manual entry point for alternatives-only PR review. Run and record a fresh review on demand, '
+                       'including after an earlier completed run.\n',
+        'baseline_prompt': 'claude/skills/dk-pr-review-alternatives/prompts/default.md',
+        'options': {}, 'operations': ('direct_request',), 'domains': (),
+        'delegates': {'branch': 'dk-pr-alternatives'},
+    },
+})
 
-def preset(name):
+
+def preset(name, adapter=None):
     """The entry's selection for the shared plan: one adapter task and explicitly empty slots."""
-    return {'tasks': [ENTRIES[name]['adapter']], 'finalizers': [], 'reviewers': []}
+    return {'tasks': [adapter or ENTRIES[name]['adapter']], 'finalizers': [], 'reviewers': []}
+
+
+def _option(declared, value, path, rules, where):
+    """One option checked against its declared default's shape; nested objects merge over the defaults."""
+    if isinstance(declared, dict):
+        require(isinstance(value, dict), path, 'must be an object')
+        merged = copy.deepcopy(declared)
+        for key, item in value.items():
+            require(key in declared, path + '.' + str(key), 'unsupported option for ' + where)
+            merged[key] = _option(declared[key], item, path + '.' + key, rules, where)
+        return merged
+    rule = rules.get(path.split('.', 1)[1])
+    if rule is not None:
+        require(value in rule and type(value) is type(declared), path, 'unsupported value')
+    elif declared is None or isinstance(declared, str):
+        # A nullable prompt takes text; only an option whose default is empty may be empty.
+        require(isinstance(value, str) or (declared is None and value is None), path, 'must be text')
+        if isinstance(value, str) and declared != '':
+            admission.text(value, path)
+    else:
+        require(type(value) is type(declared), path, 'must be ' + type(declared).__name__)
+    return value
 
 
 def check_options(name, options):
     """The entry's own options (its baseline schema) with provenance; unknown options reject."""
-    require(name in ENTRIES, 'entry', 'unknown configuration entry')
+    require(name in ENTRIES, 'entry', 'unknown entry')
     options = {} if options is None else options
     require(isinstance(options, dict), 'options', 'must be an object')
     declared = ENTRIES[name]['options']
@@ -72,6 +167,9 @@ def check_options(name, options):
                     and all(mode in admission.PREFERENCE_MODES for mode in value),
                     'options.default_applies_to', 'must be distinct implementation/review modes')
             value = [mode for mode in admission.PREFERENCE_MODES if mode in value]
+        else:
+            value = _option(declared[key], value, 'options.' + key, ENTRIES[name].get('rules', {}),
+                            ENTRIES[name]['skill'])
         result[key] = {'value': value, 'source': 'invocation'}
     return result
 
@@ -82,8 +180,8 @@ def _rejected(path, message, **extra):
 
 
 def preflight(name, *, request, deployment, repository, transport, invocation=None, options=None, roots=None,
-              install=dk_pr_fix.INSTALL, ledger=None):
-    """Admit one run of a configuration entry through the shared admission pipeline.
+              install=dk_pr_fix.INSTALL, ledger=None, adapter=None):
+    """Admit one run of an entry through the shared admission pipeline.
 
     invocation may carry only `prompts`: the task, finalizer and reviewer selection
     is the entry's preset. Writes nothing; transport sees the same operations as
@@ -93,7 +191,7 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
         entry_options = check_options(name, options)
         require(isinstance(request, dict), 'request', 'must be an object')
         require(not request.get('authorizations'), 'request.authorizations',
-                'configuration entries perform no remote write; a permission is a saved setting, not an authorization')
+                'supporting entries perform no remote write; a permission is a saved setting, not an authorization')
         invocation = {} if invocation is None else invocation
         require(isinstance(invocation, dict) and set(invocation) <= {'prompts'}, 'invocation',
                 'the entry preset fixes tasks, finalizers, reviewers and permissions; only prompts may be added')
@@ -112,7 +210,12 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
         return _rejected('roots', 'installation and repository roots are supplied by preflight')
     if not Path(repository).is_dir() or not dk_pr_fix._disjoint(repository, install):
         return _rejected('repository', 'target checkout must be a directory separate from the installation')
-    merged = {'options': preset(name), 'prompts': copy.deepcopy(invocation.get('prompts', []))}
+    # A compatibility or manual entry runs its delegate's adapter under its own identity.
+    selected = adapter or ENTRIES[name]['adapter']
+    delegates = {ENTRIES[delegate]['adapter'] for delegate in ENTRIES[name].get('delegates', {}).values()}
+    if selected not in {ENTRIES[name]['adapter']} | delegates:
+        return _rejected('adapter', 'not an adapter of ' + ENTRIES[name]['skill'])
+    merged = {'options': preset(name, selected), 'prompts': copy.deepcopy(invocation.get('prompts', []))}
     result = semantic.admit(request=copy.deepcopy(request), configuration=None, invocation=merged,
                             deployment=deployment, roles=dk_pr_fix.role_catalog(install),
                             roots={**roots, 'repository': repository, dk_pr_fix.INSTALL_ROOT: install},
@@ -123,10 +226,10 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
         return result
     snapshot = result['snapshot']
     [task] = snapshot['plan']['tasks']
-    assert task['adapter'] == entry['adapter'] and [stage['kind'] for stage in snapshot['plan']['stages']] == ['tasks']
+    assert task['adapter'] == selected and [stage['kind'] for stage in snapshot['plan']['stages']] == ['tasks']
     assert not any(value['effective'] for value in snapshot['permissions'].values())
     result['entry'].update({
-        'adapter': entry['adapter'], 'task': task, 'definition': snapshot['adapters'][entry['adapter']],
+        'adapter': selected, 'task': task, 'definition': snapshot['adapters'][selected],
         'role_prompt': entry['role_prompt'], 'operations': list(entry['operations']),
         'domains': list(entry['domains']), 'saves': entry['saves'],
         # Applicable custom prompts reach the session after semantic acceptance, apart from the ask.

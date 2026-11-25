@@ -119,6 +119,12 @@ dk-plain-english and dk-asd-ste100 with a disposable repository, the real
 acceptance and prose ledgers, and a fake engine whose claim-reconciled sessions
 edit the checkout. They count sessions across rejected edits, lost responses,
 interrupted commits and selective source, preference and reference refreshes.
+[Alternatives entry](alternatives.md#verification) tests
+(`tests/test_alternatives.py`) drive the four alternatives entries with a
+disposable repository and state namespace and a fake engine with durable gates
+and claim-reconciled native sessions scripted per stage. They count new sessions
+per stage across settled reuse, fresh direct requests, interruptions and
+exhausted allowances.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

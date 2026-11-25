@@ -48,10 +48,12 @@ ADMITTED_ROLES = ('leaf', 'reviewer', 'verifier', 'fixer', 'audience')
 GUIDANCE = ('AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', '.github/copilot-instructions.md')
 STAGES = ('publication', 'responses', 'reviews', 'ci')
 KINDS = ('review', 'inspection', 'decisions', 'fix', 'scope', 'description', 'cleanup',
-         'synchronization', 'reply', 'task', 'configuration')
+         'synchronization', 'reply', 'task', 'configuration', 'alternatives')
 # Configuration adapters propose saved changes for cf-workflows:dk-config and dk-preferences only
 # (cf_workflows.entries); a configuration helper, never the session, writes the store.
 CONFIGURATION_KIND = 'configuration'
+# Staged alternatives procedures (cf_workflows.alternatives); a generic task cannot stand in for them.
+ALTERNATIVES_KIND = 'alternatives'
 # Application modes of a preference: tasks that write implement; review adapters review.
 PREFERENCE_MODES = ('implementation', 'review')
 SELECTOR_TYPES = ('file', 'directory', 'glob')
@@ -148,6 +150,22 @@ ENTRY_ADAPTERS = {
             {'id': 'assignment', 'text': 'Keep the strength, conditions and exceptions of the ask.'},
             {'id': 'evidence', 'text': 'Account for every overlapping record and governing instruction.'},
             {'id': 'scope', 'text': 'Never pick a winner between contradictory instructions.'}]},
+    'issue-alternatives': {'kind': ALTERNATIVES_KIND, 'writes': False, 'definition': 'leaf', 'assignment':
+        'Perform only the assigned alternatives stage for the whole problem stated by the issue requirements, with '
+        'an existing pull request as an optional candidate. Estimate every option against the pinned target '
+        'revision. Return the stage contract with source evidence; do not edit, commit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Perform the assigned stage only, from the issue requirements.'},
+            {'id': 'evidence', 'text': 'Cite requirement sources and repository files for every claim.'},
+            {'id': 'scope', 'text': 'A selection grants no edit or publication permission.'}]},
+    'pr-alternatives': {'kind': ALTERNATIVES_KIND, 'writes': False, 'definition': 'leaf', 'assignment':
+        'Perform only the assigned alternatives stage for the architecture of the whole pull-request branch, '
+        'including inherited decisions. Estimate every option against the pinned target revision, counting work '
+        'already on the branch. Return the stage contract with source evidence; do not edit, commit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Perform the assigned stage only, over the whole branch.'},
+            {'id': 'evidence', 'text': 'Cite repository files for every decision and option.'},
+            {'id': 'scope', 'text': 'Keep comparisons private; a selection grants no edit or publication permission.'}]},
 }
 # Prose cleanup finalizers of cf-workflows:dk-plain-english and dk-asd-ste100 (docs/prose.md). They
 # write only through cf_workflows.prose, which bounds the edits and commits them.

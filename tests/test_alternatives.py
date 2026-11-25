@@ -1,0 +1,688 @@
+"""Alternatives entries: dk-issue-alternatives, dk-pr-alternatives, dk-alternatives-review and
+dk-pr-review-alternatives.
+
+Disposable Git repositories for real pins, a disposable state namespace per test and a
+fail-closed fake engine with durable gates and claim-reconciled native sessions scripted per
+stage. Any unscripted session, gate or other unconfigured operation fails with no live
+fallback. These results do not certify any engine, provider or host.
+"""
+from collections import Counter
+import copy
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tests'))
+sys.path.insert(0, str(ROOT))
+sys.dont_write_bytecode = True  # Never add caches to the installed closure.
+from cf_workflows import admission, alignment, alternatives, dk_pr_fix, entries  # noqa: E402
+from test_admission import CAPABILITIES, FakeTransport  # noqa: E402
+from test_configuration_skills import Engine  # noqa: E402
+from test_semantic import verdict  # noqa: E402
+
+REPOSITORY = 'github.com/owner/repo'
+PR = 'https://github.com/Owner/Repo/pull/7'
+INVENTORY = {row['name']: row for row in json.loads((ROOT / 'baselines/inventory.json').read_text())['skills']}
+ISSUE = [{'source': 'issue:27', 'text': 'Retries must be bounded and observable.'}]
+CHANGES = 'Route retries through the shared scheduler.'
+
+
+def git(repo, *args):
+    return subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, text=True).stdout
+
+
+def key(task):
+    return task['mode'] + (':' + task['decision'] if task['decision'] else '')
+
+
+class Transport(FakeTransport):
+    """Native sessions scripted per stage key; a known claim is reconciled to its original result."""
+
+    def __init__(self, engine, script, validators=(), lose=()):
+        super().__init__(CAPABILITIES)
+        self.tasks, lost, checks = [], Counter(lose), list(validators)
+
+        def native(task):
+            self.tasks.append(copy.deepcopy(task))
+            name = key(task)
+            if task['claim'] not in engine.claims:
+                if name not in script:
+                    raise AssertionError('unscripted native session: ' + name)
+                output = script[name]
+                if isinstance(output, list):
+                    if not output:
+                        raise AssertionError('unscripted native session: ' + name)
+                    output = output.pop(0)
+                engine.claims[task['claim']] = respond(task, output)
+                engine.sessions[name] += 1
+            if lost[name]:  # The session ran, but its response is lost.
+                lost[name] -= 1
+                raise ConnectionError('response lost')
+            return copy.deepcopy(engine.claims[task['claim']])
+
+        def validator(task):
+            if not checks:
+                raise AssertionError('unscripted validator session')
+            return checks.pop(0)(task)
+        self.configured.update(
+            native_session=native, validator_session=validator, open_input_gate=engine.open,
+            input_gates=lambda request_id: copy.deepcopy([g for g in engine.gates if g['request_id'] == request_id]))
+
+
+def respond(task, output):
+    observed = {'session_id': 'session-' + task['claim'], 'agent': task['agent'], 'role': task['role'],
+                'definition_sha256': task['definition_sha256'], 'skills_loaded': [],
+                'operations': [{'kind': 'read', 'target': name} for name in sorted(task['readable'])[:3]],
+                'claim': task['claim']}
+    if isinstance(output, tuple):  # (output, observation overrides)
+        output, extra = output
+        observed.update(extra(task) if callable(extra) else extra)
+    return {'result_ref': 'result-' + task['claim'],
+            'output': output(task) if callable(output) else copy.deepcopy(output), 'observation': observed}
+
+
+# -- Stage outputs ----------------------------------------------------------------------------------
+
+RUBRIC = {'id': 'fix', 'scope': 'Retry handling', 'work_type': 'small_fix', 'rationale': 'A focused fix.',
+          'evidence': ['issue:27'], 'weights': {'correctness': 70, 'low_loc': 30},
+          'anchors': {name: {'0': 'Fails.', '50': 'Partial.', '100': 'Complete.'} for name in ('correctness', 'low_loc')}}
+
+
+def assessment(**extra):
+    return {'purpose': 'Bound retries.', 'scope': 'Retry path', 'work_type': 'small_fix', 'rationale': 'Small fix.',
+            'mandatory_constraints': ['Keep the public API.'], 'evidence': ['issue:27', 'git:AGENTS.md:1'],
+            'rubrics': [RUBRIC], **extra}
+
+
+DECISIONS = {
+    'retry': {'id': 'retry', 'origin': 'introduced', 'scope': 'src/retry.py', 'rubric': 'fix',
+              'decision': 'Unbounded retry loop.', 'questionable': True, 'reason': 'No ceiling.',
+              'evidence': ['git:src/retry.py:1']},
+    'scheduler': {'id': 'scheduler', 'origin': 'inherited', 'scope': 'src/scheduler.py', 'rubric': 'fix',
+                  'decision': 'Ad hoc scheduler inherited from the target.', 'questionable': True,
+                  'reason': 'Duplicates the retry timer.', 'evidence': ['git:src/scheduler.py']},
+    'queue': {'id': 'queue', 'origin': 'introduced', 'scope': 'src/queue.py', 'rubric': 'fix',
+              'decision': 'In-memory queue.', 'questionable': False, 'reason': 'Adequate.',
+              'evidence': ['git:src/queue.py']},
+}
+
+
+def branch_inventory(*names, **changes):
+    decisions = [{**DECISIONS[name], **changes.get(name, {})} for name in names or ('retry', 'scheduler', 'queue')]
+    return {'coverage': {'introduced': 'Every changed file.', 'inherited': 'The scheduler the branch builds on.'},
+            'evidence': ['git:src/retry.py'], 'decisions': decisions}
+
+
+def whole_inventory(**changes):
+    return {'coverage': 'The whole problem stated by issue 27.', 'evidence': ['issue:27'],
+            'decisions': [{'id': 'whole', 'origin': 'whole_problem', 'scope': 'Retry handling', 'rubric': 'fix',
+                           'decision': 'How to bound retries.', 'questionable': True, 'reason': 'Open problem.',
+                           'evidence': ['issue:27'], **changes}]}
+
+
+def comparison(kinds=('pr', 'smallest', 'alternative'), ratings=None, **extra):
+    ratings = ratings or {'pr': 50, 'smallest': 90, 'alternative': 60}
+
+    def build(task):
+        solutions = [{'id': kind, 'kind': kind, 'approach': f'The {kind} approach.', 'pros': ['Clear.'], 'cons': [],
+                      'handled_edges': ['zero retries'], 'unhandled_edges': [], 'evidence': ['git:src/retry.py'],
+                      'complexity': 20, 'intrusiveness': 10, 'feasible': True, 'feasibility_reason': 'Fits.',
+                      'material_doubts': [], 'recommended': kind == 'smallest', 'recommendation_reason': 'Lead.',
+                      'production_loc': {'min': 1, 'expected': 4, 'max': 9, 'reason': 'Estimate.'},
+                      'ratings': {'correctness': ratings[kind], 'low_loc': ratings[kind]},
+                      'rating_evidence': {'correctness': 'Tested.', 'low_loc': 'Counted.'}} for kind in kinds]
+        return {'rubric': task['context']['rubric']['id'], 'target_revision': task['context']['pins']['target'],
+                'alternative_coverage': 'Materially distinct approaches.', 'evidence': ['git:src/retry.py'],
+                'solutions': solutions, **extra}
+    return build
+
+
+def auto(choice='smallest', **extra):
+    def build(task):
+        ids = [item['id'] for item in task['context']['comparison']['solutions']]
+        result = {'mode': 'auto', 'choice': choice, 'confident': True, 'sensitivity': 'Low.',
+                  'evidence': ['git:src/retry.py']}
+        if choice is not None:
+            result.update(reason='Clear lead.', rejection_reasons={i: 'Lower total.' for i in ids if i != choice})
+        return {**result, **extra}
+    return build
+
+
+def manual(**extra):
+    def build(task):
+        answer = task['context']['user_choice']
+        ids = [item['id'] for item in task['context']['comparison']['solutions']]
+        return {'mode': 'manual', 'choice': answer['value'], 'user_source': answer['answer_id'],
+                'reason': 'The user chose it.', 'evidence': [answer['answer_id']],
+                'rejection_reasons': {i: 'Not chosen.' for i in ids if i != answer['value']}, **extra}
+    return build
+
+
+COMPATIBLE = {'compatible': True, 'reason': 'Selections combine.', 'evidence': ['git:src/retry.py']}
+
+
+def current(value='aligned'):
+    result = {'alignment': value, 'reason': 'Judged against current sources.', 'evidence': ['git:src/retry.py']}
+    if value == 'mismatch':
+        result['required_changes'] = CHANGES
+    return result
+
+
+def verified(disposition='confirmed'):
+    result = {'disposition': disposition, 'reason': 'Independently checked.', 'evidence': ['git:src/retry.py']}
+    if disposition == 'confirmed':
+        result['required_changes'] = CHANGES
+    return result
+
+
+def branch_script(**overrides):
+    script = {'assessment': assessment(), 'inventory': branch_inventory(),
+              'comparison:retry': comparison(), 'comparison:scheduler': comparison(),
+              'selection:retry': auto(), 'selection:scheduler': auto(), 'interactions': COMPATIBLE}
+    script.update(overrides)
+    return script
+
+
+def whole_script(kinds=('pr', 'smallest', 'alternative'), **overrides):
+    return {'assessment': assessment(), 'inventory': whole_inventory(), 'comparison:whole': comparison(kinds),
+            'selection:whole': auto(), 'interactions': COMPATIBLE, **overrides}
+
+
+ANALYSIS = ('assessment', 'inventory', 'comparison:retry', 'comparison:scheduler', 'selection:retry',
+            'selection:scheduler', 'interactions')
+
+
+def direct(ident, instruction='Compare the retry design again.', **extra):
+    return {'id': ident, 'source': 'chat:' + ident, 'instruction': instruction,
+            'skill': 'cf-workflows:dk-pr-review-alternatives', 'origin': 'user', **extra}
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix='cfw alternatives ')
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.repo = self.base / 'target repo'
+        self.repo.mkdir()
+        git(self.repo, 'init', '-q')
+        git(self.repo, 'config', 'user.email', 'fixture@example.invalid')
+        git(self.repo, 'config', 'user.name', 'Fixture')
+        self.write('AGENTS.md', 'Run unittest before every change.\n')
+        self.write('src/scheduler.py', 'def schedule(job):\n    return job\n')
+        self.write('src/retry.py', 'def retry(job):\n    return job\n')
+        self.target = self.commit('target')
+        self.write('src/retry.py', 'def retry(job):\n    while True:\n        job()\n')
+        self.write('src/queue.py', 'QUEUE = []\n')
+        self.head = self.commit('head')
+        self.write('src/queue.py', 'QUEUE = [None]\n')
+        self.later = self.commit('later')
+        dk_pr_fix.verify_installation()
+        self.state = self.base / 'state'
+        self.engine = Engine()
+        self.deployment = {'controller': {'run-timeout': '2h'},
+                           'execution': {'mode': 'container', 'image': 'ghcr.io/fixture/helper@sha256:' + 'a' * 64},
+                           'agents': {'codex': {'provider': 'fixture-provider', 'sandbox': 'workspace-write'}}}
+
+    def write(self, rel, body):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+
+    def commit(self, message):
+        git(self.repo, 'add', '-A')
+        git(self.repo, 'commit', '-q', '-m', message)
+        return git(self.repo, 'rev-parse', 'HEAD').strip()
+
+    def transport(self, script, **extra):
+        self.fake = Transport(self.engine, script, **extra)
+        return self.fake
+
+    def calls(self, **expected):
+        self.assertEqual(self.fake.calls, +Counter(expected))
+
+    def new_sessions(self, before):
+        return +(self.engine.sessions - before)
+
+    def pr_run(self, name, script, *, head=None, caller=None, instructions='Compare the retry design.', **extra):
+        transport = self.transport(script, **{k: extra.pop(k) for k in ('lose', 'validators') if k in extra})
+        extra.setdefault('requirements', ISSUE)
+        return alternatives.run(name, request={'pr': PR, 'instructions': instructions}, deployment=self.deployment,
+                                repository=self.repo, transport=transport, target=self.target,
+                                head=head or self.head, state=self.state, caller=caller, **extra)
+
+    def manual(self, request, script, *, head=None, instructions=None, **extra):
+        transport = self.transport(script, **{k: extra.pop(k) for k in ('lose',) if k in extra})
+        return alternatives.manual_review(
+            request={'pr': PR, 'instructions': instructions or request['instruction']}, direct=request,
+            deployment=self.deployment, repository=self.repo, transport=transport, target=self.target,
+            head=head or self.head, state=self.state, requirements=extra.pop('requirements', ISSUE), **extra)
+
+
+# -- Presets ------------------------------------------------------------------------------------------
+
+class Presets(Fixture):
+    def test_role_and_stage_prompts_are_the_baseline_bytes(self):
+        for name in ('dk-issue-alternatives', 'dk-pr-alternatives', 'dk-alternatives-review',
+                     'dk-pr-review-alternatives'):
+            entry = entries.ENTRIES[name]
+            [resource] = [r for r in INVENTORY[name]['baseline_resources'] if r['path'] == entry['baseline_prompt']]
+            self.assertEqual(hashlib.sha256(entry['role_prompt'].encode()).hexdigest(), resource['sha256'], name)
+            self.assertEqual(entries.preset(name), {'tasks': [entry['adapter']], 'finalizers': [], 'reviewers': []})
+        for stage, prompt in alternatives.STAGE_PROMPTS.items():
+            self.assertEqual(hashlib.sha256(prompt.encode()).hexdigest(), alternatives.STAGE_PROMPT_SHA256[stage])
+        self.assertEqual(set(alternatives.STAGE_PROMPTS), set(alignment.STAGES))
+
+    def test_baseline_options_with_provenance_and_rejections(self):
+        options = entries.check_options('dk-pr-alternatives', {'selection': {'mode': 'manual'}})
+        self.assertEqual(options['selection'], {'value': {**entries.ALTERNATIVES_OPTIONS['selection'],
+                                                          'mode': 'manual'}, 'source': 'invocation'})
+        self.assertEqual(options['scoring']['source'], 'default')
+        for bad in ({'selection': {'mode': 'sometimes'}}, {'selection': {'min_score_gap': 101}},
+                    {'selection': {'enabled': 'yes'}}, {'scoring': {'profile': 'fast'}}, {'unknown': 1},
+                    {'assessment_prompt': ''}, {'selection': {'extra': 1}}):
+            with self.assertRaises(admission.AdmissionError, msg=bad):
+                entries.check_options('dk-issue-alternatives', bad)
+        self.assertEqual(entries.check_options('dk-alternatives-review', None), {})
+        with self.assertRaises(admission.AdmissionError):
+            entries.check_options('dk-pr-review-alternatives', {'selection': {'mode': 'manual'}})
+
+    def test_default_run_loads_no_skill_and_rejects_authority_expansion(self):
+        result = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual(result['status'], 'complete', result)
+        self.calls(capabilities=1, native_session=7)
+        for task in self.fake.tasks:
+            self.assertEqual((task['skills'], task['tools'], task['writes'], task['publication'], task['adapter']),
+                             ([], 'read-only', False, False, 'pr-alternatives'))
+            self.assertEqual(task['instructions'], 'Compare the retry design.')
+            self.assertEqual(task['stage_prompt'], alternatives.STAGE_PROMPTS[task['mode']])
+        self.assertEqual((result['ready'], result['clean_review'], result['publication']), (False, False, False))
+        grant = {'post_findings': {'request_id': 'r1', 'instruction': 'Post.', 'source': 'chat'}}
+        for kwargs in ({'request': {'pr': PR, 'instructions': 'x', 'authorizations': grant}},
+                       {'invocation': {'options': {'tasks': ['review']}}},
+                       {'options': {'selection': {'mode': 'never'}}}):
+            transport = self.transport({})
+            arguments = {'request': {'pr': PR, 'instructions': 'Compare.'}, 'deployment': self.deployment,
+                         'repository': self.repo, 'transport': transport, 'target': self.target, 'head': self.head,
+                         'state': self.state, 'requirements': ISSUE, **kwargs}
+            rejected = alternatives.run('dk-pr-alternatives', **arguments)
+            self.assertEqual(rejected['status'], 'rejected', kwargs)
+            self.calls()
+
+    def test_custom_prompt_options_use_the_shared_semantic_admission(self):
+        result = self.pr_run('dk-pr-alternatives', branch_script(), validators=[verdict('accepted')],
+                             options={'evaluation_prompt': 'Weigh operability heavily.'})
+        self.assertEqual(result['status'], 'complete', result)
+        self.calls(capabilities=1, input_gates=1, validator_session=1, native_session=7)
+        self.assertEqual(self.fake.tasks[0]['prompts'], [{'id': 'option.evaluation_prompt', 'slot': 'additional',
+                                                          'target': 'pr-alternatives',
+                                                          'text': 'Weigh operability heavily.'}])
+        rejected = self.pr_run('dk-pr-alternatives', {}, validators=[verdict('rejected', conflicts=[
+            {'summary': 'Waives a prohibition.', 'paths': lambda task: [task['subjects'][0]['path']]}])],
+            options={'selection': {'prompt': 'Always pick the PR.'}})
+        self.assertNotEqual(rejected['status'], 'complete')
+        self.assertEqual(self.fake.calls['native_session'], 0)
+
+    def test_installed_workflow_never_runs_alternatives_as_a_generic_task(self):
+        for adapter in ('issue-alternatives', 'pr-alternatives'):
+            rejected = dk_pr_fix.preflight(
+                request={'pr': PR, 'instructions': 'Fix it.'}, configuration=None, transport=self.transport({}),
+                invocation={'options': {'tasks': [adapter, 'address-feedback'], 'finalizers': []}},
+                deployment=self.deployment, repository=self.repo, home=self.state)
+            self.assertEqual((rejected['preflight'], rejected['error']['path']), ('rejected', 'options.tasks'))
+
+
+# -- Whole problem versus branch ------------------------------------------------------------------------
+
+class Scope(Fixture):
+    def issue_only(self, script, instructions='Compare approaches for issue 27.', **extra):
+        transport = self.transport(script)
+        extra.setdefault('requirements', ISSUE)
+        return alternatives.run('dk-issue-alternatives', request={'repository': REPOSITORY,
+                                                                   'instructions': instructions},
+                                deployment=self.deployment, repository=self.repo, transport=transport,
+                                target=self.target, state=self.state, **extra)
+
+    def test_issue_only_analysis_persists_nothing_and_invents_no_pr(self):
+        script = whole_script(kinds=('smallest', 'alternative'))
+        result = self.issue_only(script)
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual((result['persisted'], result['pins']['pr'], result['pins']['head']),
+                         (False, None, self.target))
+        self.assertEqual(result['selections']['whole']['choice'], 'smallest')
+        self.assertEqual(result['selections']['whole']['scores'], {'smallest': 90.0, 'alternative': 60.0})
+        self.calls(capabilities=1, native_session=5)
+        self.assertFalse(self.state.exists())
+        self.assertEqual(git(self.repo, 'status', '--porcelain'), '')
+        self.assertTrue(all(task['context']['pins']['pr'] is None for task in self.fake.tasks))
+        # Interrupted or repeated: engine claims alone make the same call reusable.
+        before = copy.copy(self.engine.sessions)
+        again = self.issue_only(script)
+        self.assertEqual(again['status'], 'complete')
+        self.assertEqual(self.new_sessions(before), Counter())
+        # A pr candidate without a PR is never accepted.
+        invented = self.issue_only(whole_script(), instructions='Compare once more.')
+        self.assertEqual((invented['status'], invented['stage']), ('blocked', 'comparison:whole'))
+        self.assertIn('pr candidate', invented['error']['message'])
+        missing = self.issue_only(script, requirements=[])
+        self.assertEqual((missing['status'], missing['error']['path']), ('rejected', 'requirements'))
+
+    def test_whole_problem_and_branch_scopes_keep_separate_records_and_contracts(self):
+        whole = self.pr_run('dk-issue-alternatives', whole_script())
+        self.assertEqual((whole['status'], whole['scope'], whole['persisted']), ('complete', 'whole-problem', True))
+        branch = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual((branch['status'], branch['scope']), ('complete', 'branch'))
+        self.assertEqual(sum(1 for item in branch['stages'] if item['action'] == 'run'), 7)
+        runs = sorted(path.name for path in (self.state / 'runs').iterdir())
+        self.assertEqual(len(runs), 2)
+        self.assertTrue(any('.whole-problem.' in name for name in runs))
+        # Each scope's inventory and comparison contract.
+        cases = [
+            ('dk-issue-alternatives', {'inventory': whole_inventory(origin='inherited')}, 'inventory'),
+            ('dk-issue-alternatives', {'inventory': whole_inventory(evidence=['git:src/retry.py'])}, 'inventory'),
+            ('dk-pr-alternatives', {'inventory': {**branch_inventory(), 'coverage': 'Only the diff.'}}, 'inventory'),
+            ('dk-pr-alternatives', {'inventory': branch_inventory(retry={'evidence': ['git:src/scheduler.py']})},
+             'inventory'),
+            ('dk-pr-alternatives', {'inventory': branch_inventory(retry={'origin': 'whole_problem'})}, 'inventory'),
+            ('dk-pr-alternatives', {'comparison:retry': comparison(('smallest', 'alternative'))}, 'comparison:retry'),
+            ('dk-pr-alternatives', {'comparison:retry': comparison(target_revision=self.head)}, 'comparison:retry'),
+        ]
+        for name, override, stage in cases:
+            self.state = self.base / ('state-' + hashlib.sha256(repr(override).encode()).hexdigest()[:8])
+            script = (whole_script() if name == 'dk-issue-alternatives' else branch_script())
+            script.update(override)
+            result = self.pr_run(name, script)
+            self.assertEqual((result['status'], result['stage']), ('blocked', stage), (name, override, result))
+
+    def test_inherited_decisions_are_inventoried_and_compared(self):
+        result = self.pr_run('dk-pr-alternatives', branch_script())
+        inventory = next(task for task in self.fake.tasks if task['mode'] == 'inventory')
+        self.assertEqual(inventory['context']['pins']['changed'], ['src/queue.py', 'src/retry.py'])
+        self.assertIn('git:src/scheduler.py', inventory['readable'])  # The whole branch, not only the diff.
+        self.assertEqual(set(result['selections']), {'retry', 'scheduler'})  # Only questionable decisions.
+        compared = {task['decision'] for task in self.fake.tasks if task['mode'] == 'comparison'}
+        self.assertEqual(compared, {'retry', 'scheduler'})
+
+
+# -- Selection ------------------------------------------------------------------------------------------
+
+class Selection(Fixture):
+    def test_automatic_mode_never_prompts_and_elapsed_time_never_chooses(self):
+        close = comparison(ratings={'pr': 80, 'smallest': 85, 'alternative': 20})
+        script = branch_script(**{'comparison:retry': close, 'selection:retry': auto(None)})
+        options = {'selection': {'mode': 'automatic'}}
+        result = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((result['status'], result['decisions']), ('choice_pending', ['retry']))
+        self.assertEqual(self.fake.calls['open_input_gate'] + self.fake.calls['input_gates'], 0)
+        before = copy.copy(self.engine.sessions)
+        again = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual(again['status'], 'choice_pending')
+        self.assertEqual(self.new_sessions(before), Counter())
+        # A pick without the required lead is refused by the helper.
+        self.state = self.base / 'other'
+        refused = self.pr_run('dk-pr-alternatives', branch_script(**{'comparison:retry': close}), options=options)
+        self.assertEqual((refused['status'], refused['stage']), ('blocked', 'selection:retry'))
+        self.assertIn('min_score_gap', refused['error']['message'])
+
+    def test_manual_choice_is_asked_once_resumed_and_sourced(self):
+        script = branch_script(**{'selection:retry': [auto(None), manual()],
+                                  'selection:scheduler': [auto(None), manual()]})
+        options = {'selection': {'mode': 'manual'}}
+        result = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((result['status'], sorted(result['decisions'])), ('waiting', ['retry', 'scheduler']))
+        self.assertEqual(len(self.engine.gates), 2)
+        before = copy.copy(self.engine.sessions)
+        waiting = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual(waiting['status'], 'waiting')
+        self.assertEqual((self.new_sessions(before), len(self.engine.gates)), (Counter(), 2))
+        self.calls(capabilities=1, input_gates=2)
+        for gate, choice in zip(self.engine.gates, ('smallest', 'pr')):
+            self.engine.answer(gate['gate_id'], 'answer-' + gate['gate_id'], choice)
+        done = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual(done['status'], 'complete', done)
+        self.assertEqual({k: v['choice'] for k, v in done['selections'].items()},
+                         {'retry': 'smallest', 'scheduler': 'pr'})
+        self.assertEqual(self.new_sessions(before), Counter({'selection:retry': 1, 'selection:scheduler': 1,
+                                                             'interactions': 1}))
+
+    def test_manual_selection_cannot_invent_a_user_source(self):
+        script = branch_script(**{'selection:retry': [auto(None), manual(user_source='answer-invented')],
+                                  'selection:scheduler': [auto(None), manual()]})
+        options = {'selection': {'mode': 'semi-manual', 'enabled': False}}
+        self.assertEqual(self.pr_run('dk-pr-alternatives', script, options=options)['status'], 'waiting')
+        for gate in self.engine.gates:
+            self.engine.answer(gate['gate_id'], 'answer-' + gate['gate_id'], 'smallest')
+        result = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((result['status'], result['stage']), ('blocked', 'selection:retry'))
+        self.assertEqual(result['error']['path'], 'selection.user_source')
+
+
+# -- Settled analysis, current alignment and explicit fresh comparison -------------------------------------
+
+class Boundary(Fixture):
+    def test_analysis_settles_once_per_pr_across_requirements_guidance_heads_and_routes(self):
+        first = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual(first['status'], 'complete')
+        before = copy.copy(self.engine.sessions)
+        self.write('AGENTS.md', 'Prefer the shared scheduler.\n')
+        changed = self.pr_run('dk-pr-alternatives', branch_script(), head=self.later,
+                              requirements=ISSUE + [{'source': 'ticket:9', 'text': 'Also log retries.'}],
+                              options={'selection': {'mode': 'automatic'}}, instructions='Look again.')
+        self.assertEqual(changed['status'], 'complete')
+        self.assertEqual(self.new_sessions(before), Counter())
+        self.assertTrue(all(item['action'] == 'reuse' for item in changed['stages']))
+        # The review route reuses the same settled analysis and runs only current alignment.
+        review = self.pr_run('dk-pr-alternatives', branch_script(alignment=current()), caller='cf-workflows:dk-pr-review')
+        self.assertEqual((review['status'], review['gate']['release']), ('released', True))
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
+
+    def test_new_requirements_refresh_alignment_without_comparison(self):
+        """dk-workflows#241: an uncertain alignment takes in new requirements with no architectural session."""
+        script = branch_script(alignment=lambda task: current('mismatch' if task['context']['evidence'] else 'uncertain'),
+                               verification=verified())
+        first = self.pr_run('dk-pr-alternatives', script, caller='cf-workflows:dk-pr-review')
+        self.assertEqual(first['status'], 'alignment_uncertain', first)
+        before = copy.copy(self.engine.sessions)
+        ticket = [{'source': 'ticket:9', 'text': 'Retries go through the scheduler.'}]
+        second = self.pr_run('dk-pr-alternatives', script, caller='cf-workflows:dk-pr-review',
+                             evidence=ticket)
+        self.assertEqual(second['status'], 'mismatch_verified', second)
+        self.assertEqual(second['gate']['required_changes'], CHANGES)
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 1, 'verification': 1}))
+        self.assertEqual(second['allowances']['architecture']['used'], 7)
+        self.assertEqual(second['allowances']['alignment']['used'], 3)
+        verification = [task for task in self.fake.tasks if task['mode'] == 'verification'][-1]
+        self.assertEqual(verification['role'], 'verifier')
+        # A later head refreshes alignment only (dk-workflows#239: no historical receipt needed).
+        third = self.pr_run('dk-pr-alternatives', branch_script(alignment=current()), head=self.later,
+                            caller='cf-workflows:dk-pr-review', evidence=ticket)
+        self.assertEqual(third['status'], 'released', third)
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 2, 'verification': 1}))
+
+    def test_verification_must_be_an_independent_session(self):
+        same = (verified(), lambda task: {'session_id': self.alignment_session})
+        script = branch_script(alignment=current('mismatch'), verification=same)
+        self.alignment_session = None
+
+        original = respond
+
+        def capture(task, output):
+            value = original(task, output)
+            if task['mode'] == 'alignment':
+                self.alignment_session = value['observation']['session_id']
+            return value
+        with patch(__name__ + '.respond', capture):
+            result = self.pr_run('dk-pr-alternatives', script, caller='cf-workflows:dk-pr-review')
+        self.assertEqual((result['status'], result['stage']), ('blocked', 'verification'))
+
+    def test_explicit_fresh_comparison_refreshes_requested_analysis_once_per_request(self):
+        self.pr_run('dk-pr-alternatives', branch_script())
+        before = copy.copy(self.engine.sessions)
+        script = branch_script(alignment=current())
+        result = self.manual(direct('m1'), script)
+        self.assertEqual(result['status'], 'released', result)
+        self.assertEqual((result['entry'], result['delegate'], result['request']['id']),
+                         ('cf-workflows:dk-pr-review-alternatives', 'cf-workflows:dk-pr-alternatives', 'm1'))
+        self.assertEqual((result['ready'], result['clean_review'], result['gate']['ready']), (False, False, False))
+        refreshed = self.new_sessions(before)
+        self.assertEqual(refreshed, Counter({key: 1 for key in ANALYSIS if key != 'assessment'} | {'alignment': 1}))
+        # Replaying the same request repeats nothing; a distinct request refreshes again.
+        before = copy.copy(self.engine.sessions)
+        self.assertEqual(self.manual(direct('m1'), script)['status'], 'released')
+        self.assertEqual(self.new_sessions(before), Counter())
+        # A distinct request never renews the retained allowance; only an explicit grant adds capacity.
+        again = self.manual(direct('m2', 'Compare it once more.'), script)
+        self.assertEqual((again['status'], again['stage']), ('exhausted', 'comparison:scheduler'))
+        self.assertEqual(again['allowance'], {'allowance': 'architecture', 'used': 16, 'limit': 16,
+                                              'exhausted': True})
+        usage = alternatives.grant(state=self.state, pr=PR, request_id='continue-1', allowance='architecture',
+                                   amount=3, authorization='Continue the comparison.')
+        self.assertEqual((usage['limit'], usage['exhausted']), (19, False))
+        again = self.manual(direct('m2', 'Compare it once more.'), script)
+        self.assertEqual(again['status'], 'released', again)
+        self.assertEqual(self.new_sessions(before), Counter({key: 1 for key in ANALYSIS if key != 'assessment'}
+                                                            | {'alignment': 1}))
+        self.assertEqual(again['allowances']['architecture']['used'], 7 + 6 + 6)
+        # Automatic routes afterwards reuse the refreshed analysis.
+        before = copy.copy(self.engine.sessions)
+        self.assertEqual(self.pr_run('dk-pr-alternatives', branch_script())['status'], 'complete')
+        self.assertEqual(self.new_sessions(before), Counter())
+
+    def test_only_a_distinct_direct_user_request_authorizes_a_fresh_comparison(self):
+        for request, instructions in ((direct('a1', origin='agent'), None),
+                                      (direct('a2', skill='cf-workflows:dk-pr-alternatives'), None),
+                                      ({**direct('a3'), 'extra': 1}, None),
+                                      (direct('a4'), 'A different instruction.')):
+            result = self.manual(request, {}, instructions=instructions)
+            self.assertEqual(result['status'], 'rejected', request)
+            self.calls()
+        composed = alternatives.manual_review(
+            request={'pr': PR, 'instructions': 'Compare.'}, direct=direct('a5', 'Compare.'),
+            deployment=self.deployment, repository=self.repo, transport=self.transport({}), target=self.target,
+            head=self.head, state=self.state, caller='cf-workflows:dk-pr-review')
+        self.assertEqual((composed['status'], composed['error']['path']), ('rejected', 'caller'))
+        self.calls()
+
+    def test_interrupted_fresh_request_resumes_without_repeating_siblings(self):
+        self.pr_run('dk-pr-alternatives', branch_script())
+        before = copy.copy(self.engine.sessions)
+        script = branch_script(alignment=current())
+        interrupted = self.manual(direct('m1'), script, lose={'comparison:scheduler': 1})
+        self.assertEqual((interrupted['status'], interrupted['stage']), ('blocked', 'comparison:scheduler'))
+        # Meanwhile an automatic route sees the changed inventory and refuses to compare.
+        automatic = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual((automatic['status'], automatic['skill']),
+                         ('authorization_required', 'cf-workflows:dk-pr-review-alternatives'))
+        resumed = self.manual(direct('m1'), script)
+        self.assertEqual(resumed['status'], 'released', resumed)
+        actions = {item['key']: item['action'] for item in resumed['stages']}
+        self.assertEqual((actions['inventory'], actions['comparison:retry'], actions['comparison:scheduler']),
+                         ('reuse', 'reuse', 'resume'))
+        self.assertEqual(self.new_sessions(before), Counter({key: 1 for key in ANALYSIS if key != 'assessment'}
+                                                            | {'alignment': 1}))
+
+    def test_interrupted_analysis_resumes_its_claim_without_a_second_session(self):
+        lost = self.pr_run('dk-pr-alternatives', branch_script(), lose={'comparison:retry': 1})
+        self.assertEqual((lost['status'], lost['stage']), ('blocked', 'comparison:retry'))
+        resumed = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual(resumed['status'], 'complete', resumed)
+        actions = {item['key']: item['action'] for item in resumed['stages']}
+        self.assertEqual((actions['assessment'], actions['comparison:retry']), ('reuse', 'resume'))
+        self.assertEqual(self.engine.sessions, Counter({name: 1 for name in ANALYSIS}))
+        self.assertEqual(resumed['allowances']['architecture']['used'], 7)
+
+    def test_retained_allowance_is_never_renewed(self):
+        with patch.dict(alignment.LIMITS, {'architecture': 3}):
+            result = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual((result['status'], result['stage']), ('exhausted', 'selection:retry'))
+        before = copy.copy(self.engine.sessions)
+        again = self.pr_run('dk-pr-alternatives', branch_script())  # The default ceiling never resets it.
+        self.assertEqual((again['status'], again['allowance']['limit']), ('exhausted', 3))
+        self.assertEqual(self.new_sessions(before), Counter())
+
+
+# -- Composition ------------------------------------------------------------------------------------------
+
+class Composition(Fixture):
+    def test_fix_route_hands_settled_choices_and_required_changes_to_implementation(self):
+        result = self.pr_run('dk-issue-alternatives', whole_script(alignment=current('mismatch')),
+                             caller='cf-workflows:dk-pr-fix')
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(result['handoff'], {'choices': {'whole': 'smallest'}, 'alignment': 'mismatch',
+                                             'required_changes': CHANGES, 'tests_required': True})
+        self.assertEqual(self.engine.sessions['verification'], 0)
+        before = copy.copy(self.engine.sessions)
+        again = self.pr_run('dk-issue-alternatives', whole_script(alignment=current()), head=self.later,
+                            caller='cf-workflows:dk-pr-fix')
+        self.assertEqual(again['handoff']['alignment'], 'aligned')
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
+
+    def test_coordinators_compose_only_their_scope(self):
+        for name, caller in (('dk-issue-alternatives', 'cf-workflows:dk-pr-review'),
+                             ('dk-pr-alternatives', 'cf-workflows:dk-pr-fix'),
+                             ('dk-pr-alternatives', 'cf-workflows:dk-pr-iter')):
+            result = self.pr_run(name, {}, caller=caller)
+            self.assertEqual((result['status'], result['error']['path']), ('rejected', 'caller'))
+            self.calls()
+
+
+# -- Compatibility entry ----------------------------------------------------------------------------------
+
+class Compatibility(Fixture):
+    def compat(self, script, route, request=None, **extra):
+        transport = self.transport(script)
+        return alternatives.compatibility(route=route, request=request or {'pr': PR, 'instructions': 'Review alts.'},
+                                          deployment=self.deployment, repository=self.repo, transport=transport,
+                                          target=self.target, head=self.head, state=self.state,
+                                          requirements=ISSUE, **extra)
+
+    def test_routes_run_the_delegate_under_its_own_identity_with_the_original_instruction(self):
+        result = self.compat(whole_script(), 'whole-problem')
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual((result['entry'], result['delegate'], result['scope'], result['instructions']),
+                         ('cf-workflows:dk-alternatives-review', 'cf-workflows:dk-issue-alternatives',
+                          'whole-problem', 'Review alts.'))
+        compat = INVENTORY['dk-alternatives-review']['baseline_resources']
+        self.assertIn({'path': result['resources']['entry_role_prompt'],
+                       'sha256': result['resources']['entry_role_prompt_sha256']}, compat)
+        for task in self.fake.tasks:
+            self.assertEqual((task['entry'], task['skill'], task['instructions'], task['role_prompt']),
+                             ('cf-workflows:dk-alternatives-review', 'cf-workflows:dk-issue-alternatives',
+                              'Review alts.', entries.ENTRIES['dk-issue-alternatives']['role_prompt']))
+        branch = self.compat(branch_script(), 'branch')
+        self.assertEqual((branch['status'], branch['delegate']), ('complete', 'cf-workflows:dk-pr-alternatives'))
+
+    def test_compatibility_reuses_settled_analysis_and_cannot_authorize_a_fresh_one(self):
+        self.pr_run('dk-pr-alternatives', branch_script())
+        before = copy.copy(self.engine.sessions)
+        reused = self.compat(branch_script(), 'branch')
+        self.assertEqual(reused['status'], 'complete')
+        self.assertEqual(self.new_sessions(before), Counter())
+        # After an interrupted manual refresh it reports the authorization the delegate lacks.
+        self.manual(direct('m1'), branch_script(alignment=current()), lose={'comparison:scheduler': 1})
+        before = copy.copy(self.engine.sessions)
+        blocked = self.compat(branch_script(), 'branch')
+        self.assertEqual(blocked['status'], 'authorization_required')
+        self.assertEqual(self.new_sessions(before), Counter())
+
+    def test_unsupported_routes_and_legacy_assignments_are_never_concealed(self):
+        legacy = {'task_key': 'alternatives:dk-pr-fix:comparison', 'claim': 'claim-1'}
+        result = self.compat({}, 'whole-problem', legacy=legacy)
+        self.assertEqual((result['status'], result['legacy'], result['dispatches']), ('unsupported', legacy, 0))
+        self.calls()
+        for route in (None, 'legacy', 'architecture'):
+            rejected = self.compat({}, route)
+            self.assertEqual((rejected['status'], rejected['error']['path']), ('rejected', 'route'))
+            self.calls()
+        no_pr = self.compat({}, 'branch', request={'repository': REPOSITORY, 'instructions': 'Review alts.'})
+        self.assertEqual((no_pr['status'], no_pr['error']['path']), ('rejected', 'request.pr'))
+        self.assertFalse(self.state.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()
