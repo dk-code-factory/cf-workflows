@@ -5,7 +5,8 @@ GitHub's PR metadata can report a different head from the PR's Git ref
 pinned Git revision privately and withholds every external effect until the
 metadata reaches that revision. This implements the provisional rules of the
 [invocation](contracts/v1/invocation.md) and [report](contracts/v1/report.md)
-contracts for PR identity. Architectural alignment recovery is #23.
+contracts for PR identity. Architectural alignment recovery is
+[alignment.md](alignment.md).
 
 ## Pinning
 

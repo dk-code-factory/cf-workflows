@@ -29,6 +29,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Supplied-skill bindings and engine-observed evidence](docs/skills.md)
 - [Exact-intent publication and uncertain-effect reconciliation](docs/publication.md)
 - [Provisional analysis while PR metadata reconciles](docs/provisional.md)
+- [Current alignment over settled architectural analysis](docs/alignment.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

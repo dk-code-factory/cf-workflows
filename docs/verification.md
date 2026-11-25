@@ -47,6 +47,11 @@ fail-closed transport and counts review submissions.
 `tests/test_dk_pr_fix_provisional.py` covers
 [provisional analysis](provisional.md#verification) under lagging PR metadata,
 with native-dispatch and transport-call counts.
+[Current alignment](alignment.md#verification) tests (`tests/test_alignment.py`)
+cover dk-workflows#239 and #241 with a disposable repository and ledger and a
+fake native-session transport whose unscripted dispatches fail. They count
+dispatches per stage, so no settled comparison repeats, and check partial
+COMMENT eligibility separately from the alignment gate.
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any
 operation other than the configured `capabilities()` query fails without a live
