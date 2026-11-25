@@ -18,6 +18,7 @@ the free-text policy as a whole. Each unit is bound to digests of:
 | `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest and files |
 | `resources` | prompts, custom adapters | Transitive closure of the configured resources the unit references |
 | `adapter` | targeted prompts, instructions, skills | The targeted adapter (baseline or custom), its role definition digest and resource closure |
+| `plan` | untargeted prompts and preferences, free-text policy | The set of selected adapters, each with its definition, role digest and resource closure |
 | `request` | every unit | Exact original instructions and authorizations |
 | `policy` | every unit | Requirements, prohibitions and effective permissions |
 | `guidance` | every unit | Repository guidance files and symlinks |
@@ -25,13 +26,16 @@ the free-text policy as a whole. Each unit is bound to digests of:
 | `validator` | every unit | Validator role, pinned definition digest and binding scheme |
 
 A unit key is the digest of its kind and bindings. It contains no paths or
-scope names, so moving an unchanged prompt to another scope, reordering tasks or
-changing unrelated configuration keeps it current. Unrelated changes include
-limits, turns, non-matching scopes, unreferenced resources, the helper image,
-and the configuration revision or its `admission` record.
+scope names, so moving an unchanged prompt to another scope, reordering the
+selected tasks or changing unrelated configuration keeps it current. Unrelated
+changes include limits, turns, non-matching scopes, unreferenced resources,
+unselected adapters and unused roles, the helper image, and the configuration
+revision or its `admission` record. Selecting different adapters (for example a
+writing task instead of a review) invalidates untargeted text and policy.
 
 Baseline adapter text is bundled control text and is never a unit. A change to
-it invalidates only the units that target that adapter. An adapter override
+it invalidates only the units bound to that adapter: those that target it, and
+untargeted text while it is selected. An adapter override
 identical to the baseline is not custom, so it needs no assessment.
 
 ## Reuse
@@ -39,21 +43,24 @@ identical to the baseline is not custom, so it needs no assessment.
 `semantic.admit(..., ledger=...)` computes the proposal's units after
 structural admission:
 
-- When every unit has a current acceptance, the proposal is admitted with its
-  original `native:` result references. There is no gate read and no session.
-- Otherwise only units without a current acceptance are `subjects` of one
-  validator session. Current units are listed under `accepted` with their
+- Each accepted session records the full set of units it judged together,
+  subjects and context. A unit is reused only if it has its own current
+  acceptance and belongs to the earlier set that covers most of the proposal.
+  Inputs accepted in separate sessions are never combined unseen: the others
+  become subjects judged against that set (reason `combination`).
+- When every unit is reused, the proposal is admitted with its original
+  `native:` result references. There is no gate read and no session.
+- Otherwise only the remaining units are `subjects` of one validator session. Current units are listed under `accepted` with their
   original references, as context the verdict may cite. The result's `reuse`
   record shows the reused, assessed and invalidated units, with the bindings
   that changed for each (`new` or `coupled` when none did).
 - An accepted session retains one acceptance per subject. A rejection or
   clarification is never retained as acceptance.
 
-Units accepted after a clarification dialogue were accepted together with the
-answers' effects, for example a supplemental prompt. Each is then reusable only
-while all of them are present. A unit accepted without clarification is
-independent: removing other custom input cannot create a contradiction for it,
-and new input is assessed against it.
+A subset of units judged together is reusable, because removing custom input
+cannot create a contradiction. Units accepted after a clarification dialogue are
+the exception: they were accepted together with the answers' effects, for example
+a supplemental prompt, so each is reusable only while all of them are present.
 
 A `needs_clarification` verdict is retained before its gate opens. If the gate
 response is lost and the engine created the gate, the next call finds and
@@ -68,7 +75,9 @@ prompt or replacing saved task instructions), `writes.admit()` writes the exact
 admitted revision with its `admission` record. No further approval step is
 needed. The store offers `read()` and `write(expected_revision, document)` with
 compare-and-swap. `FileStore` is the suite's own `configuration.json` with an
-exclusive lock and atomic replace; its revision is derived from the content.
+exclusive lock and atomic replace. Its revision is recomputed from the content on
+every read and under the lock, never taken from the file's `revision` field, so a
+hand edit that leaves that field unchanged still counts as another writer.
 
 Each write is an intent in the ledger, recorded before dispatch with its request
 ID, evidence references, observed base revision, exact document and content
@@ -96,6 +105,7 @@ ignored. The database holds only:
 
 - `acceptances`: unit key, identity, bindings, coupled units, evidence and request
   IDs, the native result and session references, and any clarification answers;
+- `assessments`: the set of units each accepted session judged together;
 - `questions`: retained clarification verdicts and their gate IDs;
 - `writes`: write intents, their status, dispatch count, receipt and failure.
 

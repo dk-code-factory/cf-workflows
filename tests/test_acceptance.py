@@ -91,6 +91,13 @@ class Reuse(Ledgered):
             ('helper image', lambda: self.deployment['execution'].update(image='ghcr.io/fixture/helper@sha256:' + 'b' * 64)),
             ('configuration revision and admission record',
              lambda: self.saved.update(revision='rev-9', admission={**self.saved['admission'], 'semantic': 'accepted'})),
+            ('unselected baseline adapter text', lambda: self.enterContext(patch.dict(
+                admission.BASELINE_ADAPTERS, {'describe-pr': {**admission.BASELINE_ADAPTERS['describe-pr'],
+                                                              'assignment': 'Write a longer description.'}}))),
+            ('unused role definition', lambda: self.roles['reviewer'].update(sha256=self.write(
+                self.roles_root, 'reviewer.yaml', 'name: "reviewer"\ndescription: "Fixture"\ninstructions: "Look."\n'))),
+            ('selected tasks reordered', lambda: self.invocation['options'].update(
+                finalizers=['sync-guidance', 'inspect-commits', {'stage': 'ci'}])),
             ('prompt moved to another scope', lambda: (setattr(self, 'saved', moved),
                                                        self.invocation.pop('prompts'))),
         ]:
@@ -111,11 +118,14 @@ class Reuse(Ledgered):
             self.saved['resources'][1] = self.resource('prompts/policy.md')
 
         def role(stack):
-            body = 'name = "leaf"\ndescription = "Fixture role"\ndeveloper_instructions = "Follow it exactly."\n'
-            self.roles['leaf']['sha256'] = self.write(self.roles_root, 'leaf.toml', body)
+            body = 'name: "leaf"\ndescription: "Fixture role"\ninstructions: "Follow it exactly."\n'
+            self.roles['leaf']['sha256'] = self.write(self.roles_root, 'leaf.yaml', body)
 
         baseline = copy.deepcopy(admission.BASELINE_ADAPTERS)
         baseline['address-feedback']['assignment'] += ' Keep commits focused.'
+        # Every selected adapter runs the leaf role: untargeted prompts follow the selected plan,
+        # the instruction follows its own adapter.
+        selected = {prompt: ['plan'], local: ['plan'], task: ['adapter']}
         for name, change, affected, reason, capabilities in [
             ('prompt text', lambda stack: self.invocation['prompts'][0].update(text='Keep the diff tiny.'), [local], ['content'], None),
             ('linked resource', resource, [prompt], ['resources'], None),
@@ -123,8 +133,8 @@ class Reuse(Ledgered):
              [task], ['content'], None),
             ('baseline adapter text', lambda stack: stack.enter_context(patch.object(admission, 'BASELINE_ADAPTERS',
                                                                                      baseline)),
-             [task], ['adapter'], None),
-            ('role definition', role, [task], ['adapter'], None),
+             everything, selected, None),
+            ('role definition', role, everything, selected, None),
             ('guidance', lambda stack: self.write(self.repo, 'docs/guide.md', 'Run every test.\n'), everything, ['guidance'], None),
             ('original request', lambda stack: self.request.update(instructions='Fix both flaky tests.'), everything,
              ['request'], None),
@@ -142,7 +152,8 @@ class Reuse(Ledgered):
                 self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'))
                 self.calls(sessions=1)
                 self.assertEqual(sorted(result['reuse']['subjects']), sorted(affected))
-                self.assertEqual(result['reuse']['invalidated'], {identity: reason for identity in affected})
+                expected = reason if isinstance(reason, dict) else {identity: reason for identity in affected}
+                self.assertEqual(result['reuse']['invalidated'], expected)
                 [assigned] = self.transport.assignments
                 kept = sorted(set(everything) - set(affected))
                 self.assertEqual(sorted(result['reuse']['reused']), kept)
@@ -167,6 +178,48 @@ class Reuse(Ledgered):
         # A rejection is not retained as acceptance: the same proposal is assessed again.
         self.run_ledgered(verdict('accepted'))
         self.calls(sessions=1)
+
+    def test_separately_accepted_inputs_are_assessed_together(self):
+        one_line = {'id': 'a', 'slot': 'additional', 'text': 'Keep the diff to one line.'}
+        rewrite = {'id': 'b', 'slot': 'additional', 'text': 'Rewrite the entire module from scratch.'}
+        for prompts in ([one_line], [rewrite]):
+            self.run_ledgered(verdict('accepted'), configuration=None, invocation={'prompts': prompts})
+            self.calls(sessions=1)
+        conflict = [{'id': 'c1', 'paths': ['invocation.prompts[0]', 'invocation.prompts[1]'], 'detail': 'Contradict.'}]
+        result = self.run_ledgered(verdict('needs_clarification', conflicts=conflict), configuration=None,
+                                   invocation={'prompts': [one_line, rewrite]})
+        self.calls(sessions=1, gates_opened=1)
+        [task] = self.transport.assignments
+        # The earliest acceptance is context; the other input is judged against it.
+        self.assertEqual(task['subjects'], ['invocation.prompts[1]'])
+        self.assertEqual(list(task['accepted']), ['invocation.prompts[0]'])
+        self.assertEqual(result['reuse']['invalidated'], {'prompt:invocation:invocation:b': ['combination']})
+        # The user removes the one-line prompt; the rewrite alone is reused, the pair is never admitted unseen.
+        self.engine.answer('gate-1', 'answer-1', {'action': 'remove', 'paths': ['invocation.prompts[0]']})
+        self.assertEqual(self.run_ledgered(verdict('accepted'), configuration=None,
+                                           invocation={'prompts': [one_line, rewrite]})['semantic'], 'accepted')
+        self.calls(sessions=0, capabilities=2)
+        self.engine = Engine()
+        self.run_ledgered(verdict('rejected', conflicts=conflict), configuration=None,
+                          invocation={'prompts': [one_line, rewrite]})
+        self.calls(sessions=1)
+        # Inputs judged together are reused together, and so is any subset of them.
+        both = self.run_ledgered(verdict('accepted'), configuration=None,
+                                 invocation={'prompts': [one_line, {**rewrite, 'text': 'Rename one variable.'}]})
+        self.calls(sessions=1)
+        self.assertEqual(both['semantic'], 'accepted')
+        for prompts in ([one_line, {**rewrite, 'text': 'Rename one variable.'}], [one_line]):
+            self.run_ledgered(configuration=None, invocation={'prompts': prompts})
+            self.calls(gate_reads=0)
+
+    def test_untargeted_text_is_bound_to_the_selected_plan(self):
+        invocation = {'prompts': [{'id': 'free', 'slot': 'additional', 'text': 'Feel free to rewrite tests.'}],
+                      'options': {'tasks': ['review'], 'finalizers': []}}
+        self.run_ledgered(verdict('accepted'), configuration=None, invocation=invocation)
+        invocation['options']['tasks'] = ['address-feedback']
+        result = self.run_ledgered(verdict('accepted'), configuration=None, invocation=invocation)
+        self.calls(sessions=1)
+        self.assertEqual(result['reuse']['invalidated'], {'prompt:invocation:invocation:free': ['plan']})
 
     def test_baseline_control_text_needs_no_assessment(self):
         same = {'review': copy.deepcopy(admission.BASELINE_ADAPTERS['review'])}
@@ -480,6 +533,25 @@ class Writes(Ledgered):
         self.assertEqual(self.store.calls['write'], 0)
         self.assertEqual(result['semantic'], 'accepted')
         self.calls(gate_reads=0)
+
+    def test_hand_edit_keeping_the_revision_field_is_never_overwritten(self):
+        run = self.clarify('interrupt-before')
+        with self.assertRaises(Interrupted):
+            run()
+        path = self.store.inner.path
+        raw = json.loads(path.read_text())
+        raw['scopes'][0]['options']['prohibitions'] = ['Never edit vendored code.']
+        path.write_text(json.dumps(raw))  # The stored revision field is left as it was.
+        self.ledger, self.engine = self.open_ledger(), Engine()
+        result = self.admit_stored(verdict('accepted'))
+        [intent] = self.intents()
+        self.assertEqual(result['recovered_writes'], [{'intent_id': intent['intent_id'], 'status': 'blocked'}])
+        self.assertEqual(self.store.calls['write'], 0)
+        self.assertEqual(json.loads(path.read_text())['scopes'][0]['options']['prohibitions'],
+                         ['Never edit vendored code.'])
+        # A direct compare-and-swap against the stale field is rejected as well.
+        with self.assertRaises(writes.RevisionConflict):
+            self.store.inner.write(raw['revision'], {key: value for key, value in raw.items() if key != 'revision'})
 
     def test_unavailable_store_blocks_before_any_session_or_write(self):
         self.store.fault = 'read'

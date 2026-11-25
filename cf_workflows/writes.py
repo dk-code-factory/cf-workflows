@@ -42,6 +42,11 @@ def content(document):
     return digest({key: value for key, value in document.items() if key != 'revision'})
 
 
+def revision(document):
+    """A store revision derived from content, so an edit that keeps the stored field still changes it."""
+    return 'rev_' + content(document)[:32]
+
+
 class FileStore:
     """The suite's configuration file with atomic compare-and-swap writes.
 
@@ -53,9 +58,11 @@ class FileStore:
         self.path = Path(path)
 
     def read(self):
+        """The current document; its revision is recomputed from content, never trusted from the file."""
         if not self.path.exists():
             return None
-        return admission.load_json(self.path.read_bytes())
+        document = admission.load_json(self.path.read_bytes())
+        return {**document, 'revision': revision(document)}
 
     def write(self, expected_revision, document):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,8 +71,8 @@ class FileStore:
             current = self.read()
             if (current['revision'] if current is not None else None) != expected_revision:
                 raise RevisionConflict('configuration revision changed')
-            revision = 'rev_' + content(document)[:32]
-            body = json.dumps({**document, 'revision': revision}, indent=2, sort_keys=True, ensure_ascii=False) + '\n'
+            written = revision(document)
+            body = json.dumps({**document, 'revision': written}, indent=2, sort_keys=True, ensure_ascii=False) + '\n'
             descriptor, temporary = tempfile.mkstemp(dir=self.path.parent, prefix='.configuration-')
             try:
                 with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
@@ -77,7 +84,7 @@ class FileStore:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
                 raise
-            return revision
+            return written
 
 
 def readback(intent, current):
@@ -92,7 +99,7 @@ def dispatch(store, ledger, intent):
     """Dispatch one prepared intent once; a lost response is settled by readback, never by retry."""
     ledger.dispatching(intent['intent_id'])
     try:
-        revision = store.write(intent['base_revision'], copy.deepcopy(intent['document']))
+        written = store.write(intent['base_revision'], copy.deepcopy(intent['document']))
     except Exception as failure:
         reason = type(failure).__name__
         try:
@@ -111,7 +118,7 @@ def dispatch(store, ledger, intent):
                           failure=f'{reason}; the store changed, so this effect is uncertain; reassess the current revision')
             return 'blocked'
         return 'pending'  # Still at the base revision: the next reconciliation reads back before any dispatch.
-    ledger.settle(intent['intent_id'], 'applied', {'revision': revision, 'by': 'response'})
+    ledger.settle(intent["intent_id"], "applied", {"revision": written, "by": "response"})
     return 'applied'
 
 

@@ -376,7 +376,7 @@ def assess(admitted, proposal, request_id, clarifications, transport, ledger=Non
         return ask(admitted, proposal, request_id, verdict, validator, clarifications, transport, ledger=ledger,
                    split=split)
     if verdict['verdict'] == 'accepted' and ledger is not None:
-        ledger.accept(split['subjects'], evidence_id=identity, request_id=request_id, validator=validator,
+        ledger.accept(split['subjects'], split['reused'], evidence_id=identity, request_id=request_id, validator=validator,
                       clarifications=clarifications)
     return outcome(admitted, proposal, request_id, verdict, clarifications, validator, split=split)
 

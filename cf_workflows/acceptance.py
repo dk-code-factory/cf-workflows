@@ -108,12 +108,16 @@ def units(admitted):
         found[key] = {'key': key, 'kind': kind, 'identity': identity, 'paths': sorted(paths),
                       'components': components}
 
+    # Untargeted text applies to every selected task, so it is bound to the selected adapters
+    # (definitions, roles, writes) as a set: reordering keeps it, a different selection does not.
+    selected = [adapter(name) for name in sorted({task['adapter'] for task in snapshot['plan']['tasks']})]
     custom = data['custom']
     for entry in custom['prompts']:
+        targeted = entry['target'] is not None
         add('prompt', f"prompt:{entry['source']}:{entry['id']}", [entry['path']],
             content={key: entry[key] for key in ('slot', 'target', 'text')},
             resources=closure(entry['resources'], configured),
-            adapter=adapter(entry['target']) if entry['target'] is not None else None)
+            **({'adapter': adapter(entry['target'])} if targeted else {'plan': selected}))
     for entry in custom['instructions']:
         add('instruction', 'instruction:' + entry['path'], [entry['path']],
             content={'adapter': entry['adapter'], 'text': entry['text']}, adapter=adapter(entry['adapter']))
@@ -128,23 +132,31 @@ def units(admitted):
     free = [item for item in data['requirements'] + data['prohibitions'] if item['text'] not in admission.ACTIONS]
     if free:
         # Free-text policy is already part of every unit's shared binding; it is one unit of its own.
-        add('policy', 'policy', [item['path'] for item in free], content=None)
+        add('policy', 'policy', [item['path'] for item in free], content=None, plan=selected)
     return list(found.values())
 
 
 def plan(admitted, ledger):
-    """Split the proposal's units into reused acceptances and subjects that need assessment."""
+    """Split the proposal's units into reused acceptances and subjects that need assessment.
+
+    A unit is reused only when it has its own current acceptance and also belongs to
+    the one earlier assessment that covers most of the proposal. Every unit of that
+    assessment was judged together, so none of them conflict; any other unit is a
+    subject, judged against them. Units accepted separately are therefore never
+    combined without a session.
+    """
     current = units(admitted)
     present = {unit['key'] for unit in current}
+    together = ledger.together(present) if ledger is not None else set()
     reused, subjects, invalidated = [], [], {}
     for unit in current:
         record = ledger.acceptance(unit['key'], present) if ledger is not None else None
-        if record is not None:
+        if record is not None and unit['key'] in together:
             reused.append({**unit, 'record': record})
             continue
         subjects.append(unit)
         if ledger is not None:
-            invalidated[unit['identity']] = ledger.why(unit, present)
+            invalidated[unit['identity']] = ledger.why(unit, present) if record is None else ['combination']
     return {'units': current, 'reused': reused, 'subjects': subjects, 'invalidated': invalidated}
 
 
@@ -166,6 +178,13 @@ CREATE TABLE acceptances (
     UNIQUE (unit, evidence_id)
 );
 CREATE INDEX acceptances_identity ON acceptances (identity);
+CREATE TABLE assessments (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL,
+    result_ref TEXT NOT NULL,
+    units TEXT NOT NULL,
+    requires TEXT NOT NULL
+);
 CREATE TABLE questions (
     evidence_id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL,
@@ -246,6 +265,16 @@ class Ledger:
                         'evidence_id': row['evidence_id'], 'request_id': row['request_id']}
         return None
 
+    def together(self, present):
+        """Present units of the earlier accepted assessment that covers most of them."""
+        best = set()
+        for row in self.db.execute('SELECT units, requires FROM assessments ORDER BY seq'):
+            if set(json.loads(row['requires'])) <= present:
+                covered = present & set(json.loads(row['units']))
+                if len(covered) > len(best):
+                    best = covered
+        return best
+
     def why(self, unit, present):
         """Which bindings changed since this unit's identity was last accepted."""
         row = self.db.execute('SELECT * FROM acceptances WHERE identity = ? ORDER BY seq DESC LIMIT 1',
@@ -260,13 +289,14 @@ class Ledger:
         missing = set(json.loads(row['requires'])) - present
         return ['coupled'] if missing else ['new']
 
-    def accept(self, subjects, *, evidence_id, request_id, validator, clarifications):
-        """Retain one accepted assessment for its subject units.
+    def accept(self, subjects, context, *, evidence_id, request_id, validator, clarifications):
+        """Retain one accepted assessment: its subject units and every unit it was judged with.
 
         After a clarification dialogue the subjects were accepted together with the
         answers' effects, so each is reusable only while all of them are present.
         """
         requires = sorted(unit['key'] for unit in subjects) if clarifications else []
+        judged = sorted({unit['key'] for unit in subjects + context})
         answers = [{key: item[key] for key in ('gate_id', 'answer_id', 'value')} for item in clarifications]
         with self.transaction():
             self.db.executemany(
@@ -274,6 +304,8 @@ class Ledger:
                 'result_ref, session_id, answers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [(unit['key'], unit['identity'], dumps(unit['components']), dumps(requires), evidence_id, request_id,
                   validator['result_ref'], validator['session_id'], dumps(answers)) for unit in subjects])
+            self.db.execute('INSERT INTO assessments (evidence_id, result_ref, units, requires) VALUES (?, ?, ?, ?)',
+                            (evidence_id, validator['result_ref'], dumps(judged), dumps(requires)))
 
     # Questions ---------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@ An independent successor to
 and Claude on [Agent Workflow](https://github.com/dk-code-factory/agent-workflow).
 
 Version `0.1.0-dev` establishes the suite's contracts and complete 29-skill
-inventory and implements [structural configuration admission](docs/admission.md)
+inventory and implements [structural configuration admission](docs/admission.md),
 [semantic assessment of custom inputs](docs/semantic.md) and
 [acceptance reuse with configuration-write recovery](docs/acceptance.md) against
 engine interfaces. It also extracts the portable PR-fix example into the
