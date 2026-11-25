@@ -17,9 +17,13 @@ snapshots, bounded cycles, same-session continuation, independent verification,
 publication intent and recovery are the extraction baseline, not proof of parity
 with the whole suite. Do not copy the old `.pr-fix-state` namespace.
 
-The portable source is also not evidence that the known merge-request guard gap
-is fixed. Merge enablement needs the actual upstream correction in
-[Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138).
+The pinned portable source has the known merge-request guard gap
+(dk-workflows#253). The extraction consumes the actual upstream correction from
+[Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138),
+merged as [`2406f002`](https://github.com/dk-code-factory/agent-workflow/commit/2406f002319528a65de0091bd3b73c366ecc27db).
+[dk-pr-fix-closure.json](../baselines/dk-pr-fix-closure.json) lists it under
+`corrections`, and the checker requires the guard to be that commit's exact
+definitions. The rest of the extraction stays at the pin.
 Native transport and observed dispatch need [#136](https://github.com/dk-code-factory/agent-workflow/issues/136)
 and [#137](https://github.com/dk-code-factory/agent-workflow/issues/137).
 The shared packaging toolchain needs its own supported capabilities before

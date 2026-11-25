@@ -25,6 +25,9 @@ The checker also verifies the [dk-pr-fix extraction](dk-pr-fix.md). Every file o
 the pinned `examples/pr-fix/` must be copied or excluded with a reason. Each copied
 file must match its recorded upstream digest. `verbatim` files must be identical,
 and the YAML roles must equal the canonical conversion of the pinned TOML.
+Each consumed upstream correction must come from a descendant of the pin, match
+its recorded digest there, and keep its listed definitions identical to that
+commit's.
 
 [dk-pr-fix tests](dk-pr-fix.md#verification) (`tests/test_dk_pr_fix.py`, plus the
 ported example tests in `tests/dk_pr_fix/`) use disposable repositories, a fresh

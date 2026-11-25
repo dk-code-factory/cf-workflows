@@ -283,7 +283,7 @@ class Preflight(PreflightFixture):
         grant = {'request_id': 'r1', 'instruction': 'Do it.', 'source': 'chat:1'}
         offered = copy.deepcopy(CAPABILITIES)
         offered['providers']['fixture-provider'].append('merge_guard')
-        for action, owner in (('merge', '#19'), ('approve_pr', '#31'), ('create_issue', '#32'),
+        for action, owner in (('approve_pr', '#31'), ('create_issue', '#32'),
                               ('edit_issue', '#32'), ('approve_fork_ci', '#35')):
             with self.subTest(action=action):
                 result = self.preflight(request={**self.request, 'authorizations': {action: grant}},
@@ -292,6 +292,31 @@ class Preflight(PreflightFixture):
                 self.assertEqual(result['error']['path'], 'request.authorizations.' + action)
                 self.assertIn(owner, result['error']['message'])
                 self.assertNotIn('state', result)
+
+    def test_merge_maps_only_with_its_own_grant_and_the_engine_merge_guard(self):
+        grant = {'request_id': 'r1', 'instruction': 'Merge when ready.', 'source': 'chat:1'}
+        request = {**self.request, 'authorizations': {'merge': grant}}
+        # Without the engine's merge guard, admission rejects after one capability query.
+        transport = FakeTransport(CAPABILITIES)
+        result = self.preflight(request=request, invocation={'permissions': {'merge': True}}, transport=transport)
+        self.assertEqual(result['preflight'], 'rejected')
+        self.assertIn('merge_guard', result['error']['message'])
+        self.assertNotIn('state', result)
+        self.assertEqual(transport.calls['capabilities'], 1)
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+        # Another action's grant never enables merge.
+        other = {**self.request, 'authorizations': {'push': grant}}
+        result = self.preflight(request=other, invocation={'permissions': {'push': True, 'merge': True}},
+                                transport=FakeTransport(offered))
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertFalse(result['inputs']['permissions']['merge'])
+        transport = FakeTransport(offered)
+        result = self.preflight(request=request, invocation={'permissions': {'merge': True}}, transport=transport)
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual({key for key, value in result['inputs']['permissions'].items() if value}, {'merge'})
+        self.assertEqual(result['state']['request_document']['authorizations'], {'merge': grant})
+        self.assertEqual(transport.calls['capabilities'], 1)
 
     def test_installed_permission_inputs_match_the_publication_helpers(self):
         body = (INSTALL / 'workflows' / 'main.yml').read_text()

@@ -1,7 +1,10 @@
-"""Regression coverage for partial host verification, without touching source clones."""
+"""Regression coverage for partial host verification and consumed upstream corrections, without touching source clones."""
+import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -28,6 +31,49 @@ class HostManifestValidation(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'exact Claude and Codex'):
                         checker.check(Path('unused-dk'), Path('unused-engine'))
                     git.assert_not_called()
+
+
+class UpstreamCorrections(unittest.TestCase):
+    """A consumed correction must stay the exact upstream definition from a descendant commit."""
+
+    def run_git(self, repo, *args):
+        env = {'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1', 'HOME': str(repo),
+               'GIT_AUTHOR_NAME': 'F', 'GIT_AUTHOR_EMAIL': 'f@example.invalid',
+               'GIT_COMMITTER_NAME': 'F', 'GIT_COMMITTER_EMAIL': 'f@example.invalid'}
+        return subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True,
+                              env=env).stdout.decode().strip()
+
+    def commit(self, engine, text):
+        (engine / 'guard.py').write_text(text)
+        self.run_git(engine, 'add', 'guard.py')
+        self.run_git(engine, 'commit', '-qm', 'guard')
+        return self.run_git(engine, 'rev-parse', 'HEAD')
+
+    def test_tampered_guard_or_unrelated_commit_rejects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, engine = Path(tmp) / 'suite', Path(tmp) / 'engine'
+            root.mkdir()
+            engine.mkdir()
+            self.run_git(engine, 'init', '-q')
+            pin = self.commit(engine, 'def guard():\n    return True\n')
+            fixed_text = 'def guard():\n    return False\n\n\ndef other():\n    pass\n'
+            fix = self.commit(engine, fixed_text)
+            (root / 'guard.py').write_text('# local\ndef guard():\n    return False\n\n\ndef other():\n    return 1\n')
+            entry = {'path': 'guard.py', 'upstream': 'guard.py',
+                     'upstream_sha256': hashlib.sha256(fixed_text.encode()).hexdigest(),
+                     'symbols': ['guard'], 'adapted_symbols': {'other': 'Local change.'}}
+            provenance = {'files': [{'path': 'guard.py', 'upstream': 'guard.py', 'change': 'adapted'}],
+                          'corrections': [{'commit': fix, 'files': [entry]}]}
+            with patch.object(checker, 'ROOT', root):
+                checker.check_corrections(engine, pin, provenance)
+                (root / 'guard.py').write_text('def guard():\n    return True\n\n\ndef other():\n    pass\n')
+                with self.assertRaisesRegex(ValueError, 'guard differs from correction'):
+                    checker.check_corrections(engine, pin, provenance)
+                with self.assertRaisesRegex(ValueError, 'does not descend'):
+                    checker.check_corrections(engine, fix, {**provenance, 'corrections': [{'commit': pin, 'files': [entry]}]})
+                provenance['files'][0]['change'] = 'verbatim'
+                with self.assertRaisesRegex(ValueError, 'not adapted'):
+                    checker.check_corrections(engine, pin, provenance)
 
 
 if __name__ == '__main__':

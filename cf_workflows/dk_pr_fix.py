@@ -40,10 +40,9 @@ PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_fee
 PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'reply_to_feedback',
                        'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
                        'request_review': 'request_review', 'post_findings': 'post_findings',
-                       'rerun_ci': 'rerun_ci'}
+                       'rerun_ci': 'rerun_ci', 'merge': 'merge'}
 # Actions this release denies, with the work that owns them.
 UNAVAILABLE_ACTIONS = {
-    'merge': 'merge stays disabled until current merge-readiness gating (#19) and Agent Workflow #138 land',
     'approve_pr': 'PR approval is an extension kind owned by #31',
     'create_issue': 'issue creation is an extension kind owned by #32',
     'edit_issue': 'issue edits are an extension kind owned by #32',
