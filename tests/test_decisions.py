@@ -436,6 +436,25 @@ class Reconcile(Fixture):
         self.assertEqual(settled['status'], 'complete', settled)
         self.assertEqual(self.ids(settled['decisions']['settled']), ['state-json'])
 
+    def test_comment_edited_after_the_request_outranks_it(self):
+        admitted = self.admit('Store run state in SQLite.')
+        ledger = self.ledger(admitted)
+        sqlite = decision('state-sqlite', ['instruction:request'], text='Store run state in SQLite.')
+        self.assertEqual(self.reconcile(admitted, ledger, session(result(API, sqlite)))['status'], 'complete')
+        self.github.ev['comments'][0]['body'] = 'Do not use SQLite; use a JSON file.'
+        json_file = decision('state-json', ['comment:101'], text='Store run state in a JSON file.')
+        conflict = contradiction('storage', ['state-sqlite', 'state-json'], ['instruction:request', 'comment:101'])
+        stale = dict(conflict, resolution={'direction': 'SQLite.', 'decision': 'state-sqlite',
+                                           'sources': ['instruction:request']})
+        refused = self.reconcile(admitted, ledger, session(result(dict(API, sources=['comment:102'], status='proposal'),
+                                                                  json_file, contradictions=[stale])))
+        self.assertEqual((refused['status'], refused['error']['path']),
+                         ('blocked', 'result.contradictions[0].resolution.sources'))
+        [task] = self.fake.tasks
+        order = [item['id'] for item in task['context']['sources']]
+        self.assertLess(order.index('comment:102'), order.index('instruction:request'))
+        self.assertLess(order.index('instruction:request'), order.index('comment:101'))
+
     def test_unchanged_request_and_unrelated_comment_cannot_revive_an_exclusion(self):
         admitted = self.admit('Store run state in SQLite.')
         ledger = self.ledger(admitted)

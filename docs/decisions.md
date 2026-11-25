@@ -49,9 +49,9 @@ identity (`pr-body`, `comment:<id>`, `review:<id>`, `inline:<id>`,
 `answer:<id>`), its URL when public, the SHA-256 of its exact text and its
 discussion order. Pending reviews are skipped. The request and the answers are
 private. The request is ordered by when it was issued: the ledger fixes the
-discussion present at the run's first reconciliation, and the request comes after
-that discussion and before any later comment, so a later user comment outranks
-it. Gate answers come last.
+fingerprint of each discussion source present at the run's first reconciliation.
+The request comes after that unchanged discussion and before any later or
+since-edited source, so a later user comment or edit outranks it. Gate answers come last.
 
 The helper assigns authority; the session cannot raise it:
 
@@ -162,8 +162,8 @@ gates or writes. It covers:
 - **Reconciliation.** Distinct settled, proposed, contested and excluded
   decisions; a waiting gate with no session; a user answer that refreshes only
   the contested subjects; unchanged reuse in a fresh session; a later request
-  that governs an earlier agreement; a later user comment that outranks the
-  request; an excluded agreement that a later maintainer comment, the unchanged
+  that governs an earlier agreement; a later or since-edited user comment that
+  outranks the request; an excluded agreement that a later maintainer comment, the unchanged
   request or an unrelated comment cannot restore; edited, removed and linked-issue sources;
   a changed requirement; lost session and gate responses; and unsupported
   results, which are never recorded.

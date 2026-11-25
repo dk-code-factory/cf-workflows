@@ -262,8 +262,9 @@ def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
     are captured linked issues ({number, url, body, user, author_association,
     created_at, comments}); answers are the user's recorded gate answers. baseline
     is the set of discussion identities present when the request was first
-    reconciled: the request comes after those and before any later discussion,
-    so a later user comment outranks it (None: all discussion precedes it).
+    reconciled, as {identity: fingerprint}: the request comes after those and
+    before any later or since-edited discussion, so a later user comment or a
+    later edit outranks it (None: all discussion precedes it).
     Gate answers come last. The
     current decision section of the PR body is a record, never a source: it cannot
     settle, restore or revise a decision.
@@ -286,7 +287,7 @@ def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
         discussion.append({'id': ident, 'kind': kind, 'text': body, 'url': url, 'public': True,
                            'author': {'id': author.get('id'), 'login': author.get('login')},
                            'authority': _authority(author, item.get('author_association'), accounts, host),
-                           'created_at': created})
+                           'created_at': created, 'sha256': hashlib.sha256(body.encode()).hexdigest()})
     before, section, after = split_section(meta.get('body') or '', heading)
     # Whitespace around the section is not discussion, so publishing it leaves this source unchanged.
     outside = [part.replace('\r\n', '\n').strip('\r\n') for part in (before, after)]
@@ -306,8 +307,9 @@ def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
             add(f'issue-comment:{issue["number"]}:{item["id"]}', 'issue-comment', item.get('body'), item,
                 item.get('html_url') or issue.get('url'), item.get('created_at') or '')
     discussion.sort(key=lambda item: (item['created_at'], item['id']))
-    earlier = [item for item in discussion if baseline is None or item['id'] in baseline]
-    later = [item for item in discussion if baseline is not None and item['id'] not in baseline]
+    # A baseline source edited since the request counts as later than the request.
+    earlier = [item for item in discussion if baseline is None or baseline.get(item['id']) == fingerprint(item)]
+    later = [item for item in discussion if baseline is not None and baseline.get(item['id']) != fingerprint(item)]
     sources = earlier + [{'id': 'instruction:request', 'kind': 'instruction', 'public': False, 'url': None,
                              'text': snapshot['request']['original_instructions'], 'author': None,
                              'authority': 'user', 'created_at': None}] + later
@@ -433,11 +435,11 @@ class Ledger:
         return [self._record(row) for row in self.db.execute('SELECT * FROM results ORDER BY seq')]
 
     def baseline(self, discussion):
-        """The discussion identities the request was issued against, fixed at the run's first call."""
+        """The discussion {identity: fingerprint} the request was issued against, fixed at the run's first call."""
         self.db.execute('INSERT OR IGNORE INTO meta VALUES (?, ?)',
-                        ('request_baseline', admission.canonical(sorted(discussion)).decode()))
+                        ('request_baseline', admission.canonical(dict(discussion)).decode()))
         row = self.db.execute("SELECT value FROM meta WHERE key = 'request_baseline'").fetchone()
-        return set(json.loads(row[0]))
+        return json.loads(row[0])
 
     def attempts(self, binding):
         """Rejected attempts of one binding; each later attempt gets a fresh claim."""
@@ -710,7 +712,8 @@ def reconcile(admitted, *, capture, ledger, transport, issues=()):
                 'value': gate['answer']['value']} for gate in gates]
     try:
         sources, published = collect(admitted, capture, issues=issues, answers=answers)
-        baseline = ledger.baseline(item['id'] for item in sources if item['kind'] not in ('instruction', 'answer'))
+        baseline = ledger.baseline((item['id'], fingerprint(item)) for item in sources
+                                   if item['kind'] not in ('instruction', 'answer'))
         sources, published = collect(admitted, capture, issues=issues, answers=answers, baseline=baseline)
     except (AdmissionError, configuration.Blocked, TypeError, KeyError, AttributeError) as error:
         return {'skill': SKILL, 'status': 'blocked', 'error': _failure(error)}
