@@ -92,7 +92,8 @@ class InstalledClosure(unittest.TestCase):
 
     def test_reusable_references_resolve_inside_the_installation(self):
         files = workflow_files()
-        reachable, pending = set(), ['main.yml']
+        # main.yml is dk-pr-fix's entry and review.yml incoming review's (docs/review.md).
+        reachable, pending = set(), ['main.yml', 'review.yml']
         while pending:
             name = pending.pop()
             if name in reachable:
@@ -108,7 +109,7 @@ class InstalledClosure(unittest.TestCase):
                 pending.append(target.split('/', 1)[1])
             for item in re.findall(r'^\s*- (helpers/|agents/)\s*$', body, re.M):
                 self.assertTrue((INSTALL / 'workflows' / item).is_dir(), item)
-        self.assertEqual(reachable, set(files), 'every installed workflow is reachable from main.yml')
+        self.assertEqual(reachable, set(files), 'every installed workflow is reachable from an entry')
         native = files['native.yml']
         for role in admission.ADMITTED_ROLES:
             self.assertIn(f'{role}: agents/{role}.yaml', native)
@@ -224,7 +225,8 @@ class Preflight(PreflightFixture):
                                             'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3})
         self.assertEqual(inputs['ci'], {'timeout_seconds': 1800})
         self.assertFalse(any(inputs['permissions'].values()))
-        self.assertEqual(set(inputs['adapters']), set(admission.BASELINE_ADAPTERS))
+        # The simplification reviewer belongs to incoming review's preset, not the fix plan.
+        self.assertEqual(set(inputs['adapters']), set(admission.BASELINE_ADAPTERS) - {admission.SIMPLIFIER})
         for name, adapter in inputs['adapters'].items():
             self.assertEqual(adapter['assignment'], admission.BASELINE_ADAPTERS[name]['assignment'])
         state = result['state']

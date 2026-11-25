@@ -577,7 +577,9 @@ def capture(root, provider, plan, *, clean=False):
     accounts = plan.get("options", {}).get("accounts", [])
     owned = author["id"] == viewer["id"] or any(
         a.get("host", "").lower() == pr["host"] and a.get("id") == author["id"] for a in accounts)
-    if not owned:
+    # Incoming review reads another author's PR without maintaining it; every
+    # other plan maintains the PR and needs ownership or explicit authority.
+    if not owned and plan.get("mode", "fix") != "review":
         authority = plan.get("maintain_other") or plan.get("authorizations", {}).get("maintain_other")
         if not isinstance(authority, dict) or any(not authority.get(k) for k in ("request_id", "instruction", "source")):
             raise ValueError("maintaining another author's PR requires explicit authority")

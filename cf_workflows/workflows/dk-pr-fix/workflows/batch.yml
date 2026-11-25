@@ -13,6 +13,10 @@ name: Ordered task groups followed by optional verification and fixes
       review:
         type: boolean
         required: true
+      fix:
+        # False in incoming review: confirmed findings are reported, never fixed.
+        type: boolean
+        default: true
       cycle:
         type: number
         required: true
@@ -49,7 +53,7 @@ jobs:
       github_token: ${{ secrets.github_token }}
   fix:
     needs: verify
-    if: ${{ inputs.review and needs.verify.status == 'succeeded' }}
+    if: ${{ inputs.review and inputs.fix and needs.verify.status == 'succeeded' }}
     uses: workflows/task.yml
     with:
       plan: ${{ inputs.plan }}

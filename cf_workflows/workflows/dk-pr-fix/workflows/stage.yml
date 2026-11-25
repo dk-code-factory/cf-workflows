@@ -29,6 +29,7 @@ jobs:
       plan: ${{ inputs.plan }}
       groups: ${{ inputs.stage.groups }}
       review: ${{ inputs.stage.review }}
+      fix: ${{ inputs.stage.fix }}
       cycle: ${{ inputs.cycle }}
       turns: ${{ inputs.turns }}
     secrets:

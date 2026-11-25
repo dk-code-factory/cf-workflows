@@ -86,6 +86,11 @@ dk-workflows#255 with the installed helpers and a fake GitHub transport that
 counts captures and writes: replies settled before a failing review and kept on
 resume, reply response loss, changed comments, disabled resolution, denied
 reply authority and custom or empty plans.
+[Incoming review and routing](review.md#verification) tests
+(`tests/test_dk_pr_review.py`, `tests/test_routing.py`) drive the installed
+helpers in review mode and the router with fail-closed fake GitHub and engine
+transports. They count native dispatches and identity reads, and cover
+dk-workflows#254 report-only pass claims.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
 gateways. They cover missing, duplicate, undeclared and nested children, digest

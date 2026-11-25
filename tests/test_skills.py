@@ -383,6 +383,48 @@ class Evidence(Fixture):
                 self.assertTrue(skills.attempt_allowed(self.single, [clean]))
 
 
+class IncomingReviewCoordinator(Fixture):
+    """dk-workflows#254 on incoming review: a supplied coordinator skill and its required passes."""
+
+    PASSES = [{'agent_type': name, 'count': 1} for name in ('spec', 'standards', 'toolkit')]
+
+    def setUp(self):
+        super().setUp()
+        from cf_workflows import dk_pr_review
+        record = {**self.skill(), 'children': self.PASSES}
+        invocation = {'options': {'reviewers': [[{'task': 'review', 'skill': 'lint-skill'}, 'simplify']]},
+                      'skills': [record]}
+        with patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):  # As if Agent Workflow #139 were present.
+            self.result = self.admit(invocation=invocation, defaults=dk_pr_review.DEFAULTS,
+                                     transport=FakeTransport(offering(*SKILL_CAPABILITIES, 'observed_child_agents')))
+        self.plan = skills.session_plan(self.result)
+
+    def test_only_the_coordinator_occurrence_loads_the_skill_and_its_findings_are_verified_separately(self):
+        self.assertEqual([(item['adapter'], bool(item['skills'])) for item in self.plan['occurrences']],
+                         [('read-feedback', False), ('review', True), ('simplify', False)])
+        self.assertEqual(self.plan['verification']['skills'], [])
+        self.assertEqual(self.plan['verification']['sources'], [self.plan['occurrences'][1]['occurrence']])
+
+    def test_report_only_and_partial_children_never_cover_the_coordinator(self):
+        coordinator = self.plan['occurrences'][1]
+        for provider in skills.PROVIDERS:
+            with self.subTest(provider=provider):
+                gateway = Gateway(provider, coordinator)
+                full = [('spec', 'completed'), ('standards', 'completed'), ('toolkit', 'completed')]
+                observed = gateway.session(children=full)
+                self.assertEqual(skills.coverage(coordinator, [observed])['status'], 'covered')
+                # The coordinator's own successful report, claiming every pass, is not evidence.
+                report = {**observed, 'source': 'report', 'claims': {'children': ['spec', 'standards', 'toolkit']}}
+                result = skills.coverage(coordinator, [report])
+                self.assertEqual(result['status'], 'incomplete')
+                self.assertIn('report-only evidence is ignored', result['reasons'])
+                # Aggregate session success with a missing or unfinished pass is incomplete.
+                for children in (full[:2], [*full[:2], ('toolkit', 'running')]):
+                    result = skills.coverage(coordinator, [gateway.session(children=children)])
+                    self.assertEqual(result['status'], 'incomplete', children)
+                self.assertEqual(gateway.calls['session'], 3)
+
+
 class InstalledOccurrences(Fixture):
     """Bindings name the installed workflow's own stable occurrence IDs."""
 

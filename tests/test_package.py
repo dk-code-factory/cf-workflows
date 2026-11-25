@@ -48,7 +48,9 @@ class Descriptor(unittest.TestCase):
         descriptor = package.validate_descriptor(package.parse_descriptor(DESCRIPTOR.encode()))
         self.assertEqual(descriptor['hosts'], ['codex', 'claude'])
         self.assertEqual(descriptor['skills'], [{'name': 'dk-pr-fix', 'path': 'skills/dk-pr-fix/SKILL.md',
-                                                 'workflow': 'workflows/main.yml'}])
+                                                 'workflow': 'workflows/main.yml'},
+                                                {'name': 'dk-pr-review', 'path': 'skills/dk-pr-review/SKILL.md',
+                                                 'workflow': 'workflows/review.yml'}])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -232,12 +234,14 @@ class InventoryStatus(unittest.TestCase):
 
     def test_lists_only_delivered_rows_and_is_not_releasable(self):
         status = package.inventory_status(self.descriptor())
-        self.assertEqual(status['listed'], [{'skill': 'cf-workflows:dk-pr-fix', 'parity_status': 'not_implemented'}])
+        self.assertEqual(status['listed'], [{'skill': 'cf-workflows:dk-pr-fix', 'parity_status': 'not_implemented'},
+                                            {'skill': 'cf-workflows:dk-pr-review', 'parity_status': 'not_implemented'}])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}
         self.assertTrue({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132', 'agent-workflow#133',
-                         'engine release', 'cf-workflows', 'cf-workflows:dk-pr-fix'} <= missing)
+                         'engine release', 'cf-workflows', 'cf-workflows:dk-pr-fix',
+                         'cf-workflows:dk-pr-review'} <= missing)
 
     def test_unknown_rows_and_foreign_identities_reject(self):
         for change in ({'skills': [{'name': 'dk-everything', 'path': 'skills/x/SKILL.md',
