@@ -797,7 +797,11 @@ class Publication:
                 raise PublicationError("retained per-head CI rerun allowance exhausted or changed") from error
         with self.ledger.transaction():
             holder = self.ledger.db.execute("SELECT intent FROM publication_lock WHERE singleton=1").fetchone()
-            if holder and holder[0] != saved["id"]:
+            # Every pending intent blocks dispatch, even one that does not hold
+            # the lock row (a migrated ledger can hold several).
+            other = self.ledger.db.execute(
+                "SELECT id FROM publication_intents WHERE state='pending' AND id<>? LIMIT 1", (saved["id"],)).fetchone()
+            if holder and holder[0] != saved["id"] or other:
                 raise UncertainEffect("publication lock is held by an unsettled intent; reconcile it first")
             cursor = self.ledger.db.execute(
                 "UPDATE publication_intents SET state='pending',audience=? WHERE id=? AND state='prepared'",
@@ -849,8 +853,15 @@ class Publication:
                 return
             self.ledger.db.execute("UPDATE publication_intents SET state='applied',receipt=? WHERE id=?",
                                    (encoded, saved["id"]))
-            self.ledger.db.execute("DELETE FROM publication_lock WHERE intent=?", (saved["id"],))
+            self._release(saved["id"])
             self._event(saved["id"], "applied", {"effect": key})
+
+    def _release(self, ident):
+        """Release the lock, handing it to any other pending intent."""
+        self.ledger.db.execute("DELETE FROM publication_lock WHERE intent=?", (ident,))
+        self.ledger.db.execute(
+            "INSERT OR IGNORE INTO publication_lock(singleton,intent) "
+            "SELECT 1,id FROM publication_intents WHERE state='pending' AND id<>? ORDER BY rowid LIMIT 1", (ident,))
 
     def _block(self, saved, reason):
         with self.ledger.transaction():
@@ -867,7 +878,7 @@ class Publication:
                 "UPDATE publication_intents SET state='not_applied' WHERE id=? AND state='pending'", (saved["id"],))
             if changed.rowcount != 1:
                 raise UncertainEffect("publication state changed before settling its rejection")
-            self.ledger.db.execute("DELETE FROM publication_lock WHERE intent=?", (saved["id"],))
+            self._release(saved["id"])
             self._event(saved["id"], "rejected", evidence)
 
     def _dispatch(self, intent):

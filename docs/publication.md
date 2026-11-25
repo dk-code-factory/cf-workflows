@@ -125,7 +125,9 @@ ledger migrates it in place: `uncertain` becomes `pending` and takes the lock,
 `completed` becomes `applied`, and a retained acknowledged response moves into
 the event history. Version 2 reset some dispatched writes to `prepared` with a
 no-effect proof from absence. Such a write was sent, so it also becomes
-`pending`, and its proof is kept only as history.
+`pending`, and its proof is kept only as history. A migrated ledger can hold
+several pending intents. Dispatch refuses while any of them is pending, and
+settling the lock holder hands the lock to the next one.
 
 The lock belongs to one logical run. Two logical runs on the same PR do not
 share it. For them, the head lease, `--force-with-lease`, the discussion

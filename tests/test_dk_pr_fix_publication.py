@@ -608,6 +608,10 @@ class NativeSessionsNeverWrite(unittest.TestCase):
 
 
 class LedgerMigration(unittest.TestCase):
+    @staticmethod
+    def state_of(ledger, ident):
+        return ledger.db.execute("SELECT state FROM publication_intents WHERE id=?", (ident,)).fetchone()[0]
+
     def setUp(self):
         git_fixture.isolate(self)
         temp = tempfile.TemporaryDirectory(prefix="cfw publication ledger ")
@@ -664,6 +668,24 @@ class LedgerMigration(unittest.TestCase):
                 with self.assertRaises(UncertainEffect):
                     publisher.execute(ident, {})
             self.assertEqual(provider.writes, [])
+            # Settling the lock holder hands the lock to the other migrated
+            # pending write; a new intent still cannot dispatch.
+            provider.ev["metadata"]["head"]["sha"] = HEAD
+            fresh = publisher.prepare({"id": "fresh", "kind": "edit_pr", "head": HEAD, "target": BASE,
+                                       "payload": {"title": "After"}, "sources": ["accepted:report"]})
+            with ledger.transaction():
+                publisher._release("pending")
+                ledger.db.execute("UPDATE publication_intents SET state='applied' WHERE id='pending'")
+            self.assertEqual(ledger.db.execute("SELECT intent FROM publication_lock").fetchone()[0], "reset")
+            with self.assertRaisesRegex(UncertainEffect, "lock"):
+                publisher.execute(fresh["id"], {"fingerprint": fresh["fingerprint"], "suitable": True,
+                                                "audience": "PR participants", "evidence": ["accepted:audience"]})
+            # Even with no lock row, any other pending intent refuses dispatch.
+            ledger.db.execute("DELETE FROM publication_lock")
+            with self.assertRaisesRegex(UncertainEffect, "lock"):
+                publisher.execute(fresh["id"], {"fingerprint": fresh["fingerprint"], "suitable": True,
+                                                "audience": "PR participants", "evidence": ["accepted:audience"]})
+            self.assertEqual((provider.writes, self.state_of(ledger, "fresh")), ([], "prepared"))
 
 
 if __name__ == "__main__":

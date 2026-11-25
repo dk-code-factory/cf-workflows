@@ -27,7 +27,7 @@
     "workflows/helpers/prfix/core.py": "505aa71eff389cf2234abaa2ab5fa1fbd457b1784ee5a1085464635bd7ee4273",
     "workflows/helpers/prfix/preparation.py": "0945ba5325cfd9facb2bb8d94194a210176b0dc1d6c3bc2ccfc8fb1c46fbafc8",
     "workflows/helpers/prfix/prepare.py": "a59c241739e5c6378b32dda0905dd905dff30045909e65b58d5bfd394df4dfe3",
-    "workflows/helpers/prfix/publication.py": "c9bf39755748fbdeb083bc7cd3d4fd085b31e69cd2179f5224eb6330a56be407",
+    "workflows/helpers/prfix/publication.py": "bfe7f9c85e6c9e8d831177cab5a8de746041727e7c84a537ac2d9048a95a1617",
     "workflows/helpers/prfix/publishing.py": "c3c40a27caae174cb1e8a5f464f46bdc9f0daa70604b7429afbed536b9c47dcb",
     "workflows/main.yml": "bfaa1f810934771f71c3fc07445a967c31be1b55518f62874ea27600ac974194",
     "workflows/native.yml": "15062cc601e3162333a4616ff3e78de093cfa2e924e6bbceb0c84005abf928a6",
