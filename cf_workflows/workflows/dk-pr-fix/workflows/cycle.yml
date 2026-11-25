@@ -25,6 +25,9 @@ name: Selected tasks then finalizers in their declared order
     outputs:
       complete:
         value: ${{ jobs.coverage.outputs.result.complete }}
+      settled:
+        # Complete, and either current or out of retained reconciliation waits.
+        value: ${{ jobs.coverage.outputs.result.settled }}
 jobs:
   stages:
     uses: workflows/stage.yml
@@ -50,3 +53,43 @@ jobs:
       github_token: ${{ secrets.github_token }}
     needs:
     - stages
+  identities:
+    # Provisional analysis is done; wait a bounded, retained number of times for
+    # the PR metadata to reach the pinned revision. The next cycle reuses the
+    # analysis and publishes only once the identities agree.
+    needs: coverage
+    if: ${{ needs.coverage.outputs.result.waiting }}
+    container:
+      files:
+      - helpers/
+      - agents/
+    steps:
+    - argv:
+      - python3
+      - -B
+      - /actions/helpers/action.py
+      - alignment
+      protocol: action-v1
+      effect: external_mutation
+      input-schema:
+        type: object
+      output-schema:
+        type: object
+      input:
+        plan: ${{ inputs.plan }}
+        wait: true
+      env:
+        GH_TOKEN: ${{ secrets.github_token }}
+        GH_ENTERPRISE_TOKEN: ${{ secrets.github_token }}
+        CF_WORKFLOWS_STATE: /cf-workflows-state
+      id: alignment
+    - id: delay
+      if: ${{ steps.alignment.outputs.waiting }}
+      argv:
+      - sleep
+      - '10'
+    outputs:
+      settled: ${{ steps.alignment.outputs.waiting != true }}
+    repeat:
+      max-attempts: 100
+      until: ${{ iteration.outputs.settled }}

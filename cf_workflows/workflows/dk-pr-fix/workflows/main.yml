@@ -138,6 +138,8 @@ name: cf-workflows:dk-pr-fix
         value: ${{ jobs.completion.outputs.result.complete }}
       ready:
         value: ${{ jobs.completion.outputs.result.ready }}
+      provisional:
+        value: ${{ jobs.completion.outputs.result.provisional.provisional }}
 jobs:
   request:
     uses: workflows/helper.yml
@@ -185,7 +187,7 @@ jobs:
       != 'canceled' }}
     repeat:
       max-attempts: ${{ needs.prepare.outputs.result.limits.review_cycles }}
-      until: ${{ iteration.outputs.complete }}
+      until: ${{ iteration.outputs.settled }}
   completion:
     uses: workflows/helper.yml
     with:

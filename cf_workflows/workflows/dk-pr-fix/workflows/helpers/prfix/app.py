@@ -161,15 +161,84 @@ def _task(plan, key):
 def _snapshot(root, provider, plan):
     from .capture import capture
     current = git(root, "rev-parse", "HEAD").decode().strip()
+    chain = [current]
     with Ledger(root, plan["logical_run"], plan["pr"]["url"], read_only=True) as ledger:
-        known = ledger.db.execute("SELECT head FROM local_commits WHERE head=? AND state='completed'", (current,)).fetchone()
+        # The controlled commits below the local head and the PR revision they
+        # were built on. A PR head merely older than that revision is not on it.
+        while len(chain) <= 256:
+            known = ledger.db.execute("SELECT parent FROM local_commits WHERE head=? AND state='completed'",
+                                      (chain[-1],)).fetchone()
+            if not known:
+                break
+            chain.append(known["parent"])
     active = dict(plan)
-    if known:
+    if len(chain) > 1:
         active["allow_local_head"] = current
+        active["local_chain"] = chain
     snapshot = capture(root, provider, active)
     if getattr(provider, "last_capture", None) is not None and not getattr(provider, "read_only", False):
         snapshot["evidence_reference"] = artifact(root, provider.last_capture)
     return snapshot
+
+
+# Waits for PR metadata to reach one pinned Git revision. The allowance is
+# retained per pinned revision in the logical run's ledger; only an explicit
+# continuation for ``identity-reconciliation:<pin>`` adds capacity.
+RECONCILIATION_ATTEMPTS = 5
+
+
+class ProvisionalIdentity(ValueError):
+    """An external effect needs PR metadata that agrees with the analyzed revision."""
+
+
+def require_current(snapshot, action):
+    identities = snapshot["identities"]
+    if not identities["current"]:
+        raise ProvisionalIdentity(action + " is withheld while analysis is provisional: PR metadata reports "
+                                  + identities["metadata_head"] + " but the pinned Git revision is " + identities["pin"])
+
+
+def reconciliation(ledger, identities):
+    """Retained wait allowance for one pinned revision: consumed, ceiling, exhausted."""
+    name = "identity-reconciliation:" + identities["pin"]
+    used = ledger.db.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE name=?", (name,)).fetchone()[0]
+    original = ledger.db.execute("SELECT limit_value FROM reservations WHERE name=? ORDER BY rowid LIMIT 1",
+                                 (name,)).fetchone()
+    limit = (min(original[0], RECONCILIATION_ATTEMPTS) if original else RECONCILIATION_ATTEMPTS) + ledger.granted(name)
+    return {"allowance": name, "attempts": used, "limit": limit, "exhausted": used >= limit}
+
+
+def provisional(snapshot):
+    """The report's provisional record: the pinned revision and mismatched identities."""
+    identities = snapshot["identities"]
+    if identities["current"]:
+        return {"provisional": False}
+    return {"provisional": True, "reason": identities["reason"], "pin": identities["pin"],
+            "mismatched": {"head": {"metadata": identities["metadata_head"], "git": identities["git_head"]}}}
+
+
+def alignment(root, provider, ledger, plan, inputs):
+    """Observe whether PR metadata reached the pinned revision; optionally wait once.
+
+    A wait reserves one unit of the pinned revision's retained allowance under
+    this engine operation's identity, so replay after response loss, a new
+    run or a new session never consumes twice or resets the count. An
+    exhausted allowance stops waiting; provisional analysis stays retained and
+    external effects stay withheld.
+    """
+    snapshot = _snapshot(root, provider, plan)
+    identities = snapshot["identities"]
+    result = {"current": identities["current"], "identities": identities, "provisional": provisional(snapshot),
+              "waiting": False, "exhausted": False}
+    if identities["current"]:
+        return result
+    state = reconciliation(ledger, identities)
+    if inputs.get("wait") is True and not state["exhausted"]:
+        ledger.reserve(state["allowance"], text(inputs.get("_operation"), "engine operation"), RECONCILIATION_ATTEMPTS)
+        state = reconciliation(ledger, identities)
+        result["waiting"] = True
+    result.update(reconciliation=state, exhausted=state["exhausted"] and not result["waiting"])
+    return result
 
 
 def _fingerprint(snapshot, task, ledger=None):
@@ -318,7 +387,8 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             "WHERE r.task=? AND r.basis=? AND c.state!='superseded'", (task["id"], basis)).fetchone()[0]
         ledger.reserve("review_cycles", digest([basis, round_number]), plan["limits"]["review_cycles"])
     if task["id"] == "ci_repair":
-        latest = ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
+        require_current(snapshot, "CI repair")
+        latest =ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
         if not latest or latest["head"] != snapshot["head"] or latest["status"] != "failed":
             raise ValueError("CI repair requires the current exact-head failed observation")
         cycle = inputs.get("cycle", 0)
@@ -733,9 +803,18 @@ def coverage(root, provider, ledger, plan, inputs):
             unresolved.append(key)
     if any(stage["kind"] == "ci" for stage in plan["stages"]):
         observed = ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
-        if not observed or observed["head"] != snapshot["head"] or observed["status"] != "success" or snapshot["local_head"] != snapshot["head"]:
+        if (not observed or observed["head"] != snapshot["head"] or observed["status"] != "success"
+                or snapshot["local_head"] != snapshot["head"] or not snapshot["identities"]["current"]):
             missing.append("current_head_ci")
-    return {"complete": not missing and not unresolved, "ready": False,
+    # Selected-plan coverage, current identity agreement and readiness stay
+    # separate. Provisional coverage is private analysis of the pinned revision.
+    identities = snapshot["identities"]
+    complete = not missing and not unresolved
+    waits = None if identities["current"] else reconciliation(ledger, identities)
+    return {"complete": complete, "ready": False, "current": identities["current"],
+            "provisional": provisional(snapshot), "reconciliation": waits,
+            "waiting": waits is not None and not waits["exhausted"],
+            "settled": complete and (waits is None or waits["exhausted"]),
             "missing": missing, "unresolved": unresolved,
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

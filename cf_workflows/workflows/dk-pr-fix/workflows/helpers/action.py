@@ -79,6 +79,8 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
                                "contract_error": prior.get("contract_error", "")}}
     if operation == "coverage":
         return app.coverage(root, provider, ledger, plan, inputs)
+    if operation == "alignment":
+        return app.alignment(root, provider, ledger, plan, inputs)
     if operation == "completion":
         from prfix.publishing import readiness
         result = readiness(root, provider, ledger, plan)

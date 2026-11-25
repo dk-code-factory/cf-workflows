@@ -372,6 +372,11 @@ class GitHub:
         self.last_capture = result
         return result
 
+    def pull_ref(self, pr):
+        """The service's Git ref for this PR's head, unvalidated; capture() checks it."""
+        prefix = self._bind(pr)
+        return self.request("GET", prefix + "/git/ref/pull/" + str(pr["number"]) + "/head")
+
     def observe_ci(self, pr, head):
         if not isinstance(head, str) or not SHA.fullmatch(head):
             raise ValueError("CI requires an immutable head")
@@ -435,6 +440,52 @@ class GitHub:
 def _git(root, *args, raw=False):
     value = run(root, ["git", "-c", "core.quotePath=false", *args])
     return value if raw else value.decode("utf-8", errors="strict").strip()
+
+
+def _pull_ref(provider, pr):
+    """Validate the service's Git ref for this exact PR; anything else is an error."""
+    value = provider.pull_ref(pr)
+    if not isinstance(value, dict) or not isinstance(value.get("object"), dict):
+        raise ValueError("PR Git ref observation is corrupt")
+    if value.get("ref") != "refs/pull/" + str(pr["number"]) + "/head":
+        raise ValueError("PR Git ref belongs to another PR")
+    target = value["object"]
+    if target.get("type") != "commit" or not isinstance(target.get("sha"), str) or not SHA.fullmatch(target["sha"]):
+        raise ValueError("PR Git ref observation is corrupt")
+    return target["sha"]
+
+
+def _pin(root, provider, pr, plan, metadata_head, local_head):
+    """Choose the analyzed PR revision and record its identities.
+
+    Normally the PR metadata head is the revision. When the metadata reports a
+    head that the checkout neither is nor builds on through retained controlled
+    commits, the service's Git ref for this PR is read. Only a Git ref that
+    differs from the metadata and that the checkout is (or builds on) counts
+    as metadata lag: the checkout is then pinned to that revision for private,
+    provisional analysis, and the metadata head is kept as observed. Anything
+    else (another PR's ref, a corrupt or missing ref, a checkout at neither
+    revision) remains an error.
+    """
+    chain = plan.get("local_chain", []) if plan.get("allow_local_head") == local_head else []
+
+    def covers(revision):
+        if local_head == revision:
+            return True
+        if revision not in chain:
+            return False
+        _git(root, "merge-base", "--is-ancestor", revision, local_head)
+        return True
+
+    if covers(metadata_head):
+        return metadata_head, {"current": True, "pin": metadata_head, "metadata_head": metadata_head,
+                               "git_head": None, "mismatched": []}
+    git_head = _pull_ref(provider, pr)
+    if git_head == metadata_head or not covers(git_head):
+        raise ValueError("local HEAD differs from PR head without retained local commit")
+    return git_head, {"current": False, "pin": git_head, "metadata_head": metadata_head,
+                      "git_head": git_head, "mismatched": ["head"],
+                      "reason": "PR metadata reports another head than the PR's Git ref; analysis of the pinned Git revision is provisional"}
 
 
 def _owned_exclusions(root, plan):
@@ -510,6 +561,9 @@ def capture(root, provider, plan, *, clean=False):
     pr = _identity(plan["pr"])
     observed = provider.capture(pr)
     metadata, viewer = observed["metadata"], observed["viewer"]
+    # Every transport's snapshot must describe this exact PR.
+    if identity(metadata.get("html_url")) != pr or metadata.get("number") != pr["number"]:
+        raise ValueError("PR snapshot belongs to another PR")
     head, target = metadata["head"]["sha"], metadata["base"]["sha"]
     if not SHA.fullmatch(head) or not SHA.fullmatch(target):
         raise ValueError("complete immutable PR and target heads required")
@@ -534,12 +588,9 @@ def capture(root, provider, plan, *, clean=False):
             or any(not REPO_PART.fullmatch(p) or p in (".", "..") for p in head_repository.split("/"))):
         raise ValueError("complete head repository identity required")
     local_head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
-    if local_head != head:
-        # The application must have retained the exact authorized local commit;
-        # a caller cannot merely set an unrestricted boolean to bypass this.
-        if plan.get("allow_local_head") != local_head:
-            raise ValueError("local HEAD differs from PR head without retained local commit")
-        _git(root, "merge-base", "--is-ancestor", head, local_head)
+    # A local head other than the PR head needs the exact retained local commit;
+    # a caller cannot merely set an unrestricted boolean to bypass this.
+    head, identities = _pin(root, provider, pr, plan, head, local_head)
     base = _git(root, "merge-base", target, local_head)
     trees = {name: _git(root, "rev-parse", "--verify", pin + "^{tree}")
              for name, pin in (("target_tree", target), ("base_tree", base), ("head_tree", head),
@@ -589,7 +640,10 @@ def capture(root, provider, plan, *, clean=False):
         with Ledger(root, plan["logical_run"], pr["url"], read_only=True) as ledger:
             discussion = original_discussion(ledger, plan, discussion)
     resources = resource_digests(root, plan.get("resources", {}))
-    result = {"pr": pr, "head": head, "target": target, "base": base,
+    # ``head`` is the analyzed PR revision. ``identities`` keeps the metadata
+    # head as observed and whether it currently agrees; analysis fingerprints
+    # never bind that agreement, so reconciliation to the same revision reuses.
+    result = {"pr": pr, "head": head, "target": target, "base": base, "identities": identities,
               "local_head": local_head, **trees, "author": author["login"],
               "author_id": author["id"], "viewer": viewer["login"], "actor_id": viewer["id"],
               "head_repository": pr["host"] + "/" + head_repository.lower(),
@@ -606,7 +660,7 @@ def capture(root, provider, plan, *, clean=False):
               "definition_digests": _decode(canonical(plan.get("definitions", {}))),
               "status_fingerprint": hashlib.sha256(status).hexdigest(),
               "dirty": bool(status),
-              "evidence": digest({"pr": observed, "status": status.hex(), "untracked": untracked,
+              "evidence": digest({"pr": observed, "identities": identities, "status": status.hex(), "untracked": untracked,
                                   "diff": hashlib.sha256(diff).hexdigest(), "history": hashlib.sha256(history).hexdigest()})}
     if status:
         result["local_tree"] = digest({"head_tree": trees["local_tree"], "diff": result["diff"],

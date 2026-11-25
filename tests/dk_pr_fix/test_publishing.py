@@ -43,7 +43,8 @@ class PublishingTests(unittest.TestCase):
             "target_tree": "target-tree", "base_tree": "base-tree", "local_tree": "reviewed-tree",
             "diff": "diff", "discussion": "discussion", "instructions": "instructions", "settings": "settings",
             "resource_digests": {}, "definition_digests": {}, "head": HEAD, "target": BASE,
-            "local_head": HEAD, "dirty": False}
+            "local_head": HEAD, "dirty": False,
+            "identities": {"current": True, "pin": HEAD, "metadata_head": HEAD, "git_head": None, "mismatched": []}}
         self.snapshot_patch = patch.object(app, "_snapshot", side_effect=lambda *args: copy.deepcopy(self.snapshot))
         self.snapshot_patch.start()
         self.addCleanup(self.snapshot_patch.stop)

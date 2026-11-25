@@ -64,6 +64,9 @@ Adaptations to the example:
 - Occurrence IDs are stable rather than positional, fingerprints are scoped, and
   allowances, deadlines and continuation follow the rules in
   [Budgets, occurrences and continuation](#budgets-occurrences-and-continuation).
+- When PR metadata lags the PR's Git ref, the pinned Git revision is analyzed
+  privately and external effects wait for bounded reconciliation: see
+  [provisional analysis](provisional.md).
 - Publication uses the contract's journal states, per-action authority, a
   retained audience, a lock, unique effects and fresh attempts instead of
   replay, and adds review submission: see [exact-intent publication](publication.md).
