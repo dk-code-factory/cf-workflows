@@ -97,6 +97,12 @@ gateways. They cover missing, duplicate, undeclared and nested children, digest
 mismatch, same-named and host skills, report-only claims, resumed and checklist
 sessions without the skill, interrupted and failed writers, and occurrence IDs
 equal to the installed helper's.
+[Configuration entry](configuration-skills.md#verification) tests
+(`tests/test_configuration_skills.py`) drive dk-repo-onboard, dk-config and
+dk-preferences with a disposable repository, the real configuration store and
+ledger, and a fake engine with durable gates and claim-reconciled native sessions.
+They count sessions, gates and writes across clarification, lost responses and
+concurrent writers.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

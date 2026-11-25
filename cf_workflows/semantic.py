@@ -74,7 +74,7 @@ def locations(admitted):
             index[entry['path'] + '.text'] = 'prompt_text'
     index.update({entry['path']: 'instruction' for entry in custom['instructions']})
     # Removing an override restores the baseline adapter; a new adapter name has nothing to fall back to.
-    index.update({adapter['path']: 'adapter' if name in admission.BASELINE_ADAPTERS else 'custom_adapter'
+    index.update({adapter['path']: 'adapter' if name in admission.BUNDLED_ADAPTERS else 'custom_adapter'
                   for name, adapter in custom['adapters'].items()})
     for skill in custom['skills'].values():
         index[skill['record']] = 'skill'

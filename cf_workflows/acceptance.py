@@ -115,7 +115,8 @@ def units(admitted):
     for entry in custom['prompts']:
         targeted = entry['target'] is not None
         add('prompt', f"prompt:{entry['source']}:{entry['id']}", [entry['path']],
-            content={key: entry[key] for key in ('slot', 'target', 'text')},
+            content={**{key: entry[key] for key in ('slot', 'target', 'text')},
+                     **({'scope': entry['scope']} if 'scope' in entry else {})},
             resources=closure(entry['resources'], configured),
             **({'adapter': adapter(entry['target'])} if targeted else {'plan': selected}))
     for entry in custom['instructions']:
