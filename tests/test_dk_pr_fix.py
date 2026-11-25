@@ -145,7 +145,9 @@ class InstalledClosure(unittest.TestCase):
         installed = {'cf_workflows/workflows/dk-pr-fix/' + path for path in dk_pr_fix.closure_digests()}
         ported = {'tests/dk_pr_fix/' + path.name for path in (ROOT / 'tests/dk_pr_fix').glob('*.py')
                   if path.name != '__init__.py'}
-        self.assertEqual(set(local), installed | ported)
+        authored = {entry['path'] for entry in PROVENANCE['authored']}
+        self.assertFalse(authored & set(local))
+        self.assertEqual(set(local) | authored, installed | ported)
         for path, entry in local.items():
             digest = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
             self.assertEqual(entry['change'] == 'verbatim', digest == entry['upstream_sha256'], path)
