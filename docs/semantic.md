@@ -11,8 +11,8 @@ installed workflow calls it yet.
 Only a result with preflight `semantic_required` goes further. The default plan
 has no custom inputs, so it returns after structural admission with
 `semantic: null` and makes no gate read or validator session. Structural
-rejections, a blocked engine query and supplied skills (rejected until #16) also
-return unchanged.
+rejections, a blocked engine query and supplied skills (rejected until Agent
+Workflow #139) also return unchanged.
 
 A proposal with custom inputs also needs the engine-level `durable_input`
 capability for clarification gates. Without it, structural admission rejects
@@ -104,7 +104,7 @@ assessed.
 - Reusing an acceptance in a later run and writing an accepted revision back to
   the configuration store: [acceptance.md](acceptance.md). Without a ledger,
   each call assesses again.
-- Supplied-skill execution: preflight still rejects it (#16, Agent Workflow #139).
+- Supplied-skill execution: preflight still rejects it ([skills.md](skills.md), Agent Workflow #139).
 - Real transport bindings for `validator_session`, `input_gates` and
   `open_input_gate`. The engine needs native sessions for the provider (Agent
   Workflow #129 for Claude; #130 for admitted assets), and workflow wiring is #14.

@@ -228,9 +228,9 @@ class CustomInputs(Fixture):
         tasks = [['read-feedback', 'assess-scope'],
                  {'stage': 'reviews', 'reviewers': [[{'task': 'review', 'skill': 'lint-skill'}, 'review']]}]
         invocation = {'options': {'tasks': tasks, 'finalizers': []}, 'skills': [self.skill()]}
-        self.assertRejected(self.admit(invocation=invocation), 'unsupported capability: session_scoped_skills', probed=True)
+        self.assertRejected(self.admit(invocation=invocation), 'unsupported capability: observed_skill_evidence, session_scoped_skills', probed=True)
         offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].append('session_scoped_skills')
+        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
         result = self.admit(invocation=invocation, transport=FakeTransport(offered))
         self.assertEqual((result['structural'], result['semantic']), ('accepted', 'blocked'))
         plan = result['snapshot']['plan']

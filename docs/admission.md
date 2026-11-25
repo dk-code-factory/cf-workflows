@@ -48,7 +48,9 @@ Admission reads and hashes these inputs:
 A user-supplied skill is a directory. Its file list and per-file digests must
 match exactly, and its content digest is the SHA-256 of the canonical JSON `{path: sha256}`.
 Admission hashes the files and checks Markdown links from the entry. It never
-loads or runs the skill. Host-installed skill fields reject.
+loads or runs the skill. Host-installed skill fields reject. An optional
+`children` array declares the permitted child agent types and their exact
+counts ([skills.md](skills.md)).
 
 Link closure covers inline links (including balanced parentheses), reference
 definitions (not footnotes) and `<...>` targets. It ignores fenced code and code
@@ -63,7 +65,8 @@ the engine is contacted. An authorization for a prohibited action also rejects.
 After every local check passes, admission makes one read-only `capabilities()`
 call. If that query fails, the result is `preflight: blocked` with structural
 status `accepted`, not a structural rejection. Each deployed provider must offer `native_session` and `admitted_roles`,
-plus `session_scoped_skills` when a supplied skill is applicable and
+plus `session_scoped_skills` and `observed_skill_evidence` when a supplied skill
+is applicable, `observed_child_agents` when it declares children, and
 `merge_guard` when merge is effectively granted. When custom inputs apply, the
 engine must also offer `durable_input` in `engine.capabilities` for
 clarification gates. Admission calls no other transport operation.
@@ -92,7 +95,7 @@ Custom inputs are:
 When any exist, the result is structurally `accepted`, semantically `blocked`
 and its preflight is `semantic_required`. Structural success never admits it;
 [semantic assessment](semantic.md) decides. A selected supplied skill still
-rejects preflight until supplied-skill execution (#16) lands. The bundled
+rejects preflight until Agent Workflow #139 loads it ([skills.md](skills.md)). The bundled
 validator check runs before the engine query. The default plan has no custom
 inputs, so it is admitted with `semantic: null` and needs no validator session.
 
@@ -112,7 +115,7 @@ after one level.
 - Reusing acceptance and writing revisions back: [acceptance.md](acceptance.md).
 - Snapshot capture of PR metadata: the installed workflow's `prepare` helper
   ([dk-pr-fix](dk-pr-fix.md)).
-- Supplied-skill sessions: #16, which needs Agent Workflow #139.
+- Supplied-skill bindings and evidence: [skills.md](skills.md); loading needs Agent Workflow #139.
 
 No real engine reports these capabilities yet; the gating issues are Agent
 Workflow #129, #130 and #138. Until they land, real preflight rejects. The tests

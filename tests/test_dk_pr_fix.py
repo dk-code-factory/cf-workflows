@@ -241,7 +241,7 @@ class Preflight(PreflightFixture):
                  'sha256': admission.skill_digest(files),
                  'files': [{'path': 'SKILL.md', 'sha256': files['SKILL.md']}]}
         offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].append('session_scoped_skills')
+        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
         for invocation, transport in (
                 ({'prompts': [{'id': 'local', 'slot': 'additional', 'text': '$lint Keep the diff small.'}]}, None),
                 ({'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}]}}, None),

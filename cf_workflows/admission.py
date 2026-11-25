@@ -6,8 +6,9 @@ remote write. The only external operation is one read-only capability query on
 the supplied engine transport, made after every local structural check passes.
 A proposal with custom inputs is structurally accepted but never admitted here:
 its preflight is `semantic_required` until cf_workflows.semantic assesses it.
-Supplied skills remain rejected at preflight until session-scoped execution
-(#16) lands.
+Supplied skills remain rejected at preflight until the engine loads them as
+session-scoped plugins (Agent Workflow #139); cf_workflows.skills holds the
+per-occurrence bindings and evidence checks that execution will consume.
 
 Baseline adapter texts and selection rules are adapted from the pinned portable
 PR-fix example (Agent Workflow, MIT; see licenses/agent-workflow-MIT.txt).
@@ -26,6 +27,7 @@ MAX_FILE = 4 << 20
 MAX_TEXT = 64 << 10
 MAX_CLOSURE = 256
 MAX_SKILL_FILES = 512
+MAX_SKILL_CHILDREN = 8
 MAX_TASKS = 40
 MAX_ADMISSION_INPUT = 1 << 20
 SHA256 = re.compile(r'[0-9a-f]{64}')
@@ -54,9 +56,13 @@ LIMIT_BOUNDS = {'review_cycles': (1, 10), 'retries_per_task': (0, 1),
                 'ci_repairs_per_cycle': (0, 5), 'ci_reruns_per_head': (0, 3)}
 BASE_CAPABILITIES = ('native_session', 'admitted_roles')
 SKILL_CAPABILITY = 'session_scoped_skills'
+# Engine-observed evidence of the skill invocation and terminal outcome, and of child agents with their parents.
+SKILL_EVIDENCE_CAPABILITY = 'observed_skill_evidence'
+CHILD_CAPABILITY = 'observed_child_agents'
+AGENT_TYPE = re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,63}')
 MERGE_CAPABILITY = 'merge_guard'
 INPUT_CAPABILITY = 'durable_input'  # Engine-level: request-bound clarification gates.
-SUPPLIED_SKILL_EXECUTION = False  # Session-scoped supplied-skill execution lands in #16.
+SUPPLIED_SKILL_EXECUTION = False  # Needs session-scoped plugin loading from Agent Workflow #139.
 
 VALIDATOR_ROLE = 'configuration-validator'
 BOOTSTRAP_DEFINITION = Path(__file__).resolve().parent / 'bootstrap' / 'configuration-validator.toml'
@@ -342,7 +348,7 @@ def resolve_skill(record, roots, path):
     for field in ('host', 'installed_version', 'qualified_name'):
         require(not isinstance(record, dict) or field not in record, path,
                 'host-installed skills are never discovered or supported; supply files pinned by digest')
-    fields(record, path, ('id', 'name', 'root', 'path', 'sha256', 'files'), ('entry',))
+    fields(record, path, ('id', 'name', 'root', 'path', 'sha256', 'files'), ('entry', 'children'))
     require(isinstance(record['id'], str) and IDENT.fullmatch(record['id']), path + '.id', 'invalid identifier')
     require(isinstance(record['name'], str) and NAME.fullmatch(record['name']), path + '.name',
             'must be an unqualified skill name')
@@ -386,7 +392,28 @@ def resolve_skill(record, roots, path):
     tree = skill_digest(files)
     require(record['sha256'] == tree, path + '.sha256', 'skill content digest mismatch')
     return {'id': record['id'], 'name': record['name'], 'root': record['root'], 'path': base,
-            'entry': entry, 'sha256': tree, 'files': files}
+            'entry': entry, 'sha256': tree, 'files': files,
+            'children': skill_children(record.get('children', []), path + '.children')}
+
+
+def skill_children(declared, path):
+    """Child agents a supplied skill must run: exact counts of explicitly permitted agent types.
+
+    The default (no declaration) permits no child agents at all.
+    """
+    require(isinstance(declared, list) and len(declared) <= MAX_SKILL_CHILDREN, path,
+            f'must be an array of at most {MAX_SKILL_CHILDREN} child declarations')
+    result = {}
+    for index, item in enumerate(declared):
+        where = f'{path}[{index}]'
+        fields(item, where, ('agent_type', 'count'))
+        kind = item['agent_type']
+        require(isinstance(kind, str) and AGENT_TYPE.fullmatch(kind), where + '.agent_type', 'invalid agent type')
+        require(kind not in result, where + '.agent_type', 'duplicate agent type')
+        require(type(item['count']) is int and 1 <= item['count'] <= MAX_SKILL_CHILDREN, where + '.count',
+                f'must be an integer in 1..{MAX_SKILL_CHILDREN}')
+        result[kind] = item['count']
+    return [{'agent_type': kind, 'count': count} for kind, count in sorted(result.items())]
 
 
 def skill_digest(files):
@@ -973,7 +1000,9 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     }
     required = set(BASE_CAPABILITIES)
     if custom['skills']:
-        required.add(SKILL_CAPABILITY)
+        required |= {SKILL_CAPABILITY, SKILL_EVIDENCE_CAPABILITY}
+        if any(skills[key]['children'] for key in custom['skills']):
+            required.add(CHILD_CAPABILITY)
     if effective_permissions['merge']['effective']:
         required.add(MERGE_CAPABILITY)
     semantic_required = any(custom.values())
@@ -1049,7 +1078,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
             'adapters': {name: {**adapters[name],
                                 'path': f"{locations[options['adapters']['source']]}.options.adapters.{name}"}
                          for name in custom['adapters']},
-            'skills': {key: {**{k: skills[key][k] for k in ('name', 'root', 'path', 'entry', 'sha256', 'files', 'source')},
+            'skills': {key: {**{k: skills[key][k] for k in ('name', 'root', 'path', 'entry', 'sha256', 'files',
+                                                            'children', 'source')},
                              'record': skills[key]['path_ref'],
                              'references': [entry['path'] + '.skill' for entry in tasks if entry['skill'] == key]}
                        for key in custom['skills']},
@@ -1072,8 +1102,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     }
     if custom['skills'] and not SUPPLIED_SKILL_EXECUTION:
         result['preflight'] = 'rejected'
-        result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution, '
-                           'which is not available yet'}
+        result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution '
+                           '(Agent Workflow #139), which is not available yet'}
     elif semantic_required:
         # Structural success never substitutes for semantic acceptance of custom inputs.
         result['preflight'] = 'semantic_required'

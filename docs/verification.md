@@ -57,6 +57,12 @@ dk-workflows#244 with a disposable ledger per test and a fake GitHub transport
 whose only operation is a counted `capture()`: rejected bot and style
 suggestions, mixed threads, questions for other participants, already answered
 and optional sources, edited sources, deleted replies and denied permissions.
+[Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
+from admitted plans and decide coverage from records of fake Codex and Claude
+gateways. They cover missing, duplicate, undeclared and nested children, digest
+mismatch, same-named and host skills, report-only claims, resumed and checklist
+sessions without the skill, interrupted and failed writers, and occurrence IDs
+equal to the installed helper's.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture
