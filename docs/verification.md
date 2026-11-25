@@ -21,9 +21,13 @@ against the pinned entries and [contracts](contracts/v1/README.md).
 The regression test verifies that missing or extra host-manifest entries reject
 before any source-object reads, instead of silently checking a partial host set.
 
-This documentation-only PR has no runtime transports or fixture operations.
-No fake runtime execution is presented as implemented admission or host support.
-Future runtime issues must use disposable repositories and explicit fake
+[Structural admission](admission.md) tests (`tests/test_admission.py`) use
+disposable Git repositories and resource roots plus a fake engine transport. Any
+operation other than the configured `capabilities()` query fails without a live
+fallback. Every rejection asserts zero capability queries when it comes from a
+local structural check and zero skill, session or publication operations in all
+cases. These tests do not certify any engine, provider or host. Future runtime
+issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture
 operations must fail without falling back to network/model execution. Assert
 invocation counts for changed-input selective reuse, capacity-one execution,
