@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "suite": {
+    "name": "cf-workflows",
+    "version": "0.1.0-dev",
+    "contract_version": 1,
+    "runnable": false
+  },
+  "sources": [
+    {
+      "name": "dk-workflows",
+      "repository": "https://github.com/dk-code-factory/dk-workflows",
+      "commit": "3d9a6e7b6fc837082be3bbd295d23116ff7f71fa",
+      "version": "5.17.0",
+      "manifest": ".claude-plugin/plugin.json",
+      "host_manifests": [
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json"
+      ],
+      "license": "licenses/dk-workflows-MIT.txt"
+    },
+    {
+      "name": "agent-workflow",
+      "repository": "https://github.com/dk-code-factory/agent-workflow",
+      "commit": "16ec5eecccd367dfdffcf1b529c51d181bbced49",
+      "scope": "examples/pr-fix/ and docs/PR_FIX.md",
+      "license": "licenses/agent-workflow-MIT.txt"
+    }
+  ]
+}

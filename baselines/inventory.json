@@ -1,0 +1,2433 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "3d9a6e7b6fc837082be3bbd295d23116ff7f71fa",
+  "resource_scope": "Entry files and their direct local Markdown references on both hosts; not a transitive install closure.",
+  "skills": [
+    {
+      "name": "dk-pr-iter",
+      "entrypoint": "cf-workflows:dk-pr-iter",
+      "delivery_issue": 24,
+      "inputs": "PR, actor identities, personal accounts, explicit route",
+      "outputs": "Selected fix/review invocation and identity evidence",
+      "permissions": "Read; downstream writes need their own grants",
+      "dependencies": "dk-pr-fix; dk-pr-review",
+      "completion": "Immutable author identity established and selected route completed",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Host and provider remain distinct; unknown identity blocks routing",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-iter/SKILL.md",
+          "sha256": "20cf302c41243b6d0774b35949b64df10a45991a209add91d6f5cb76b260b5ff"
+        },
+        {
+          "path": "claude/skills/dk-pr-iter/config.json",
+          "sha256": "42a9292d52f0073071bf172ae5d68961ed42756add22593577c1eece3c609c62"
+        },
+        {
+          "path": "claude/skills/dk-pr-iter/config.schema.json",
+          "sha256": "a2b5c8e3a8eba36fe10d925b065420f7fcb96ea19875d9609b21f71eca376dc4"
+        },
+        {
+          "path": "claude/skills/dk-pr-iter/prompts/default.md",
+          "sha256": "194fec15640190257d4b8c77b5011f3e840f647abccf1d1b68efcc6ba0dc620b"
+        },
+        {
+          "path": "codex/skills/dk-pr-iter/SKILL.md",
+          "sha256": "20cf302c41243b6d0774b35949b64df10a45991a209add91d6f5cb76b260b5ff"
+        },
+        {
+          "path": "codex/skills/dk-pr-iter/config.json",
+          "sha256": "42a9292d52f0073071bf172ae5d68961ed42756add22593577c1eece3c609c62"
+        },
+        {
+          "path": "codex/skills/dk-pr-iter/config.schema.json",
+          "sha256": "a2b5c8e3a8eba36fe10d925b065420f7fcb96ea19875d9609b21f71eca376dc4"
+        },
+        {
+          "path": "codex/skills/dk-pr-iter/prompts/default.md",
+          "sha256": "194fec15640190257d4b8c77b5011f3e840f647abccf1d1b68efcc6ba0dc620b"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/invocations.md",
+          "sha256": "8580e11be04871f59fe4c34385867283528bb7b8989c2df6daceb6837e16b84c"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        },
+        {
+          "path": "runtime/pr.md",
+          "sha256": "8a7665c6e6006cb793182ae9be7d8d2b8dd5fa731d1fdc0acb489282a3909280"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-fix",
+      "entrypoint": "cf-workflows:dk-pr-fix",
+      "delivery_issue": 14,
+      "inputs": "PR pins, original instructions, selected plan and retained budgets",
+      "outputs": "Tested fixes, independent findings, finalizer evidence, completion and readiness",
+      "permissions": "Local edits only when authorized; each remote effect separately scoped",
+      "dependencies": "dk-pr-decisions; dk-pr-reviewers-run; selected finalizers",
+      "completion": "Selected tasks accepted, required replies settled before review, current readiness separately assessed",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Use YAML orchestration and Python boundaries rather than upstream controller",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "claude/skills/dk-pr-fix/SKILL.md",
+          "sha256": "b151ca373a9c88a48e7b8bb488fc203e1e74430941e21c68b40c0f7e383161ed"
+        },
+        {
+          "path": "claude/skills/dk-pr-fix/config.json",
+          "sha256": "18c0647d45c8cb828a3337a04b3941498c8a9181f0925fc69f2078fa19e8624e"
+        },
+        {
+          "path": "claude/skills/dk-pr-fix/config.schema.json",
+          "sha256": "2205ed505bb63e7097e4752d3b722b58f8f90c98a08eb428f51f8bcdfd134cfe"
+        },
+        {
+          "path": "claude/skills/dk-pr-fix/prompts/default.md",
+          "sha256": "cb9e34c2cb18454924bd2a77bdbc8afbd1b4638a83c402c097d0e4e93bd22324"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "codex/skills/dk-pr-fix/SKILL.md",
+          "sha256": "b151ca373a9c88a48e7b8bb488fc203e1e74430941e21c68b40c0f7e383161ed"
+        },
+        {
+          "path": "codex/skills/dk-pr-fix/config.json",
+          "sha256": "18c0647d45c8cb828a3337a04b3941498c8a9181f0925fc69f2078fa19e8624e"
+        },
+        {
+          "path": "codex/skills/dk-pr-fix/config.schema.json",
+          "sha256": "2205ed505bb63e7097e4752d3b722b58f8f90c98a08eb428f51f8bcdfd134cfe"
+        },
+        {
+          "path": "codex/skills/dk-pr-fix/prompts/default.md",
+          "sha256": "cb9e34c2cb18454924bd2a77bdbc8afbd1b4638a83c402c097d0e4e93bd22324"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/ci-flakes.md",
+          "sha256": "8c6e032ca48cbb7d46728e5ff58389c57ac58edb7187febfeac9b287f222a9d6"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/configuration.md",
+          "sha256": "22e925c521ab7d53cfe61fe341d3ca8dd5a4b85c4d35e51824dccb57077aa809"
+        },
+        {
+          "path": "docs/decision-reconciliation.md",
+          "sha256": "de97dd0f68ecd2bdae3ea3df7a372381c58fd51de18a6d5431e0026a1ac5302d"
+        },
+        {
+          "path": "docs/finalizers.md",
+          "sha256": "c6a12c20a999a4f7ed6ffc4c642a9181763e5ca74d8c8c1ad0130d1507b44e46"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/next-actions.md",
+          "sha256": "9dbb9bd026f588d4ff96ac2b7080089e02ec50deeaa529c91139df0b728a6afe"
+        },
+        {
+          "path": "docs/pr/commit-preparation.md",
+          "sha256": "750b6b59eb6f0fb66b24b9ef7f791730e16a16906705772a8fc58b6d4d699170"
+        },
+        {
+          "path": "docs/pr/publication.md",
+          "sha256": "9fd947f33e288b4db98042dd958994456c2798e283e62c8e3147b33e4b5aea46"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/simplification.md",
+          "sha256": "7044b2e098276c9f2c25a3a7e1c85cd1c5428b291ae6d2cb910bb987b42a0f41"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        },
+        {
+          "path": "runtime/pr-iter.md",
+          "sha256": "0682f042f6cdf62ab818103d4d95f116a402f8622fecdc285469c0e141062ea2"
+        },
+        {
+          "path": "runtime/pr.md",
+          "sha256": "8a7665c6e6006cb793182ae9be7d8d2b8dd5fa731d1fdc0acb489282a3909280"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-review",
+      "entrypoint": "cf-workflows:dk-pr-review",
+      "delivery_issue": 24,
+      "inputs": "Other-author PR pins, original constraints, selected reviewers",
+      "outputs": "Discovery, independent verification, dispositions and optional publication",
+      "permissions": "Read; finding publication, fork CI approval, PR approval and merge distinct",
+      "dependencies": "dk-pr-reviewers-run; dk-pr-review-post; dk-ci-approve; dk-ci",
+      "completion": "Current selected coverage and verification accepted; omissions remain explicit",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Real observed coordinator/children required; private provisional analysis is not readiness",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-review/SKILL.md",
+          "sha256": "830d6400c945ebe9d3c52e79572499533caaea709dac43eceedfaa185018f644"
+        },
+        {
+          "path": "claude/skills/dk-pr-review/config.json",
+          "sha256": "e39d88741bdaa42072d38e61037947f8195d3ea9ed1946cfdfa22f8d43784bdc"
+        },
+        {
+          "path": "claude/skills/dk-pr-review/config.schema.json",
+          "sha256": "d642c7346c7716e2bf33c3fbc7528c0dd4afe4e1c19bbac5b28b0378dc5ce188"
+        },
+        {
+          "path": "claude/skills/dk-pr-review/prompts/default.md",
+          "sha256": "be5625e0b30f32f4142fd9616f0c104a5a7983d2b14705b27ba93c132de6315e"
+        },
+        {
+          "path": "codex/skills/dk-pr-review/SKILL.md",
+          "sha256": "830d6400c945ebe9d3c52e79572499533caaea709dac43eceedfaa185018f644"
+        },
+        {
+          "path": "codex/skills/dk-pr-review/config.json",
+          "sha256": "e39d88741bdaa42072d38e61037947f8195d3ea9ed1946cfdfa22f8d43784bdc"
+        },
+        {
+          "path": "codex/skills/dk-pr-review/config.schema.json",
+          "sha256": "d642c7346c7716e2bf33c3fbc7528c0dd4afe4e1c19bbac5b28b0378dc5ce188"
+        },
+        {
+          "path": "codex/skills/dk-pr-review/prompts/default.md",
+          "sha256": "be5625e0b30f32f4142fd9616f0c104a5a7983d2b14705b27ba93c132de6315e"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/ci-flakes.md",
+          "sha256": "8c6e032ca48cbb7d46728e5ff58389c57ac58edb7187febfeac9b287f222a9d6"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/next-actions.md",
+          "sha256": "9dbb9bd026f588d4ff96ac2b7080089e02ec50deeaa529c91139df0b728a6afe"
+        },
+        {
+          "path": "docs/pr/finding-followups.md",
+          "sha256": "c40684a50f6df17f930ccf49b6ed6f7609216e38a59a851eb0994597e7764a1b"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/simplification.md",
+          "sha256": "7044b2e098276c9f2c25a3a7e1c85cd1c5428b291ae6d2cb910bb987b42a0f41"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        },
+        {
+          "path": "runtime/pr-review.md",
+          "sha256": "dbd08bb0ad7cdaf82cf8ce3e487ae912482f95f1681afd62133b9a140502e8d3"
+        }
+      ]
+    },
+    {
+      "name": "dk-repo-onboard",
+      "entrypoint": "cf-workflows:dk-repo-onboard",
+      "delivery_issue": 26,
+      "inputs": "Repository, instruction-source choice, settings and preferences",
+      "outputs": "Complete source/rule/settings inventory with conflicts and gaps",
+      "permissions": "Read only; no saved default choice or workflow execution",
+      "dependencies": "Shared source discovery and configuration readers",
+      "completion": "Every discovered source inspected or explicitly incomplete",
+      "parity_status": "not_implemented",
+      "intentional_differences": "No automatic import or onboarding prerequisite for ordinary reads",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-config/SKILL.md",
+          "sha256": "a83fc47d8ccd803f9e02b714b5ae4de604fe5bd0be291e1b9e30449114a4ddd5"
+        },
+        {
+          "path": "claude/skills/dk-repo-onboard/SKILL.md",
+          "sha256": "dc51721bc14017dd62d03deed093bcc3e257d524b3ef1c56589ba73008c44be0"
+        },
+        {
+          "path": "claude/skills/dk-repo-onboard/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-repo-onboard/config.schema.json",
+          "sha256": "b7ddd4ee2d6ebf50ed93c3abb27ad14f0cda95523ba350b231a1f6b77eea2248"
+        },
+        {
+          "path": "claude/skills/dk-repo-onboard/prompts/default.md",
+          "sha256": "5c482ccf2ed10bc38c1c8ea0cd62767c71c52c2faf2a6e34453b87a4ebafc2e2"
+        },
+        {
+          "path": "codex/skills/dk-config/SKILL.md",
+          "sha256": "a83fc47d8ccd803f9e02b714b5ae4de604fe5bd0be291e1b9e30449114a4ddd5"
+        },
+        {
+          "path": "codex/skills/dk-repo-onboard/SKILL.md",
+          "sha256": "dc51721bc14017dd62d03deed093bcc3e257d524b3ef1c56589ba73008c44be0"
+        },
+        {
+          "path": "codex/skills/dk-repo-onboard/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-repo-onboard/config.schema.json",
+          "sha256": "b7ddd4ee2d6ebf50ed93c3abb27ad14f0cda95523ba350b231a1f6b77eea2248"
+        },
+        {
+          "path": "codex/skills/dk-repo-onboard/prompts/default.md",
+          "sha256": "5c482ccf2ed10bc38c1c8ea0cd62767c71c52c2faf2a6e34453b87a4ebafc2e2"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/configuration.md",
+          "sha256": "22e925c521ab7d53cfe61fe341d3ca8dd5a4b85c4d35e51824dccb57077aa809"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/configuration.md",
+          "sha256": "360e847d377264df2743102dc88cf51d8139922ccbea7bcfe5589f02f5d8dd63"
+        },
+        {
+          "path": "docs/preferences.md",
+          "sha256": "b2efe9821fe59b1617a109b480eea614e71dbb482305e21c338c81c2f7612677"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-config",
+      "entrypoint": "cf-workflows:dk-config",
+      "delivery_issue": 26,
+      "inputs": "Exact ask, relevant scope, current settings and original context",
+      "outputs": "Configuration explanation or admitted revision and readback",
+      "permissions": "Local configuration writes only after structural and native semantic admission",
+      "dependencies": "Shared configuration agent and durable request contract",
+      "completion": "Questions settled, exact revision applied and verified; uncertainty reconciled",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Fresh cf-workflows namespace; no legacy settings conversion",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-config/SKILL.md",
+          "sha256": "a83fc47d8ccd803f9e02b714b5ae4de604fe5bd0be291e1b9e30449114a4ddd5"
+        },
+        {
+          "path": "claude/skills/dk-config/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-config/config.schema.json",
+          "sha256": "acb4e4800c15c540350adfa72133345b8e1ed93bc394411c3213bfb8799428f6"
+        },
+        {
+          "path": "claude/skills/dk-config/prompts/default.md",
+          "sha256": "2a4c16ebf91402bd65c3087de07aad228057b383e1039d964b14ce437e65392c"
+        },
+        {
+          "path": "claude/skills/dk-repo-onboard/SKILL.md",
+          "sha256": "dc51721bc14017dd62d03deed093bcc3e257d524b3ef1c56589ba73008c44be0"
+        },
+        {
+          "path": "codex/skills/dk-config/SKILL.md",
+          "sha256": "a83fc47d8ccd803f9e02b714b5ae4de604fe5bd0be291e1b9e30449114a4ddd5"
+        },
+        {
+          "path": "codex/skills/dk-config/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-config/config.schema.json",
+          "sha256": "acb4e4800c15c540350adfa72133345b8e1ed93bc394411c3213bfb8799428f6"
+        },
+        {
+          "path": "codex/skills/dk-config/prompts/default.md",
+          "sha256": "2a4c16ebf91402bd65c3087de07aad228057b383e1039d964b14ce437e65392c"
+        },
+        {
+          "path": "codex/skills/dk-repo-onboard/SKILL.md",
+          "sha256": "dc51721bc14017dd62d03deed093bcc3e257d524b3ef1c56589ba73008c44be0"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-agent.md",
+          "sha256": "0cd9c48b4586b63d22812121c5772941615bb30362586a1f3fef38fa38600924"
+        },
+        {
+          "path": "docs/configuration-requests.md",
+          "sha256": "67f6ed63baae8397246ad0f7061cb08179fa1a6f41847de4bff1905c14cae43c"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/configuration.md",
+          "sha256": "22e925c521ab7d53cfe61fe341d3ca8dd5a4b85c4d35e51824dccb57077aa809"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/configuration.md",
+          "sha256": "360e847d377264df2743102dc88cf51d8139922ccbea7bcfe5589f02f5d8dd63"
+        },
+        {
+          "path": "docs/preferences.md",
+          "sha256": "b2efe9821fe59b1617a109b480eea614e71dbb482305e21c338c81c2f7612677"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-preferences",
+      "entrypoint": "cf-workflows:dk-preferences",
+      "delivery_issue": 26,
+      "inputs": "Exact instructions, include/exclude selectors, conditions and application modes",
+      "outputs": "Scoped records or removals with provenance and readback",
+      "permissions": "Read; local saves need admitted request and revision",
+      "dependencies": "dk-config; shared preference admission",
+      "completion": "Overlaps reconciled without invented precedence; atomic exact change read back",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Do not import upstream preference catalog",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-preferences/SKILL.md",
+          "sha256": "04144456d5ff9d0b4296075ba6b4eeeebf9f80c58129dd16e64a08246ca5f971"
+        },
+        {
+          "path": "claude/skills/dk-preferences/config.json",
+          "sha256": "37f7916c2655d0531c2ca61fdd9599561ea7e1d374c621bcc1eb808caa60dcc4"
+        },
+        {
+          "path": "claude/skills/dk-preferences/config.schema.json",
+          "sha256": "64e9d55689b00ecde65933c5364ef4d86d707f30c4623d33197f3c3648d241ca"
+        },
+        {
+          "path": "claude/skills/dk-preferences/prompts/default.md",
+          "sha256": "89d334aa4ad5c83f2cf8dffaa015be72b156bb90f61b8888077ebcb12ded99bd"
+        },
+        {
+          "path": "codex/skills/dk-preferences/SKILL.md",
+          "sha256": "04144456d5ff9d0b4296075ba6b4eeeebf9f80c58129dd16e64a08246ca5f971"
+        },
+        {
+          "path": "codex/skills/dk-preferences/config.json",
+          "sha256": "37f7916c2655d0531c2ca61fdd9599561ea7e1d374c621bcc1eb808caa60dcc4"
+        },
+        {
+          "path": "codex/skills/dk-preferences/config.schema.json",
+          "sha256": "64e9d55689b00ecde65933c5364ef4d86d707f30c4623d33197f3c3648d241ca"
+        },
+        {
+          "path": "codex/skills/dk-preferences/prompts/default.md",
+          "sha256": "89d334aa4ad5c83f2cf8dffaa015be72b156bb90f61b8888077ebcb12ded99bd"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-agent.md",
+          "sha256": "0cd9c48b4586b63d22812121c5772941615bb30362586a1f3fef38fa38600924"
+        },
+        {
+          "path": "docs/configuration-requests.md",
+          "sha256": "67f6ed63baae8397246ad0f7061cb08179fa1a6f41847de4bff1905c14cae43c"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/preferences.md",
+          "sha256": "b2efe9821fe59b1617a109b480eea614e71dbb482305e21c338c81c2f7612677"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-issue-alternatives",
+      "entrypoint": "cf-workflows:dk-issue-alternatives",
+      "delivery_issue": 27,
+      "inputs": "Issue requirements, constraints, shared assessment, optional PR candidate",
+      "outputs": "Whole-problem comparisons and sourced selection",
+      "permissions": "Private analysis; selection grants no edits or publication",
+      "dependencies": "Shared rubric, assessment and decision reconciliation",
+      "completion": "Feasible options evaluated at common target; unresolved selections remain pending",
+      "parity_status": "not_implemented",
+      "intentional_differences": "No fake PR identity for issue-only work",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-issue-alternatives/SKILL.md",
+          "sha256": "2038ca03b825e2ebafe99c925c40ff64a21e5b5abbbc9ef806324d4f866e01ec"
+        },
+        {
+          "path": "claude/skills/dk-issue-alternatives/config.json",
+          "sha256": "2d57a6182450b5bd4080ad1e5e879b755cd1818f05442f9737d7a8e57085c491"
+        },
+        {
+          "path": "claude/skills/dk-issue-alternatives/config.schema.json",
+          "sha256": "815c207519110d749d47a6c7d2fd053dcc7945c4cd22f8d5666a91b99e0ae946"
+        },
+        {
+          "path": "claude/skills/dk-issue-alternatives/prompts/default.md",
+          "sha256": "5212e403f05e1ad947d2e2e396e498110ab8c681a2469cc29a7d6d0f140e7650"
+        },
+        {
+          "path": "codex/skills/dk-issue-alternatives/SKILL.md",
+          "sha256": "2038ca03b825e2ebafe99c925c40ff64a21e5b5abbbc9ef806324d4f866e01ec"
+        },
+        {
+          "path": "codex/skills/dk-issue-alternatives/config.json",
+          "sha256": "2d57a6182450b5bd4080ad1e5e879b755cd1818f05442f9737d7a8e57085c491"
+        },
+        {
+          "path": "codex/skills/dk-issue-alternatives/config.schema.json",
+          "sha256": "815c207519110d749d47a6c7d2fd053dcc7945c4cd22f8d5666a91b99e0ae946"
+        },
+        {
+          "path": "codex/skills/dk-issue-alternatives/prompts/default.md",
+          "sha256": "5212e403f05e1ad947d2e2e396e498110ab8c681a2469cc29a7d6d0f140e7650"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/decision-reconciliation.md",
+          "sha256": "de97dd0f68ecd2bdae3ea3df7a372381c58fd51de18a6d5431e0026a1ac5302d"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-alternatives",
+      "entrypoint": "cf-workflows:dk-pr-alternatives",
+      "delivery_issue": 27,
+      "inputs": "Pinned branch, inherited architecture, rubric and agreements",
+      "outputs": "Decision inventory, questionable-decision comparisons and selection",
+      "permissions": "Read-only private analysis",
+      "dependencies": "Shared assessment and decision reconciliation",
+      "completion": "Inherited/introduced/changed decisions covered; selected interactions checked",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Once-per-PR boundary; guidance changes do not authorize fresh comparisons",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/config.json",
+          "sha256": "2d57a6182450b5bd4080ad1e5e879b755cd1818f05442f9737d7a8e57085c491"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/config.schema.json",
+          "sha256": "b04ef6b613896b1ebd89562a1a77ce8ae9bba22a27ea1b647a75091849b1d51b"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/prompts/default.md",
+          "sha256": "74e27564bd34392a1e746be45d89905cda4d508a7069cd5f478387588150d06f"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/config.json",
+          "sha256": "2d57a6182450b5bd4080ad1e5e879b755cd1818f05442f9737d7a8e57085c491"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/config.schema.json",
+          "sha256": "b04ef6b613896b1ebd89562a1a77ce8ae9bba22a27ea1b647a75091849b1d51b"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/prompts/default.md",
+          "sha256": "74e27564bd34392a1e746be45d89905cda4d508a7069cd5f478387588150d06f"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/decision-reconciliation.md",
+          "sha256": "de97dd0f68ecd2bdae3ea3df7a372381c58fd51de18a6d5431e0026a1ac5302d"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-alternatives-review",
+      "entrypoint": "cf-workflows:dk-alternatives-review",
+      "delivery_issue": 27,
+      "inputs": "Whole-problem ask or retained legacy assignment identity",
+      "outputs": "Delegated comparison or recovered original assignment result",
+      "permissions": "Private analysis; no new write permission",
+      "dependencies": "dk-issue-alternatives; dk-pr-alternatives; retained legacy contract",
+      "completion": "Correct target capability executed; legacy keys and original evidence retained",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Compatibility entry is explicit, never counted as implementation of another row",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-alternatives-review/SKILL.md",
+          "sha256": "9c94fcc314839847a35b1d7e30868dabbb9fc51e50579f4299d4994f80965461"
+        },
+        {
+          "path": "claude/skills/dk-alternatives-review/prompts/default.md",
+          "sha256": "96bbc1059a69bd55a594d8dc82f90206d451c1b2237f11fa1d6d74888e37a0ea"
+        },
+        {
+          "path": "claude/skills/dk-issue-alternatives/SKILL.md",
+          "sha256": "2038ca03b825e2ebafe99c925c40ff64a21e5b5abbbc9ef806324d4f866e01ec"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "codex/skills/dk-alternatives-review/SKILL.md",
+          "sha256": "9c94fcc314839847a35b1d7e30868dabbb9fc51e50579f4299d4994f80965461"
+        },
+        {
+          "path": "codex/skills/dk-alternatives-review/prompts/default.md",
+          "sha256": "96bbc1059a69bd55a594d8dc82f90206d451c1b2237f11fa1d6d74888e37a0ea"
+        },
+        {
+          "path": "codex/skills/dk-issue-alternatives/SKILL.md",
+          "sha256": "2038ca03b825e2ebafe99c925c40ff64a21e5b5abbbc9ef806324d4f866e01ec"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/licenses/architecture-designer-MIT.txt",
+          "sha256": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-review-alternatives",
+      "entrypoint": "cf-workflows:dk-pr-review-alternatives",
+      "delivery_issue": 27,
+      "inputs": "Direct user request identity, exact instruction, PR pins",
+      "outputs": "Fresh requested architecture review with original request retained",
+      "permissions": "Private read-only alternatives only",
+      "dependencies": "dk-pr-alternatives",
+      "completion": "Requested comparisons complete; no ordinary-review or readiness claim",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Changed fingerprints or downstream calls do not fabricate a new manual request",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-alternatives/SKILL.md",
+          "sha256": "29b08b3b09898140656ad827ffe9a28fd461ee44fcd65a7899e9458ad77d9006"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-alternatives/prompts/default.md",
+          "sha256": "a9e8b46a9ebc143630a122400f28cd7a6a587a47da5bad2ad0f1bca72fde421c"
+        },
+        {
+          "path": "codex/skills/dk-pr-alternatives/SKILL.md",
+          "sha256": "6454632a7efb7bc42ca6364c32be69240af3c92a044b6dd137d773b5cca0f68e"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-alternatives/SKILL.md",
+          "sha256": "29b08b3b09898140656ad827ffe9a28fd461ee44fcd65a7899e9458ad77d9006"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-alternatives/prompts/default.md",
+          "sha256": "a9e8b46a9ebc143630a122400f28cd7a6a587a47da5bad2ad0f1bca72fde421c"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        }
+      ]
+    },
+    {
+      "name": "dk-plain-english",
+      "entrypoint": "cf-workflows:dk-plain-english",
+      "delivery_issue": 33,
+      "inputs": "Changed prose, full diff/delta, governing meaning and options",
+      "outputs": "Edits or sourced no-op, validation and ambiguities",
+      "permissions": "Authorized local prose edits; commits and publication separate",
+      "dependencies": "Shared prose cleanup and native task completion",
+      "completion": "Meaning and protected syntax preserved; requested pass completed",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Minimal adjacent edits only; no unrelated prose rewrite",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-plain-english/SKILL.md",
+          "sha256": "1162b1d41fee082a8d2b3f7ddd3c94b43593af89b39b23895e194f89bf888870"
+        },
+        {
+          "path": "claude/skills/dk-plain-english/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-plain-english/config.schema.json",
+          "sha256": "065d69a0e998d06e212e24c58b3acc0fd01faf04e4c901d479cc0a534d1aa812"
+        },
+        {
+          "path": "claude/skills/dk-plain-english/prompts/default.md",
+          "sha256": "1705e4174a96e2ac0672234b1d6a1646b5f4f9f97d0fe127b6e6f2c64f40c464"
+        },
+        {
+          "path": "codex/skills/dk-plain-english/SKILL.md",
+          "sha256": "1162b1d41fee082a8d2b3f7ddd3c94b43593af89b39b23895e194f89bf888870"
+        },
+        {
+          "path": "codex/skills/dk-plain-english/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-plain-english/config.schema.json",
+          "sha256": "065d69a0e998d06e212e24c58b3acc0fd01faf04e4c901d479cc0a534d1aa812"
+        },
+        {
+          "path": "codex/skills/dk-plain-english/prompts/default.md",
+          "sha256": "1705e4174a96e2ac0672234b1d6a1646b5f4f9f97d0fe127b6e6f2c64f40c464"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/prose-cleanup.md",
+          "sha256": "a06997e3ae3d9b656134a38fac251c209e0b9ca63b171d3a7f3421362b55d30a"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-asd-ste100",
+      "entrypoint": "cf-workflows:dk-asd-ste100",
+      "delivery_issue": 33,
+      "inputs": "Changed prose, authoritative STE references when available",
+      "outputs": "Best-effort edits, validation and exact reference-verification limits",
+      "permissions": "Authorized local prose edits; commits and publication separate",
+      "dependencies": "Shared prose cleanup; official ASD-STE sources",
+      "completion": "Meaning checked; unavailable rule/dictionary verification explicitly recorded",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Never claim full STE compliance from best-effort editing",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-asd-ste100/SKILL.md",
+          "sha256": "b2066636b7b23943e9e39697cc10ce8c1cc1f390397714b59ce1fff4611ceba0"
+        },
+        {
+          "path": "claude/skills/dk-asd-ste100/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-asd-ste100/config.schema.json",
+          "sha256": "ff5ed737c604c1ffc1ba6c8d3b0dddbac4965d806134bf1e9097e9c4efc95ed7"
+        },
+        {
+          "path": "claude/skills/dk-asd-ste100/prompts/default.md",
+          "sha256": "65fdffbbacede8bbb584222b38c1846b88e91386ac77c15900ee1633d4619ee9"
+        },
+        {
+          "path": "codex/skills/dk-asd-ste100/SKILL.md",
+          "sha256": "b2066636b7b23943e9e39697cc10ce8c1cc1f390397714b59ce1fff4611ceba0"
+        },
+        {
+          "path": "codex/skills/dk-asd-ste100/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-asd-ste100/config.schema.json",
+          "sha256": "ff5ed737c604c1ffc1ba6c8d3b0dddbac4965d806134bf1e9097e9c4efc95ed7"
+        },
+        {
+          "path": "codex/skills/dk-asd-ste100/prompts/default.md",
+          "sha256": "65fdffbbacede8bbb584222b38c1846b88e91386ac77c15900ee1633d4619ee9"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/prose-cleanup.md",
+          "sha256": "a06997e3ae3d9b656134a38fac251c209e0b9ca63b171d3a7f3421362b55d30a"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-code-simplify",
+      "entrypoint": "cf-workflows:dk-code-simplify",
+      "delivery_issue": 29,
+      "inputs": "Pinned PR changes, governing evidence and scope/priority",
+      "outputs": "Bounded behavior-preserving recommendations, deferred observations",
+      "permissions": "Read only; no edits, formatters, commits or publication",
+      "dependencies": "Native review evidence and independent coordinator verification",
+      "completion": "Actionable recommendations anchored with concrete benefit and preservation evidence",
+      "parity_status": "not_implemented",
+      "intentional_differences": "No mandatory child passes; does not replace ordinary review coverage",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-code-simplify/SKILL.md",
+          "sha256": "8cacd2717bc5d31d05ba99ff2199784c2df2037c3b079ecf3e1aef2dd63d488e"
+        },
+        {
+          "path": "claude/skills/dk-code-simplify/config.json",
+          "sha256": "acf24a34d83a82fad906e554a198078f9d70cc4c6275feaafa49afa512c02c01"
+        },
+        {
+          "path": "claude/skills/dk-code-simplify/config.schema.json",
+          "sha256": "fda266164c3b0292e0c2628b6bcaacc1cc5c5cd75b6ff0e5d0fc017a077cd445"
+        },
+        {
+          "path": "claude/skills/dk-code-simplify/prompts/default.md",
+          "sha256": "3f22369e7ee87e34252632c95f1ac3e25e547b832bc3988461ff16d1ec864d99"
+        },
+        {
+          "path": "codex/skills/dk-code-simplify/SKILL.md",
+          "sha256": "8cacd2717bc5d31d05ba99ff2199784c2df2037c3b079ecf3e1aef2dd63d488e"
+        },
+        {
+          "path": "codex/skills/dk-code-simplify/config.json",
+          "sha256": "acf24a34d83a82fad906e554a198078f9d70cc4c6275feaafa49afa512c02c01"
+        },
+        {
+          "path": "codex/skills/dk-code-simplify/config.schema.json",
+          "sha256": "fda266164c3b0292e0c2628b6bcaacc1cc5c5cd75b6ff0e5d0fc017a077cd445"
+        },
+        {
+          "path": "codex/skills/dk-code-simplify/prompts/default.md",
+          "sha256": "3f22369e7ee87e34252632c95f1ac3e25e547b832bc3988461ff16d1ec864d99"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/native-review.md",
+          "sha256": "fe030a04063ec379d32dc27413aaa114eeaa1e90e666fa7dfd5df28bb0d32ed6"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/simplification.md",
+          "sha256": "7044b2e098276c9f2c25a3a7e1c85cd1c5428b291ae6d2cb910bb987b42a0f41"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-reviewers-run",
+      "entrypoint": "cf-workflows:dk-pr-reviewers-run",
+      "delivery_issue": 29,
+      "inputs": "Pinned inputs, selected installed reviewers, required/optional flags",
+      "outputs": "Original reviewer results, coverage, native identities and observations",
+      "permissions": "Read-only review; no publication permission",
+      "dependencies": "Native capability preflight; selected third-party lifecycle/pass contracts",
+      "completion": "Every required actual pass and deeper look evidenced; optional gaps explicit",
+      "parity_status": "not_implemented",
+      "intentional_differences": "No default reviewer; report-only substitutes cannot establish execution",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-reviewers-run/SKILL.md",
+          "sha256": "cb93745d3a825c811976510f1dfe58daf48ea68dadeb8b6813f6583487612235"
+        },
+        {
+          "path": "claude/skills/dk-pr-reviewers-run/config.json",
+          "sha256": "b8e71c086a52ec89444b73231e5d5fbdc4fd22662b677fb3274314f292c82214"
+        },
+        {
+          "path": "claude/skills/dk-pr-reviewers-run/config.schema.json",
+          "sha256": "1d2c6cb1f2d011a5aa1119a88231385098c2e1b6380b63740d31b1852ae10814"
+        },
+        {
+          "path": "claude/skills/dk-pr-reviewers-run/prompts/default.md",
+          "sha256": "11ce453812835ff741df140b3cf27f39e9bc3019bca58c3e5d3f5dba8776c692"
+        },
+        {
+          "path": "codex/skills/dk-pr-reviewers-run/SKILL.md",
+          "sha256": "cb93745d3a825c811976510f1dfe58daf48ea68dadeb8b6813f6583487612235"
+        },
+        {
+          "path": "codex/skills/dk-pr-reviewers-run/config.json",
+          "sha256": "b8e71c086a52ec89444b73231e5d5fbdc4fd22662b677fb3274314f292c82214"
+        },
+        {
+          "path": "codex/skills/dk-pr-reviewers-run/config.schema.json",
+          "sha256": "1d2c6cb1f2d011a5aa1119a88231385098c2e1b6380b63740d31b1852ae10814"
+        },
+        {
+          "path": "codex/skills/dk-pr-reviewers-run/prompts/default.md",
+          "sha256": "11ce453812835ff741df140b3cf27f39e9bc3019bca58c3e5d3f5dba8776c692"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/native-review.md",
+          "sha256": "fe030a04063ec379d32dc27413aaa114eeaa1e90e666fa7dfd5df28bb0d32ed6"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/simplification.md",
+          "sha256": "7044b2e098276c9f2c25a3a7e1c85cd1c5428b291ae6d2cb910bb987b42a0f41"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        },
+        {
+          "path": "runtime/pr-reviewers.md",
+          "sha256": "ba79dadd3472b8bbdfd1b717a785ffe090888d30b82f4b1cc94cb04e7ba30490"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-approvers",
+      "entrypoint": "cf-workflows:dk-pr-approvers",
+      "delivery_issue": 29,
+      "inputs": "Canonical PR, final published head, publisher override and evidence",
+      "outputs": "Eligible user/team recipients with reasons or exact empty override",
+      "permissions": "Read only; no request-review publication",
+      "dependencies": "Publisher options; complete paginated GitHub and CODEOWNERS evidence",
+      "completion": "Selection complete for unchanged head, or explicit blockers",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Empty override disables discovery; native reviewers are separate",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/config.schema.json",
+          "sha256": "799bd22aa72e3db11c7ed490b4ff58b6121dfa888bb0037b502d3d1590711673"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/prompts/default.md",
+          "sha256": "ddb210435c6c911158973abed5210cda0025dcaea7a9753e8bba74a478a7d184"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/config.schema.json",
+          "sha256": "799bd22aa72e3db11c7ed490b4ff58b6121dfa888bb0037b502d3d1590711673"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/prompts/default.md",
+          "sha256": "ddb210435c6c911158973abed5210cda0025dcaea7a9753e8bba74a478a7d184"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/publication.md",
+          "sha256": "9fd947f33e288b4db98042dd958994456c2798e283e62c8e3147b33e4b5aea46"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-feedback-read",
+      "entrypoint": "cf-workflows:dk-pr-feedback-read",
+      "delivery_issue": 30,
+      "inputs": "Canonical PR/head and complete comments/reviews/threads",
+      "outputs": "Stable complete feedback and separately actionable requests",
+      "permissions": "Read only",
+      "dependencies": "Shared paginated PR evidence",
+      "completion": "All pages and thread context captured; head and snapshot stable",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Unanswered discussion alone does not establish author response obligation",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-read/SKILL.md",
+          "sha256": "db54256c38c5fa7aa63149fe8c8e18c0f318a7e647a8bb896903a965fa52e243"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-read/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-read/config.schema.json",
+          "sha256": "8d39f204abfdf5e070c29d5d75a8f72f06c99e6f7c2b03a34708479de9a21c65"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-read/prompts/default.md",
+          "sha256": "49906e99c18f9b83a5110aa5c27a4929c60c33a87d55758c36992fc8964eb473"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-read/SKILL.md",
+          "sha256": "db54256c38c5fa7aa63149fe8c8e18c0f318a7e647a8bb896903a965fa52e243"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-read/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-read/config.schema.json",
+          "sha256": "8d39f204abfdf5e070c29d5d75a8f72f06c99e6f7c2b03a34708479de9a21c65"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-read/prompts/default.md",
+          "sha256": "49906e99c18f9b83a5110aa5c27a4929c60c33a87d55758c36992fc8964eb473"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/feedback-responses.md",
+          "sha256": "ea3252003482dcaed14be04e895398bd9b8dfac350ece1e36ca268a7fd5884cb"
+        },
+        {
+          "path": "docs/pr/supplied-evidence.md",
+          "sha256": "d58d1c69c3c3328b36ea855559742eaef0de58cd37d834c94f102d1bf317fa8d"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-feedback-address",
+      "entrypoint": "cf-workflows:dk-pr-feedback-address",
+      "delivery_issue": 30,
+      "inputs": "Complete feedback, current code, agreements and implementation preferences",
+      "outputs": "Tested fixes, per-request dispositions and remaining response obligations",
+      "permissions": "Authorized local edits; push, reply and resolution separate",
+      "dependencies": "dk-pr-feedback-read; shared response obligations and decision reconciliation",
+      "completion": "Every assigned request verified/disposed with evidence and checklist",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Declining a code change does not erase a concrete author response obligation",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-address/SKILL.md",
+          "sha256": "64c3e6ae345ca1ea8432f8340a2df0a7cef015a3de63015c282d451c1db4a510"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-address/config.json",
+          "sha256": "c5998f1b018882b59a0259e6a1119b9b99268f974a3695b85c3e84d7ad2dcef1"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-address/config.schema.json",
+          "sha256": "23c1ebc9706d38d383340d0b0c9c7568e41b36a009b515a6171e55155936e4f7"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-address/prompts/default.md",
+          "sha256": "eb4a6dbb3294023ef5977beabaf2de53f121aba4e485ea3d9cba21f5f921c97d"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-address/SKILL.md",
+          "sha256": "64c3e6ae345ca1ea8432f8340a2df0a7cef015a3de63015c282d451c1db4a510"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-address/config.json",
+          "sha256": "c5998f1b018882b59a0259e6a1119b9b99268f974a3695b85c3e84d7ad2dcef1"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-address/config.schema.json",
+          "sha256": "23c1ebc9706d38d383340d0b0c9c7568e41b36a009b515a6171e55155936e4f7"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-address/prompts/default.md",
+          "sha256": "eb4a6dbb3294023ef5977beabaf2de53f121aba4e485ea3d9cba21f5f921c97d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/decision-reconciliation.md",
+          "sha256": "de97dd0f68ecd2bdae3ea3df7a372381c58fd51de18a6d5431e0026a1ac5302d"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/feedback-responses.md",
+          "sha256": "ea3252003482dcaed14be04e895398bd9b8dfac350ece1e36ca268a7fd5884cb"
+        },
+        {
+          "path": "docs/pr/finding-followups.md",
+          "sha256": "c40684a50f6df17f930ccf49b6ed6f7609216e38a59a851eb0994597e7764a1b"
+        },
+        {
+          "path": "docs/pr/supplied-evidence.md",
+          "sha256": "d58d1c69c3c3328b36ea855559742eaef0de58cd37d834c94f102d1bf317fa8d"
+        },
+        {
+          "path": "docs/preferences.md",
+          "sha256": "b2efe9821fe59b1617a109b480eea614e71dbb482305e21c338c81c2f7612677"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/simplification.md",
+          "sha256": "7044b2e098276c9f2c25a3a7e1c85cd1c5428b291ae6d2cb910bb987b42a0f41"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-feedback-reply",
+      "entrypoint": "cf-workflows:dk-pr-feedback-reply",
+      "delivery_issue": 30,
+      "inputs": "Original source/thread, current code/tests, response decisions and prompt",
+      "outputs": "Bundled attributed answers, publication receipts and optional resolution",
+      "permissions": "Scoped reply and thread-resolution grants separately required",
+      "dependencies": "dk-pr-publish; shared response obligations",
+      "completion": "Applicable replies verified; resolve only fully answered actual inline threads",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Repository agent guidance excluded from replies under host priority; no diagnostic replies",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-reply/SKILL.md",
+          "sha256": "5946d79d0651351203e25a443383548bc476a6400365a7dcf35709640aba69d5"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-reply/config.json",
+          "sha256": "c47b9179893e5a037cd029ca2ce0868e30411a708ba2b1cb47913291bcda7c1b"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-reply/config.schema.json",
+          "sha256": "2d7073015a9eaf80f71a86b7ed53957094769484c88674b9c9f553435716bda7"
+        },
+        {
+          "path": "claude/skills/dk-pr-feedback-reply/prompts/default.md",
+          "sha256": "e0d7eea3ca836b8800a377167b58745d08631820ba5ef5a379f3d0f1a2ace4a1"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-reply/SKILL.md",
+          "sha256": "5946d79d0651351203e25a443383548bc476a6400365a7dcf35709640aba69d5"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-reply/config.json",
+          "sha256": "c47b9179893e5a037cd029ca2ce0868e30411a708ba2b1cb47913291bcda7c1b"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-reply/config.schema.json",
+          "sha256": "2d7073015a9eaf80f71a86b7ed53957094769484c88674b9c9f553435716bda7"
+        },
+        {
+          "path": "codex/skills/dk-pr-feedback-reply/prompts/default.md",
+          "sha256": "e0d7eea3ca836b8800a377167b58745d08631820ba5ef5a379f3d0f1a2ace4a1"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/feedback-responses.md",
+          "sha256": "ea3252003482dcaed14be04e895398bd9b8dfac350ece1e36ca268a7fd5884cb"
+        },
+        {
+          "path": "docs/pr/publication.md",
+          "sha256": "9fd947f33e288b4db98042dd958994456c2798e283e62c8e3147b33e4b5aea46"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-review-post",
+      "entrypoint": "cf-workflows:dk-pr-review-post",
+      "delivery_issue": 31,
+      "inputs": "Original results, independent verification, current head/diff and exact payload",
+      "outputs": "Verified inline findings and body-only metadata findings with receipts",
+      "permissions": "Finding publication scoped separately from PR approval",
+      "dependencies": "dk-pr-publish; independent verification",
+      "completion": "Anchors verified or real unanchorable findings preserved in body; uncertainty reconciled",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Body-only findings survive summaries disabled; no fabricated anchors",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-post/SKILL.md",
+          "sha256": "4769ef0b5193d7fc6e592ac543edc8ab06a0fe1043ff4c9c05ebcae6b0f3dbb6"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-post/config.json",
+          "sha256": "9d2fa1ae2d93817b0ebce1e85879c39cfe92ae0cde19ca421006a6b683595fd1"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-post/config.schema.json",
+          "sha256": "89965ef939e83764b07f4a93a7f7793fe73e50284a3e76e9b92dd76a6050754f"
+        },
+        {
+          "path": "claude/skills/dk-pr-review-post/prompts/default.md",
+          "sha256": "ba5931883eb7fd46e672a1d39ba6466c91957bb8b3664d4f68d23b1450fd8e6c"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-post/SKILL.md",
+          "sha256": "4769ef0b5193d7fc6e592ac543edc8ab06a0fe1043ff4c9c05ebcae6b0f3dbb6"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-post/config.json",
+          "sha256": "9d2fa1ae2d93817b0ebce1e85879c39cfe92ae0cde19ca421006a6b683595fd1"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-post/config.schema.json",
+          "sha256": "89965ef939e83764b07f4a93a7f7793fe73e50284a3e76e9b92dd76a6050754f"
+        },
+        {
+          "path": "codex/skills/dk-pr-review-post/prompts/default.md",
+          "sha256": "ba5931883eb7fd46e672a1d39ba6466c91957bb8b3664d4f68d23b1450fd8e6c"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/finding-followups.md",
+          "sha256": "c40684a50f6df17f930ccf49b6ed6f7609216e38a59a851eb0994597e7764a1b"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-description",
+      "entrypoint": "cf-workflows:dk-pr-description",
+      "delivery_issue": 32,
+      "inputs": "Diff, templates, current title/body, agreed scope and Decisions",
+      "outputs": "Reviewed title/body draft or verified authorized update",
+      "permissions": "Draft read-only; explicit scoped description edit",
+      "dependencies": "dk-pr-decisions; dk-pr-publish",
+      "completion": "Enabled fields match final scope; disabled fields and unrelated sections preserved",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Private comparisons/scores never copied into public description",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-description/SKILL.md",
+          "sha256": "bccd3f3d84d791da80d2702151a946e251e98d968170f115fd56682ffe4ee318"
+        },
+        {
+          "path": "claude/skills/dk-pr-description/config.json",
+          "sha256": "2462177d6c9bb470eb344504267aacad9d90a29e66224aa0f9e40fe2fae30a20"
+        },
+        {
+          "path": "claude/skills/dk-pr-description/config.schema.json",
+          "sha256": "2727ea43a26cd243db8da31484a1a72e5864029d5c538a2290b2d60e596c78ea"
+        },
+        {
+          "path": "claude/skills/dk-pr-description/prompts/default.md",
+          "sha256": "22681a99552cd3b27314473558f4b1bedfbdc2fbc61943b833a1ade847d415b8"
+        },
+        {
+          "path": "codex/skills/dk-pr-description/SKILL.md",
+          "sha256": "bccd3f3d84d791da80d2702151a946e251e98d968170f115fd56682ffe4ee318"
+        },
+        {
+          "path": "codex/skills/dk-pr-description/config.json",
+          "sha256": "2462177d6c9bb470eb344504267aacad9d90a29e66224aa0f9e40fe2fae30a20"
+        },
+        {
+          "path": "codex/skills/dk-pr-description/config.schema.json",
+          "sha256": "2727ea43a26cd243db8da31484a1a72e5864029d5c538a2290b2d60e596c78ea"
+        },
+        {
+          "path": "codex/skills/dk-pr-description/prompts/default.md",
+          "sha256": "22681a99552cd3b27314473558f4b1bedfbdc2fbc61943b833a1ade847d415b8"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "runtime/dk-pr-description/references/decisions.md",
+          "sha256": "9648b8f2c74ba5b77e5b6fac0d628ba67ff9c87c80d1309b8f29ddd02ac0fea8"
+        },
+        {
+          "path": "runtime/dk-pr-description/references/field-schema.md",
+          "sha256": "e41d87e0de3cc4b0a20986c9a95397ba7804973dd4f14580b5884376d03bee49"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-decisions",
+      "entrypoint": "cf-workflows:dk-pr-decisions",
+      "delivery_issue": 28,
+      "inputs": "Sourced agreements, complete user revisions, PR evidence and section setting",
+      "outputs": "Reconciled structured decisions, open questions and bounded public section",
+      "permissions": "Analysis read-only; section update separately authorized",
+      "dependencies": "Shared decision reconciliation; dk-pr-publish",
+      "completion": "Sources verified; governing conflicts settled before dependent edits",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Historical Decisions cannot silently restore revised/excluded agreements",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-decisions/SKILL.md",
+          "sha256": "796eb9d73926d3ca0fd76ce493c97add41664747fdc8956e5c5ef3faf4ce4bfb"
+        },
+        {
+          "path": "claude/skills/dk-pr-decisions/config.json",
+          "sha256": "1f24cdb943033d0e85325e2a33fae81193f083a51f6f3bd8624059b29e59445d"
+        },
+        {
+          "path": "claude/skills/dk-pr-decisions/config.schema.json",
+          "sha256": "9075985974867e28bd3567089f7e63d3fc5d577523d25c2b42f002ff14e1d4f6"
+        },
+        {
+          "path": "claude/skills/dk-pr-decisions/prompts/default.md",
+          "sha256": "99725fbce13c8bba48e38db4d685e122185cca643be275b49f498b830d362056"
+        },
+        {
+          "path": "codex/skills/dk-pr-decisions/SKILL.md",
+          "sha256": "796eb9d73926d3ca0fd76ce493c97add41664747fdc8956e5c5ef3faf4ce4bfb"
+        },
+        {
+          "path": "codex/skills/dk-pr-decisions/config.json",
+          "sha256": "1f24cdb943033d0e85325e2a33fae81193f083a51f6f3bd8624059b29e59445d"
+        },
+        {
+          "path": "codex/skills/dk-pr-decisions/config.schema.json",
+          "sha256": "9075985974867e28bd3567089f7e63d3fc5d577523d25c2b42f002ff14e1d4f6"
+        },
+        {
+          "path": "codex/skills/dk-pr-decisions/prompts/default.md",
+          "sha256": "99725fbce13c8bba48e38db4d685e122185cca643be275b49f498b830d362056"
+        },
+        {
+          "path": "docs/alternatives-review.md",
+          "sha256": "7647931663bdf8a99019a5871a44d476e86c07f2dab8726ed53dcec0b369be3d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/decision-reconciliation.md",
+          "sha256": "de97dd0f68ecd2bdae3ea3df7a372381c58fd51de18a6d5431e0026a1ac5302d"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/supplied-evidence.md",
+          "sha256": "d58d1c69c3c3328b36ea855559742eaef0de58cd37d834c94f102d1bf317fa8d"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "runtime/dk-pr-decisions/references/language.md",
+          "sha256": "ee123219bd77a42f22448a68128ab3304003faff8f01ed3057b46385af427c17"
+        }
+      ]
+    },
+    {
+      "name": "dk-commit-split",
+      "entrypoint": "cf-workflows:dk-commit-split",
+      "delivery_issue": 34,
+      "inputs": "All PR commits, effective policy, ownership, exact leases and original constraints",
+      "outputs": "Assessed boundaries/messages or safely rewritten series and recovery refs",
+      "permissions": "Local rewrite authorization; push requires independent grant and exact lease",
+      "dependencies": "dk-commit-message; dk-pr-publish; shared commit policy",
+      "completion": "Every commit assessed; final tree and authorship preserved; bounded passes",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Policy provider returns instructions only; max five cleanup passes",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-commit-split/SKILL.md",
+          "sha256": "61cc9685bc0fad1cb31e4b64bc294dc4acccc8e6e3d1b6bc41f0406656f92fd8"
+        },
+        {
+          "path": "claude/skills/dk-commit-split/config.json",
+          "sha256": "8e446bcf785093fe406a6b497d100ef4a9617c6eb9fdb01e825b764b46929e19"
+        },
+        {
+          "path": "claude/skills/dk-commit-split/config.schema.json",
+          "sha256": "d4e573382b276cce60fd925774e182f86c1b952fa169e2b90ca1cd3ce2526439"
+        },
+        {
+          "path": "claude/skills/dk-commit-split/prompts/default.md",
+          "sha256": "ffe454e607081756f2e5ad865bccb848689c4dc8d9d894434558ccbb868cd835"
+        },
+        {
+          "path": "codex/skills/dk-commit-split/SKILL.md",
+          "sha256": "61cc9685bc0fad1cb31e4b64bc294dc4acccc8e6e3d1b6bc41f0406656f92fd8"
+        },
+        {
+          "path": "codex/skills/dk-commit-split/config.json",
+          "sha256": "8e446bcf785093fe406a6b497d100ef4a9617c6eb9fdb01e825b764b46929e19"
+        },
+        {
+          "path": "codex/skills/dk-commit-split/config.schema.json",
+          "sha256": "d4e573382b276cce60fd925774e182f86c1b952fa169e2b90ca1cd3ce2526439"
+        },
+        {
+          "path": "codex/skills/dk-commit-split/prompts/default.md",
+          "sha256": "ffe454e607081756f2e5ad865bccb848689c4dc8d9d894434558ccbb868cd835"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/commit-policy.md",
+          "sha256": "f7351f66032815c11f9fd9f22682dcbfe1319b8c0f0d6638232e7d1f77725882"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/commit-cleanup.md",
+          "sha256": "d141c0393c30fd3f40f61e2d27259ef0f9653f3d4689e8a7145a7710e8485164"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-split",
+      "entrypoint": "cf-workflows:dk-pr-split",
+      "delivery_issue": 34,
+      "inputs": "PR size/scope policies, ownership, recovery refs and leases",
+      "outputs": "Supported keep/split assessment or verified split PRs",
+      "permissions": "Local move/rewrite and remote operations independently authorized",
+      "dependencies": "dk-commit-split; dk-pr-publish",
+      "completion": "Boundaries justified; original final scope accounted for with tested recovery",
+      "parity_status": "not_implemented",
+      "intentional_differences": "No size-only excuse to discard required work",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-split/SKILL.md",
+          "sha256": "111d6eb3fc5c75e195316605c396acb8f6124edbde67fee97a00c31ceda1a9ef"
+        },
+        {
+          "path": "claude/skills/dk-pr-split/config.json",
+          "sha256": "63efedf456ad32ae5aedeb2392788d469d409163775845dae952930d9a1354e2"
+        },
+        {
+          "path": "claude/skills/dk-pr-split/config.schema.json",
+          "sha256": "bc4b692311e95299c793a5ebf7c1031ac73dafbda5eed0cfcafbc2f27e360b1c"
+        },
+        {
+          "path": "claude/skills/dk-pr-split/prompts/default.md",
+          "sha256": "04bb487d6c64a6261e52e2c1a7f62e0a8ff7eb95fb33100128f850187b929c49"
+        },
+        {
+          "path": "codex/skills/dk-pr-split/SKILL.md",
+          "sha256": "111d6eb3fc5c75e195316605c396acb8f6124edbde67fee97a00c31ceda1a9ef"
+        },
+        {
+          "path": "codex/skills/dk-pr-split/config.json",
+          "sha256": "63efedf456ad32ae5aedeb2392788d469d409163775845dae952930d9a1354e2"
+        },
+        {
+          "path": "codex/skills/dk-pr-split/config.schema.json",
+          "sha256": "bc4b692311e95299c793a5ebf7c1031ac73dafbda5eed0cfcafbc2f27e360b1c"
+        },
+        {
+          "path": "codex/skills/dk-pr-split/prompts/default.md",
+          "sha256": "04bb487d6c64a6261e52e2c1a7f62e0a8ff7eb95fb33100128f850187b929c49"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/configuration.md",
+          "sha256": "360e847d377264df2743102dc88cf51d8139922ccbea7bcfe5589f02f5d8dd63"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/partition-cleanup.md",
+          "sha256": "875064929ca00fd884925c73a1bfe6a15e2b9c3e57229979e1c64b4b8b3f3f60"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-pr-publish",
+      "entrypoint": "cf-workflows:dk-pr-publish",
+      "delivery_issue": 31,
+      "inputs": "Concrete target/actor/head, exact payload, scoped grant and current evidence",
+      "outputs": "Intent, dispatch/reconciliation receipt or explicit blocker",
+      "permissions": "Remote writes default off; every action separately scoped",
+      "dependencies": "Shared exact-intent journal; live review, CI and repository gates",
+      "completion": "Exact effect verified or conclusive not_applied; unknown remains pending",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Fork CI, findings, APPROVE and merge are separate; pending review requests hold merge",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "claude/skills/dk-pr-publish/SKILL.md",
+          "sha256": "acc7ea7f7c26bfef320ed6a378def9567c4d14b20856fee7bd9a837925c8494b"
+        },
+        {
+          "path": "claude/skills/dk-pr-publish/config.json",
+          "sha256": "970967301d3fb64da3941ee90c6f9c569031e0fbe32b7bb573355a995fea9b16"
+        },
+        {
+          "path": "claude/skills/dk-pr-publish/config.schema.json",
+          "sha256": "6e4659f2ea6920d3b1dc76cb73c12966fcccc34ec69c0ca93c4ee90b3ec1f298"
+        },
+        {
+          "path": "claude/skills/dk-pr-publish/prompts/default.md",
+          "sha256": "627705fa54c8931c70c9edead7f701af1a0f5a5cbd9968535e569931e2443236"
+        },
+        {
+          "path": "codex/skills/dk-pr-approvers/SKILL.md",
+          "sha256": "71643a1be208c71627658521c59114feacf9fccd8943e0886537bcb6c664d6cc"
+        },
+        {
+          "path": "codex/skills/dk-pr-publish/SKILL.md",
+          "sha256": "acc7ea7f7c26bfef320ed6a378def9567c4d14b20856fee7bd9a837925c8494b"
+        },
+        {
+          "path": "codex/skills/dk-pr-publish/config.json",
+          "sha256": "970967301d3fb64da3941ee90c6f9c569031e0fbe32b7bb573355a995fea9b16"
+        },
+        {
+          "path": "codex/skills/dk-pr-publish/config.schema.json",
+          "sha256": "6e4659f2ea6920d3b1dc76cb73c12966fcccc34ec69c0ca93c4ee90b3ec1f298"
+        },
+        {
+          "path": "codex/skills/dk-pr-publish/prompts/default.md",
+          "sha256": "627705fa54c8931c70c9edead7f701af1a0f5a5cbd9968535e569931e2443236"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/ci-approval.md",
+          "sha256": "3c729aea8c0d57b40fe2d0970b06eba02872495511402dfe580fed97213f91c4"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/pr/feedback-responses.md",
+          "sha256": "ea3252003482dcaed14be04e895398bd9b8dfac350ece1e36ca268a7fd5884cb"
+        },
+        {
+          "path": "docs/pr/publication.md",
+          "sha256": "9fd947f33e288b4db98042dd958994456c2798e283e62c8e3147b33e4b5aea46"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-ci-approve",
+      "entrypoint": "cf-workflows:dk-ci-approve",
+      "delivery_issue": 35,
+      "inputs": "Current incoming-review evidence, exact foreign PR/head/target and eligible run attempts",
+      "outputs": "One verified approval operation per eligible run/attempt or sourced no-op",
+      "permissions": "Fork workflow execution approval only; never deployment, PR approval or merge",
+      "dependencies": "dk-pr-review; dk-pr-publish; shared standalone-to-merge bridge",
+      "completion": "Clean complete current review, reconciled effects and unchanged eligibility",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Never automatically invoked by fix workflow",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-ci-approve/SKILL.md",
+          "sha256": "1e60c0e8e008e2958c1b85c94ff7b571ac983e5d309cf6a7f4d3b62bd4df9cef"
+        },
+        {
+          "path": "claude/skills/dk-ci-approve/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "claude/skills/dk-ci-approve/config.schema.json",
+          "sha256": "1bb5f068aaba74a0a47fe20131fcf2f8b66aeb85cf5925f83340b4e791253912"
+        },
+        {
+          "path": "claude/skills/dk-ci-approve/prompts/default.md",
+          "sha256": "dc8b6c1461ff6a10e515ee8cdd794613a8f9b800d2fe3c75c67aecc8cee94210"
+        },
+        {
+          "path": "codex/skills/dk-ci-approve/SKILL.md",
+          "sha256": "1e60c0e8e008e2958c1b85c94ff7b571ac983e5d309cf6a7f4d3b62bd4df9cef"
+        },
+        {
+          "path": "codex/skills/dk-ci-approve/config.json",
+          "sha256": "cb0fb1591692ba4e280e9a67a08ec16e3674b9edfe7974d9692251bf96cf5e74"
+        },
+        {
+          "path": "codex/skills/dk-ci-approve/config.schema.json",
+          "sha256": "1bb5f068aaba74a0a47fe20131fcf2f8b66aeb85cf5925f83340b4e791253912"
+        },
+        {
+          "path": "codex/skills/dk-ci-approve/prompts/default.md",
+          "sha256": "dc8b6c1461ff6a10e515ee8cdd794613a8f9b800d2fe3c75c67aecc8cee94210"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/ci-approval.md",
+          "sha256": "3c729aea8c0d57b40fe2d0970b06eba02872495511402dfe580fed97213f91c4"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-ci",
+      "entrypoint": "cf-workflows:dk-ci",
+      "delivery_issue": 35,
+      "inputs": "Canonical PR, exact head, timeout/deadline and repair/rerun allowances",
+      "outputs": "Current check outcomes, accepted issue-backed flakes/exceptions or blocker",
+      "permissions": "Read by default; bounded repair/rerun uses explicit permissions",
+      "dependencies": "dk-ci-flakes; shared CI recovery; dk-pr-publish",
+      "completion": "Only current success/known flakes/accepted exceptions satisfy CI; head change invalidates",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Fresh session preserves deadline; retry dispatch is not success",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-ci/SKILL.md",
+          "sha256": "b4dc2e0cf04fa908d91e71429c286d2f40087dadb975d7a73c3ffd3c18c3fd33"
+        },
+        {
+          "path": "claude/skills/dk-ci/config.json",
+          "sha256": "909e441da4c5cd002fc6398e67835800d83a81306f38f274ba15d245f612a047"
+        },
+        {
+          "path": "claude/skills/dk-ci/config.schema.json",
+          "sha256": "f5732c6d6d632efca0fcd9779964d7eb2693516229e6855a60be899d23fbeff5"
+        },
+        {
+          "path": "claude/skills/dk-ci/prompts/default.md",
+          "sha256": "1dcedf9157ba8c26144531d50ab9374455615f606c12248f7e2c200dfccb2076"
+        },
+        {
+          "path": "codex/skills/dk-ci/SKILL.md",
+          "sha256": "b4dc2e0cf04fa908d91e71429c286d2f40087dadb975d7a73c3ffd3c18c3fd33"
+        },
+        {
+          "path": "codex/skills/dk-ci/config.json",
+          "sha256": "909e441da4c5cd002fc6398e67835800d83a81306f38f274ba15d245f612a047"
+        },
+        {
+          "path": "codex/skills/dk-ci/config.schema.json",
+          "sha256": "f5732c6d6d632efca0fcd9779964d7eb2693516229e6855a60be899d23fbeff5"
+        },
+        {
+          "path": "codex/skills/dk-ci/prompts/default.md",
+          "sha256": "1dcedf9157ba8c26144531d50ab9374455615f606c12248f7e2c200dfccb2076"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/ci-flakes.md",
+          "sha256": "8c6e032ca48cbb7d46728e5ff58389c57ac58edb7187febfeac9b287f222a9d6"
+        },
+        {
+          "path": "docs/ci-recovery.md",
+          "sha256": "9aeb3d3574fdf16370cf7cd41ead961d59043b5cdfa0862ca53ef83bc74dfd9c"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "docs/task-state.md",
+          "sha256": "5b8d9b88ad1a54ffda8df86ffe08fefe91d2c5d58dc6283529ef58fff4e8db08"
+        }
+      ]
+    },
+    {
+      "name": "dk-ci-flakes",
+      "entrypoint": "cf-workflows:dk-ci-flakes",
+      "delivery_issue": 35,
+      "inputs": "Repository, requested scan scope/limits or saved failed-test identity",
+      "outputs": "Named test observations, linked open-issue evidence and limits/gaps",
+      "permissions": "Read only; issue creation/rerun separately authorized",
+      "dependencies": "Shared CI registry and complete relevant logs/issue reads",
+      "completion": "Each accepted flake has exact test/job/attempt and current open-issue proof",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Ordinary PR failure does not request repository-wide history scan",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-ci-flakes/SKILL.md",
+          "sha256": "62c160dc30eb21df3c4384026377a940ccd7d08a0eb4210c2e1991a70382a6d2"
+        },
+        {
+          "path": "claude/skills/dk-ci-flakes/config.json",
+          "sha256": "bcea23291ea74966149c3caadce37d19f619710651c919f979e7ac66fd1eee89"
+        },
+        {
+          "path": "claude/skills/dk-ci-flakes/config.schema.json",
+          "sha256": "ce0f72bdadac272df2b0998bce84faa403403dc78d75e0913db8cea55049b669"
+        },
+        {
+          "path": "claude/skills/dk-ci-flakes/prompts/default.md",
+          "sha256": "8d0b6b54cca6f8f9ee5e49ece6be67f45c74532289add1ee25dc0d702704387d"
+        },
+        {
+          "path": "codex/skills/dk-ci-flakes/SKILL.md",
+          "sha256": "62c160dc30eb21df3c4384026377a940ccd7d08a0eb4210c2e1991a70382a6d2"
+        },
+        {
+          "path": "codex/skills/dk-ci-flakes/config.json",
+          "sha256": "bcea23291ea74966149c3caadce37d19f619710651c919f979e7ac66fd1eee89"
+        },
+        {
+          "path": "codex/skills/dk-ci-flakes/config.schema.json",
+          "sha256": "ce0f72bdadac272df2b0998bce84faa403403dc78d75e0913db8cea55049b669"
+        },
+        {
+          "path": "codex/skills/dk-ci-flakes/prompts/default.md",
+          "sha256": "8d0b6b54cca6f8f9ee5e49ece6be67f45c74532289add1ee25dc0d702704387d"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/ci-flakes.md",
+          "sha256": "8c6e032ca48cbb7d46728e5ff58389c57ac58edb7187febfeac9b287f222a9d6"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-commit-message",
+      "entrypoint": "cf-workflows:dk-commit-message",
+      "delivery_issue": 32,
+      "inputs": "Actual staged/unstaged scope, repository conventions, policy and authorship",
+      "outputs": "Reviewed message with scope, policy and sources",
+      "permissions": "Draft read-only; commit only when requested",
+      "dependencies": "Shared local commit preparation and commit policy",
+      "completion": "Message describes actual selected change and preserves original constraints",
+      "parity_status": "not_implemented",
+      "intentional_differences": "Message-only invocation never changes Git",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-commit-message/SKILL.md",
+          "sha256": "0ba41a203a1dec765d3d4c3c7ec9e458175ece2809a917652801ea4ad591780e"
+        },
+        {
+          "path": "claude/skills/dk-commit-message/config.json",
+          "sha256": "1cbd4e100a8fd252b434b804634eee6204cefcc8b3477251687a1ef05ee318a0"
+        },
+        {
+          "path": "claude/skills/dk-commit-message/config.schema.json",
+          "sha256": "ab14d4b315b9fd36bb19ce29338c229c00be19e15ac061265b21593f5411bbb7"
+        },
+        {
+          "path": "claude/skills/dk-commit-message/prompts/default.md",
+          "sha256": "eb3603b0d12db60445cb8664563b8429f9ec2cd250cf93711c70acd67b302dff"
+        },
+        {
+          "path": "codex/skills/dk-commit-message/SKILL.md",
+          "sha256": "0ba41a203a1dec765d3d4c3c7ec9e458175ece2809a917652801ea4ad591780e"
+        },
+        {
+          "path": "codex/skills/dk-commit-message/config.json",
+          "sha256": "1cbd4e100a8fd252b434b804634eee6204cefcc8b3477251687a1ef05ee318a0"
+        },
+        {
+          "path": "codex/skills/dk-commit-message/config.schema.json",
+          "sha256": "ab14d4b315b9fd36bb19ce29338c229c00be19e15ac061265b21593f5411bbb7"
+        },
+        {
+          "path": "codex/skills/dk-commit-message/prompts/default.md",
+          "sha256": "eb3603b0d12db60445cb8664563b8429f9ec2cd250cf93711c70acd67b302dff"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/commit-preparation.md",
+          "sha256": "750b6b59eb6f0fb66b24b9ef7f791730e16a16906705772a8fc58b6d4d699170"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        }
+      ]
+    },
+    {
+      "name": "dk-issue",
+      "entrypoint": "cf-workflows:dk-issue",
+      "delivery_issue": 32,
+      "inputs": "Exact ask, verified facts, repository template, labels and assignees",
+      "outputs": "Reviewed draft or verified issue creation/update with receipt",
+      "permissions": "Draft read-only; issue write separately authorized",
+      "dependencies": "Shared exact-intent publication and repository conventions",
+      "completion": "Target metadata verified; exact write reconciled before retry",
+      "parity_status": "not_implemented",
+      "intentional_differences": "A PR workflow alone does not authorize issue creation",
+      "baseline_resources": [
+        {
+          "path": "DESIGN.md",
+          "sha256": "d90a66e88eb1dfb7bd78c3986250026dd0deeb9221205337360740bc035fd6f0"
+        },
+        {
+          "path": "claude/skills/dk-issue/SKILL.md",
+          "sha256": "65b0052abdf7ed8a6c29672e179f32ae82db929e82a9f35543e6822646e249fd"
+        },
+        {
+          "path": "claude/skills/dk-issue/config.json",
+          "sha256": "ddc7dec1bc83e51976270c2a4168ee0bd1c7a9fda8c9959bc521c91de691b664"
+        },
+        {
+          "path": "claude/skills/dk-issue/config.schema.json",
+          "sha256": "33958d2d93fa8581e169b12d76ede448cee0196ffe979c6f1dd2704b459df3e1"
+        },
+        {
+          "path": "claude/skills/dk-issue/prompts/default.md",
+          "sha256": "f2d663ec38ea504dc8c9d2686aaa3b6620b7a4b98b13ac8c6c40f6c04f4720cd"
+        },
+        {
+          "path": "codex/skills/dk-issue/SKILL.md",
+          "sha256": "65b0052abdf7ed8a6c29672e179f32ae82db929e82a9f35543e6822646e249fd"
+        },
+        {
+          "path": "codex/skills/dk-issue/config.json",
+          "sha256": "ddc7dec1bc83e51976270c2a4168ee0bd1c7a9fda8c9959bc521c91de691b664"
+        },
+        {
+          "path": "codex/skills/dk-issue/config.schema.json",
+          "sha256": "33958d2d93fa8581e169b12d76ede448cee0196ffe979c6f1dd2704b459df3e1"
+        },
+        {
+          "path": "codex/skills/dk-issue/prompts/default.md",
+          "sha256": "f2d663ec38ea504dc8c9d2686aaa3b6620b7a4b98b13ac8c6c40f6c04f4720cd"
+        },
+        {
+          "path": "docs/behavior.md",
+          "sha256": "99d19ac4626fad8703ecb6108b2812dfd4d73a978548d37153a98562b2926ec1"
+        },
+        {
+          "path": "docs/configuration-upgrades.md",
+          "sha256": "04612081c4ea5fe2bd9870f52925ba30dd6871422fc38d6061d192b702f48764"
+        },
+        {
+          "path": "docs/instruction-sources.md",
+          "sha256": "9e9d49728557c15ad230d3a1ceb59f93594dfa608b1987c7071fda6bd7a581aa"
+        },
+        {
+          "path": "docs/pr/contracts.md",
+          "sha256": "8f736ee8a84a43dc4347a86791b54b1503a8cbb3df61acf5820c6d23ac20ee2a"
+        },
+        {
+          "path": "docs/private-reporting.md",
+          "sha256": "87614cde2f0209cb8f11fc424fb5cef7fdc599f526aa7ab4987a134cd2dd3fdd"
+        },
+        {
+          "path": "docs/skill-configuration.md",
+          "sha256": "492db673cb9b7ef09696b00bb5cb81b494801d22a3f40791525332b0b9d28642"
+        },
+        {
+          "path": "runtime/dk-issue/references/field-schema.md",
+          "sha256": "d87500f5a8a8fa1eac3e852936475e8d36a87b1417379e640e45f6d1f06e9e5f"
+        }
+      ]
+    }
+  ]
+}
