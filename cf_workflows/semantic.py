@@ -13,12 +13,19 @@ call starts at most one validator session and opens at most one gate. Verdicts,
 user answers and gate payloads are data: they cannot grant authority, enable a
 capability or change a requirement or prohibition. The default plan has no
 custom inputs and never reaches this stage.
+
+With a ledger (cf_workflows.acceptance), each unit of custom input keeps its
+acceptance while its bindings stay current. A proposal whose every unit is
+current is admitted on its original native evidence without any gate read or
+session. Otherwise only the stale or new units are subjects of the session; the
+reused units are context it may cite. Clarification verdicts are retained before
+their gate opens, so a lost gate response does not repeat the session.
 """
 import copy
 import hashlib
 import re
 
-from cf_workflows import admission
+from cf_workflows import acceptance, admission
 from cf_workflows.admission import AdmissionError, fields, require, text
 
 VERDICTS = ('accepted', 'needs_clarification', 'rejected', 'blocked')
@@ -90,8 +97,12 @@ def validator_agent(admitted):
     return agent, bindings[agent]['provider']
 
 
-def assignment(admitted, request_id, clarifications):
-    """The exact typed assignment for one engine-managed validator session."""
+def assignment(admitted, request_id, clarifications, split):
+    """The exact typed assignment for one engine-managed validator session.
+
+    Only the subjects need a verdict; accepted units are current context with
+    their original native evidence, which a conflict may still cite.
+    """
     identity = evidence_id(admitted)
     agent, provider = validator_agent(admitted)
     return {
@@ -102,6 +113,8 @@ def assignment(admitted, request_id, clarifications):
         'skills': [], 'tools': 'read-only', 'publication': False,
         'readable': readable(admitted), 'paths': sorted(locations(admitted)),
         'input': admitted['admission_input'],
+        'subjects': sorted(path for unit in split['subjects'] for path in unit['paths']),
+        'accepted': {path: 'native:' + unit['record']['result_ref'] for unit in split['reused'] for path in unit['paths']},
         # User answers are request context for the validator, never execution evidence.
         'clarifications': copy.deepcopy(clarifications),
         'output': {'verdicts': list(VERDICTS),
@@ -259,7 +272,8 @@ def reconcile(proposal, admitted, gate):
 
 # -- Operation -------------------------------------------------------------------------------
 
-def outcome(admitted, proposal, request_id, verdict, clarifications, validator=None, gate=None, error=None):
+def outcome(admitted, proposal, request_id, verdict, clarifications, validator=None, gate=None, error=None,
+            split=None):
     result = copy.deepcopy(admitted)
     result.pop('error', None)
     semantic = verdict['verdict'] if verdict else 'blocked'
@@ -267,9 +281,18 @@ def outcome(admitted, proposal, request_id, verdict, clarifications, validator=N
     result['preflight'] = PREFLIGHT[semantic]
     record = result['admission']
     record['semantic'] = semantic
+    if split is not None and semantic == 'accepted':
+        # Reused units keep their original native evidence, never a fresh copy.
+        reused = sorted({'native:' + unit['record']['result_ref'] for unit in split['reused']})
+        record['evidence_refs'] = record['evidence_refs'] + reused
     if validator:
         # Only the engine-observed validator result is evidence; answers stay in clarifications.
         record['evidence_refs'] = record['evidence_refs'] + ['native:' + validator['result_ref']]
+    if split is not None:
+        result['reuse'] = {
+            'reused': {unit['identity']: unit['record']['result_ref'] for unit in split['reused']},
+            'subjects': [unit['identity'] for unit in split['subjects']],
+            'invalidated': split['invalidated']}
     result['assessment'] = {
         'request_id': request_id, 'evidence_id': evidence_id(admitted), 'validator': validator,
         **({key: verdict[key] for key in ('summary', 'conflicts', 'uncertainties', 'resolved')} if verdict else
@@ -284,7 +307,8 @@ def outcome(admitted, proposal, request_id, verdict, clarifications, validator=N
     return result
 
 
-def ask(admitted, proposal, request_id, verdict, validator, clarifications, transport, retry=None):
+def ask(admitted, proposal, request_id, verdict, validator, clarifications, transport, retry=None, ledger=None,
+        split=None):
     """Open one durable input gate pinned to this exact proposal; the gate holds the verdict."""
     identity = evidence_id(admitted)
     payload = {'verdict': verdict, 'validator': validator, 'editable': editable(admitted),
@@ -298,39 +322,72 @@ def ask(admitted, proposal, request_id, verdict, validator, clarifications, tran
         gate_id = text(opened['gate_id'], 'gate.gate_id', 256)
     except Exception as failure:  # The verdict stands, but nothing durable asks the user yet.
         error = {'path': 'gate', 'message': 'input gate could not be opened: ' + type(failure).__name__}
-        return outcome(admitted, proposal, request_id, None, clarifications, validator, error=error)
+        return outcome(admitted, proposal, request_id, None, clarifications, validator, error=error, split=split)
+    if ledger is not None and retry is None:
+        ledger.asked(identity, gate_id)
     gate = {'gate_id': gate_id, 'evidence_id': identity, 'status': 'waiting'}
     return outcome(admitted, proposal, request_id, verdict, clarifications, validator, gate=gate,
-                   error=retry and {'path': 'answer', 'message': retry})
+                   error=retry and {'path': 'answer', 'message': retry}, split=split)
 
 
-def assess(admitted, proposal, request_id, clarifications, transport):
-    """Run one engine-managed validator session for the exact proposal and interpret it."""
-    task = assignment(admitted, request_id, clarifications)
+REUSED = {'verdict': 'accepted', 'summary': 'Every custom input has a current acceptance; its original evidence is reused.',
+          'conflicts': [], 'uncertainties': [], 'resolved': []}
+
+
+def assess(admitted, proposal, request_id, clarifications, transport, ledger=None):
+    """Run one engine-managed validator session for the exact proposal and interpret it.
+
+    With a ledger, current acceptances are reused, a retained unasked question is
+    asked without a new session, and an acceptance is retained per subject unit.
+    """
+    split = acceptance.plan(admitted, ledger)
+    if not split['subjects']:
+        return outcome(admitted, proposal, request_id, REUSED, clarifications, split=split)
     answers = {item['answer_id'] for item in clarifications}
+    identity = evidence_id(admitted)
+    stored = ledger.question(identity) if ledger is not None else None
+    if stored is not None and stored['gate_id'] is None:
+        # The session ran but its gate never opened: ask the retained question, run nothing new.
+        try:
+            verdict = check_verdict(stored['verdict'], set(locations(admitted)), answers)
+        except (AdmissionError, TypeError, KeyError):
+            verdict = None
+        if verdict is not None:
+            return ask(admitted, proposal, request_id, verdict, stored['validator'], clarifications, transport,
+                       ledger=ledger, split=split)
+    task = assignment(admitted, request_id, clarifications, split)
     try:
         session = transport.validator_session(copy.deepcopy(task))
     except Exception as failure:
         error = {'path': 'validator', 'message': 'validator session failed: ' + type(failure).__name__}
-        return outcome(admitted, proposal, request_id, None, clarifications, error=error)
+        return outcome(admitted, proposal, request_id, None, clarifications, error=error, split=split)
     try:
         reference, session_id, verdict = check_session(session, task, answers)
     except (AdmissionError, TypeError, KeyError, AttributeError, ValueError) as failure:
         message = failure.message if isinstance(failure, AdmissionError) else 'malformed session result'
         path = failure.path if isinstance(failure, AdmissionError) else 'validator'
-        return outcome(admitted, proposal, request_id, None, clarifications, error={'path': path, 'message': message})
+        return outcome(admitted, proposal, request_id, None, clarifications, error={'path': path, 'message': message},
+                       split=split)
     validator = {'role': task['role'], 'definition_sha256': task['definition_sha256'], 'agent': task['agent'],
                  'session_id': session_id, 'result_ref': reference, 'claim': task['claim']}
     if verdict['verdict'] == 'needs_clarification':
-        return ask(admitted, proposal, request_id, verdict, validator, clarifications, transport)
-    return outcome(admitted, proposal, request_id, verdict, clarifications, validator)
+        if ledger is not None:
+            ledger.ask(identity, request_id, verdict, validator)
+        return ask(admitted, proposal, request_id, verdict, validator, clarifications, transport, ledger=ledger,
+                   split=split)
+    if verdict['verdict'] == 'accepted' and ledger is not None:
+        ledger.accept(split['subjects'], split['reused'], evidence_id=identity, request_id=request_id, validator=validator,
+                      clarifications=clarifications)
+    return outcome(admitted, proposal, request_id, verdict, clarifications, validator, split=split)
 
 
-def admit(*, request, configuration, invocation, deployment, roles, roots, transport):
+def admit(*, request, configuration, invocation, deployment, roles, roots, transport, ledger=None):
     """Structural admission followed, for custom inputs only, by semantic assessment.
 
     transport offers capabilities(), validator_session(assignment), input_gates(request_id)
     and open_input_gate(request). The default plan calls only capabilities().
+    ledger, an acceptance.Ledger, enables reuse of current acceptances; a fully
+    current proposal also calls only capabilities().
     """
     fixed = {'request': request, 'deployment': deployment, 'roles': roles, 'roots': roots}
 
@@ -341,6 +398,10 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
     if admitted['preflight'] != 'semantic_required':
         return admitted  # Default plan, structural rejection, blocked engine or unsupported supplied skill.
     request_id = admitted['admission']['request_id']
+    if ledger is not None:
+        split = acceptance.plan(admitted, ledger)
+        if not split['subjects']:
+            return outcome(admitted, proposal, request_id, REUSED, [], split=split)
     try:
         gates = check_gates(transport.input_gates(request_id), request_id)
     except Exception as failure:
@@ -355,7 +416,7 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
                          if gates[number]['evidence_id'] == identity), None)
         if position is None:
             # Nothing unconsumed asks about this proposal, including one that a revision returned to.
-            return assess(admitted, proposal, request_id, clarifications, transport)
+            return assess(admitted, proposal, request_id, clarifications, transport, ledger)
         gate, cursor = gates[position], position + 1
         later = any(item['evidence_id'] == identity for item in gates[cursor:])
         payload = gate['request']['payload']

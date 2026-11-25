@@ -60,7 +60,7 @@ SUPPLIED_SKILL_EXECUTION = False  # Session-scoped supplied-skill execution land
 
 VALIDATOR_ROLE = 'configuration-validator'
 BOOTSTRAP_DEFINITION = Path(__file__).resolve().parent / 'bootstrap' / 'configuration-validator.toml'
-BOOTSTRAP_SHA256 = 'bcc2bd2bc87ede65f0aee2dde86b85b8334e4f7fc961b5e132a38bd548114896'
+BOOTSTRAP_SHA256 = 'fcf09ceb74968d05c3f07ea65e94339a2574d8b82aec14a4644a8049f18fd467'
 
 CHECKLIST = [
     {'id': 'assignment', 'text': 'Perform the exact assigned task against current source and retained original instructions.'},
@@ -323,10 +323,12 @@ def resolve_resources(records, roots, path):
         contents[key] = content
     # Every declared Markdown resource must declare its own local link closure.
     for key, item in resolved.items():
-        if item['path'].endswith('.md'):
-            for target in links(contents[key], item['path'], path):
-                require(item['root'] + ':' + target in resolved, path,
-                        f'incomplete resource closure: {key} references undeclared {target}')
+        targets = links(contents[key], item['path'], path) if item['path'].endswith('.md') else []
+        for target in targets:
+            require(item['root'] + ':' + target in resolved, path,
+                    f'incomplete resource closure: {key} references undeclared {target}')
+        # Recorded so acceptance can bind each custom input to its exact transitive closure.
+        item['links'] = sorted({item['root'] + ':' + target for target in targets})
     return dict(sorted(resolved.items())), contents
 
 

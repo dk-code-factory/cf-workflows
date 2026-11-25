@@ -30,7 +30,8 @@ fails to apply because of case or formatting. `accounts` hold account logins onl
 Admission reads and hashes these inputs:
 
 - Configured resources: normalized relative paths below a named root, with the
-  declared SHA-256 and a complete local Markdown link closure.
+  declared SHA-256 and a complete local Markdown link closure. Each resolved
+  resource records its declared links.
 - Repository guidance: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and
   `.github/copilot-instructions.md`, with their transitive local links. Guidance
   may use symlinks that stay inside the repository; each is recorded with its
@@ -108,7 +109,7 @@ after one level.
 ## Not established here
 
 - Running the validator, its verdicts and reconciliation: [semantic.md](semantic.md).
-- Reusing acceptance: #13.
+- Reusing acceptance and writing revisions back: [acceptance.md](acceptance.md).
 - Snapshot capture of PR metadata: the installed workflow's `prepare` helper
   ([dk-pr-fix](dk-pr-fix.md)).
 - Supplied-skill sessions: #16, which needs Agent Workflow #139.
