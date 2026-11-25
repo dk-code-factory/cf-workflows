@@ -20,6 +20,10 @@ PR scopes and finally the invocation-local inputs. Every value keeps its source.
 `requirements` and `prohibitions` accumulate and are never replaced. Differing
 values from two scopes at the same precedence reject. An explicit empty plan
 stays empty; `null` is rejected because no declared option gives it a meaning.
+Every scope is validated in full, including values that a later scope overrides
+and scopes that do not match this target. Selector IDs must be canonical
+(lowercase `host/owner/name` or a canonical PR URL), so a scope never silently
+fails to apply because of case or formatting. `accounts` hold account logins only.
 
 ## Resolution
 
@@ -28,7 +32,9 @@ Admission reads and hashes these inputs:
 - Configured resources: normalized relative paths below a named root, with the
   declared SHA-256 and a complete local Markdown link closure.
 - Repository guidance: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and
-  `.github/copilot-instructions.md`, with their transitive local links.
+  `.github/copilot-instructions.md`, with their transitive local links. Guidance
+  may use symlinks that stay inside the repository; each is recorded with its
+  resolved path. A symlink that leaves the repository rejects.
 - The admitted role catalog: exactly `leaf`, `reviewer`, `verifier`, `fixer` and
   `audience`, with each digest checked.
 - Saved and invocation-local prompts and preferences, with their resource references.
@@ -36,11 +42,16 @@ Admission reads and hashes these inputs:
   reviewer groups.
 
 A user-supplied skill is a directory. Its file list and per-file digests must
-match exactly, and its content digest is the canonical JSON of `{path: sha256}`.
+match exactly, and its content digest is the SHA-256 of the canonical JSON `{path: sha256}`.
 Admission hashes the files and checks Markdown links from the entry. It never
 loads or runs the skill. Host-installed skill fields reject.
 
-Missing or escaping paths, symlinks, digest mismatches, incomplete closures,
+Link closure covers inline links, reference definitions and `<...>` targets. It
+ignores code fences, indented code and code spans, and resolves a leading `/`
+against the root. Configured resources, prompt text and their bytes are read once,
+so a prompt's text is exactly the content whose digest was verified.
+
+Missing or escaping paths, symlinks outside guidance, digest mismatches, incomplete closures,
 legacy qualified selectors, per-task options, cycle hooks, path selectors,
 string `settings`, unknown fields or options and wrong types all reject before
 the engine is contacted. An authorization for a prohibited action also rejects.
@@ -61,12 +72,20 @@ request text is kept byte-for-byte and apart from adapter assignments and
 per-task `instructions`. Remote writes default off. A permission is effective
 only when it is enabled, explicitly authorized and not prohibited.
 
-Custom inputs are applicable prompts or preferences, per-task instructions,
-selected adapters that differ from the baseline, and supplied skills referenced
-by a selection. When any exist, the result is structurally `accepted` and
-semantically `blocked`, and preflight rejects, until semantic assessment (#12)
-and supplied-skill execution (#16) land. The default plan has no custom inputs,
-so it is admitted with `semantic: null` and needs no validator session.
+Custom inputs are:
+
+- applicable prompts or preferences;
+- per-task instructions;
+- free-text `requirements` and `prohibitions` (a prohibition that names a
+  remote-write action is a structural control instead);
+- selected adapters that differ from the baseline;
+- supplied skills referenced by a selection.
+
+When any exist, the result is structurally `accepted` and semantically
+`blocked`, and preflight rejects. This lasts until semantic assessment (#12) and
+supplied-skill execution (#16) land. The bundled validator check runs before the
+engine query. The default plan has no custom inputs, so it is admitted with
+`semantic: null` and needs no validator session.
 
 ## Bootstrap boundary
 

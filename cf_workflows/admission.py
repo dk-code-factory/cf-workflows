@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import tomllib
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 SUITE = 'cf-workflows'
 MAX_FILE = 4 << 20
@@ -29,7 +29,12 @@ MAX_ADMISSION_INPUT = 1 << 20
 SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z][a-z0-9-]{0,63}')
 IDENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
-LINK = re.compile(r'\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|[^)\s]+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
+REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[[^\]]+\]:\s*(<[^>\n]*>|\S+)')
+FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})')
+CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
+LOGIN = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?')
+REPOSITORY = re.compile(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+')
 
 ACTIONS = ('push', 'edit_pr', 'reply', 'resolve_thread', 'request_review', 'create_pr',
            'create_issue', 'edit_issue', 'post_findings', 'approve_fork_ci', 'rerun_ci',
@@ -127,7 +132,11 @@ def require(condition, path, message):
 def text(value, path, limit=MAX_TEXT):
     require(isinstance(value, str) and value.strip() and '\0' not in value,
             path, 'must be a nonempty string without NUL')
-    require(len(value.encode('utf-8', 'strict')) <= limit, path, 'exceeds byte bound')
+    try:
+        size = len(value.encode('utf-8', 'strict'))
+    except UnicodeEncodeError:
+        raise AdmissionError(path, 'must be valid Unicode text') from None
+    require(size <= limit, path, 'exceeds byte bound')
     return value
 
 
@@ -192,45 +201,91 @@ def read_file(root, rel, path, limit=MAX_FILE):
     return content
 
 
+def link_targets(body):
+    """Inline and reference-definition Markdown link targets outside code fences and spans."""
+    result, fence = [], None
+    for line in body.splitlines():
+        opening = FENCE.match(line)
+        if fence:
+            if opening and opening[1][0] == fence[0] and len(opening[1]) >= len(fence):
+                fence = None
+            continue
+        if opening:
+            fence = opening[1]
+            continue
+        if line.startswith(('    ', '\t')):
+            continue  # Indented code block.
+        line = CODE_SPAN.sub('', line)
+        found = INLINE_LINK.findall(line)
+        definition = REFERENCE_DEFINITION.match(line)
+        if definition:
+            found.append(definition[1])
+        for link in found:
+            link = link[1:-1].strip() if link.startswith('<') else link
+            if link and not re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', link) and not link.startswith('#'):
+                result.append(unquote(link.split('#')[0].split('?')[0]))
+    return [link for link in result if link]
+
+
 def links(content, rel, path):
-    """Local Markdown link targets of a file, resolved relative to its root; escapes reject."""
+    """Local Markdown link targets of a file, normalized below its root; escapes reject.
+
+    A leading / is relative to the root, as repository renderers resolve it.
+    """
     try:
         body = content.decode('utf-8')
     except UnicodeDecodeError:
         raise AdmissionError(path, 'Markdown resource is not UTF-8: ' + rel) from None
     result = []
-    for link in LINK.findall(body):
-        if '://' in link or link.startswith(('#', 'mailto:')):
-            continue
-        target = link.split('#')[0]
-        if not target:
-            continue
-        require(not target.startswith('/'), path, f'{rel} links outside its root: {link}')
+    for target in link_targets(body):
+        base = [] if target.startswith('/') else list(PurePosixPath(rel).parent.parts)
         parts = []
-        for part in [*PurePosixPath(rel).parent.parts, *target.split('/')]:
+        for part in [*base, *target.split('/')]:
             if part in ('', '.'):
                 continue
             if part == '..':
-                require(parts, path, f'{rel} links outside its root: {link}')
+                require(parts, path, f'{rel} links outside its root: {target}')
                 parts.pop()
             else:
                 parts.append(part)
-        require(parts, path, f'{rel} has an empty link: {link}')
+        require(parts, path, f'{rel} has an empty link: {target}')
         result.append('/'.join(parts))
     return result
 
 
-def follow(root, start, path, allowed=None):
-    """Transitive local Markdown closure from start files; returns {path: sha256}."""
+def inside(root, rel, path):
+    """Resolve in-root symlinks for guidance; a target outside root rejects."""
+    real = Path(os.path.realpath(root / rel))
+    try:
+        resolved = real.relative_to(root).as_posix()
+    except ValueError:
+        raise AdmissionError(path, 'symlink escapes its root: ' + rel) from None
+    require(resolved != '.', path, 'link resolves to the root itself: ' + rel)
+    return resolved
+
+
+def follow(root, start, path, allowed=None, aliases=None):
+    """Transitive local Markdown closure from start files; returns {path: sha256}.
+
+    With aliases (repository guidance), in-root symlinks are allowed and recorded
+    as {link: resolved}; elsewhere every symlink rejects.
+    """
     found, pending = {}, list(start)
     while pending:
         rel = pending.pop()
-        if rel in found:
+        if rel in found or (aliases and rel in aliases):
             continue
         require(allowed is None or rel in allowed, path, 'incomplete resource closure: ' + rel)
-        require(len(found) < MAX_CLOSURE, path, 'resource closure exceeds bound')
-        if allowed is None and stat.S_ISDIR(lookup(root, rel, path)[1]):
-            continue  # Guidance may link a directory; only files are instruction resources.
+        require(len(found) + len(aliases or ()) < MAX_CLOSURE, path, 'resource closure exceeds bound')
+        if aliases is not None:
+            require(os.path.lexists(root / rel), path, 'missing resource ' + rel)
+            resolved = inside(root, rel, path)
+            if resolved != rel:
+                aliases[rel] = resolved
+                pending.append(resolved)
+                continue
+            if stat.S_ISDIR(lookup(root, rel, path)[1]):
+                continue  # Guidance may link a directory; only files are instruction resources.
         content = read_file(root, rel, path)
         found[rel] = hashlib.sha256(content).hexdigest()
         if rel.endswith('.md'):
@@ -239,8 +294,9 @@ def follow(root, start, path, allowed=None):
 
 
 def resolve_resources(records, roots, path):
+    """Verify declared resources; returns their records and the exact bytes that were hashed."""
     require(isinstance(records, list), path, 'must be an array')
-    resolved = {}
+    resolved, contents = {}, {}
     for index, record in enumerate(records):
         where = f'{path}[{index}]'
         fields(record, where, ('root', 'path', 'sha256', 'purpose', 'owner'))
@@ -250,19 +306,20 @@ def resolve_resources(records, roots, path):
                 where + '.sha256', 'must be lowercase SHA-256')
         key = record['root'] + ':' + rel
         require(key not in resolved, where, 'duplicate resource ' + key)
-        actual = hashlib.sha256(read_file(roots[record['root']], rel, where)).hexdigest()
+        content = read_file(roots[record['root']], rel, where)
+        actual = hashlib.sha256(content).hexdigest()
         require(actual == record['sha256'], where + '.sha256', 'resource digest mismatch: ' + key)
         resolved[key] = {'root': record['root'], 'path': rel, 'sha256': actual,
                          'purpose': text(record['purpose'], where + '.purpose', 512),
                          'owner': text(record['owner'], where + '.owner', 512)}
+        contents[key] = content
     # Every declared Markdown resource must declare its own local link closure.
     for key, item in resolved.items():
         if item['path'].endswith('.md'):
-            content = read_file(roots[item['root']], item['path'], path)
-            for target in links(content, item['path'], path):
+            for target in links(contents[key], item['path'], path):
                 require(item['root'] + ':' + target in resolved, path,
                         f'incomplete resource closure: {key} references undeclared {target}')
-    return dict(sorted(resolved.items()))
+    return dict(sorted(resolved.items())), contents
 
 
 def resource_ref(value, resources, path):
@@ -397,7 +454,7 @@ def resolve_request(request):
     require(isinstance(logical_run, str) and IDENT.fullmatch(logical_run), 'request.logical_run', 'invalid identifier')
     upstream = request.get('upstream')
     if upstream is not None:
-        require(isinstance(upstream, str) and re.fullmatch(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+', upstream),
+        require(isinstance(upstream, str) and REPOSITORY.fullmatch(upstream),
                 'request.upstream', 'must be a canonical lowercase host/owner/name')
     authorizations = request.get('authorizations', {})
     require(isinstance(authorizations, dict), 'request.authorizations', 'must be an object')
@@ -463,6 +520,15 @@ def check_configuration(configuration):
             'invalid structural status')
     require(admission['semantic'] in (None, 'accepted', 'needs_clarification', 'rejected', 'blocked'),
             'configuration.admission.semantic', 'invalid semantic verdict')
+    for key in ('request_id', 'context_digest', 'resource_digest', 'capability_digest'):
+        value = admission[key]
+        if value is not None:
+            text(value, 'configuration.admission.' + key, 256)
+            require(key == 'request_id' or SHA256.fullmatch(value), 'configuration.admission.' + key,
+                    'must be lowercase SHA-256 or null')
+    require(isinstance(admission['evidence_refs'], list), 'configuration.admission.evidence_refs', 'must be an array')
+    for index, value in enumerate(admission['evidence_refs']):
+        text(value, f'configuration.admission.evidence_refs[{index}]', 1024)
     require(isinstance(configuration['scopes'], list), 'configuration.scopes', 'must be an array')
     return {'revision': revision, 'scopes': configuration['scopes'], 'resources': configuration['resources'],
             'digest': digest(configuration)}
@@ -476,16 +542,25 @@ def matches(selector, request, path):
     kind = selector['kind']
     require(kind in PRECEDENCE[:-1], path + '.kind', 'saved scopes are personal, repository, upstream or pr')
     ident = text(selector['id'], path + '.id', 512)
+    canonical_id = {'personal': lambda: IDENT.fullmatch(ident) and ident,
+                    'repository': lambda: REPOSITORY.fullmatch(ident) and ident,
+                    'upstream': lambda: REPOSITORY.fullmatch(ident) and ident,
+                    'pr': lambda: pr_identity(ident, path + '.id')['url']}[kind]()
+    require(canonical_id == ident, path + '.id',
+            'must be a canonical identity (lowercase host/owner/name or canonical PR URL)')
     return kind, {'personal': True, 'repository': ident == request['pr']['repository'],
                   'upstream': ident == request['upstream'], 'pr': ident == request['pr']['url']}[kind]
 
 
-def check_option(name, value, path):
+def check_option(name, value, path, resources):
     require(name in DEFAULTS, path, 'unsupported option')
     require(value is not None, path, 'null has no declared meaning for this option')
     if name in ('tasks', 'finalizers', 'reviewers', 'accounts', 'requirements', 'prohibitions'):
         require(isinstance(value, list), path, 'must be an array')
-    if name in ('accounts', 'requirements', 'prohibitions'):
+    if name == 'accounts':
+        for index, item in enumerate(value):
+            require(isinstance(item, str) and LOGIN.fullmatch(item), f'{path}[{index}]', 'must be an account login')
+    elif name in ('requirements', 'prohibitions'):
         for index, item in enumerate(value):
             text(item, f'{path}[{index}]')
     elif name in ('adapters', 'ci', 'limits', 'settings'):
@@ -507,10 +582,20 @@ def check_option(name, value, path):
         require(value in ('merge', 'squash'), path, 'supports merge/squash only')
     elif name == 'turns':
         require(type(value) is int and 5 <= value <= 1000, path, 'must be an integer in 5..1000')
+    elif name in ('tasks', 'finalizers', 'reviewers'):
+        for index, group in enumerate(groups(value, path)):
+            for call in group:
+                if call.get('stage') == 'reviews' and 'reviewers' in call:
+                    groups(call['reviewers'], f'{path}[{index}].reviewers')
+    elif name == 'adapters':
+        for key, adapter in value.items():
+            checked = check_adapter(key, adapter, f'{path}.{key}')
+            for index, ref in enumerate(checked['resources']):
+                resource_ref(ref, resources, f'{path}.{key}.resources[{index}]')
     return value
 
 
-def check_scope_body(scope, path, invocation=False):
+def check_scope_body(scope, path, resources, invocation=False):
     keys = ('options', 'permissions', 'prompts', 'skills', 'preferences')
     if invocation:
         fields(scope, path, (), keys)
@@ -521,7 +606,7 @@ def check_scope_body(scope, path, invocation=False):
     for key in ('before_cycle', 'after_cycle'):
         require(key not in options, f'{path}.options.{key}', 'cycle hooks are unsupported; place tasks explicitly')
     for key, value in options.items():
-        check_option(key, value, f'{path}.options.{key}')
+        check_option(key, value, f'{path}.options.{key}', resources)
     permissions = scope.get('permissions', {})
     require(isinstance(permissions, dict), path + '.permissions', 'must be an object')
     for key, value in permissions.items():
@@ -532,21 +617,27 @@ def check_scope_body(scope, path, invocation=False):
     return scope
 
 
-def effective(scopes, request, invocation):
-    """Apply matching scopes in precedence order with per-value provenance."""
-    applicable = []
+def effective(scopes, request, invocation, resources):
+    """Apply matching scopes in precedence order with per-value provenance.
+
+    Every scope is validated in full, whether or not it matches or wins a value.
+    Records of non-matching scopes are returned separately for structural checks.
+    """
+    applicable, inactive = [], []
     seen = set()
     for index, scope in enumerate(scopes):
         where = f'configuration.scopes[{index}]'
-        check_scope_body(scope, where)
+        check_scope_body(scope, where, resources)
         require(isinstance(scope['id'], str) and IDENT.fullmatch(scope['id']), where + '.id', 'invalid identifier')
         require(scope['id'] not in seen, where + '.id', 'duplicate scope id')
         seen.add(scope['id'])
         kind, applies = matches(scope['selector'], request, where + '.selector')
         if applies:
             applicable.append((PRECEDENCE.index(kind), index, kind, scope['id'], where, scope))
+        else:
+            inactive.append((f'{kind}:{scope["id"]}', where, scope))
     if invocation is not None:
-        check_scope_body(invocation, 'invocation', invocation=True)
+        check_scope_body(invocation, 'invocation', resources, invocation=True)
         applicable.append((PRECEDENCE.index('invocation'), len(scopes), 'invocation', 'invocation', 'invocation',
                            invocation))
     applicable.sort(key=lambda item: item[:2])
@@ -577,7 +668,8 @@ def effective(scopes, request, invocation):
                                 for index, item in enumerate(scope.get(key, [])))
     for key in ACCUMULATED:
         options[key] = {'value': accumulated[key], 'source': 'accumulated'}
-    return options, permissions, records, [f'{kind}:{scope_id}' for _, _, kind, scope_id, _, _ in applicable]
+    return (options, permissions, records, [f'{kind}:{scope_id}' for _, _, kind, scope_id, _, _ in applicable],
+            inactive)
 
 
 # -- Selections -------------------------------------------------------------------------------
@@ -692,7 +784,7 @@ def build_plan(options, adapters, roles, skills, resources):
 
 # -- Admission --------------------------------------------------------------------------------
 
-def resolve_prompts(records, adapters, resources, roots, selected, path_kind):
+def resolve_prompts(records, adapters, resources, contents, selected, path_kind):
     result = []
     seen = {}
     for where, source, record in records:
@@ -714,7 +806,8 @@ def resolve_prompts(records, adapters, resources, roots, selected, path_kind):
         if 'resource' in record:
             key = resource_ref(record['resource'], resources, where + '.resource')
             item = resources[key]
-            content = read_file(roots[item['root']], item['path'], where + '.resource', MAX_TEXT)
+            content = contents[key]  # The exact bytes whose digest admission verified.
+            require(len(content) <= MAX_TEXT, where + '.resource', 'prompt resource exceeds byte bound')
             try:
                 body = content.decode('utf-8')
             except UnicodeDecodeError:
@@ -723,12 +816,12 @@ def resolve_prompts(records, adapters, resources, roots, selected, path_kind):
             refs.append(key)
         else:
             body = text(record['text'], where + '.text')
-            require(not [link for link in LINK.findall(body) if '://' not in link and not link.startswith('#')],
-                    where + '.text', 'inline prompt text cannot link local files; declare a resource instead')
+            require(not link_targets(body), where + '.text', 'inline prompt text cannot link local files; declare a resource instead')
         for ref in refs:
             resource_ref(ref, resources, where + '.resources')
         entry = {'id': record['id'], 'slot': slot, 'target': target, 'source': source, 'path': where,
                  'text': body, 'sha256': hashlib.sha256(body.encode('utf-8')).hexdigest(),
+                 'resource': record.get('resource'),
                  'resources': sorted(set(refs)), 'applicable': target is None or target in selected}
         previous = seen.get(record['id'])
         require(previous is None, where + '.id', f'duplicate {path_kind} id also declared at {previous}')
@@ -748,8 +841,8 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
         return _admit(request, configuration, invocation, deployment, roles, roots, transport)
     except AdmissionError as error:
         failure = {'path': error.path, 'message': error.message}
-    except (TypeError, KeyError, AttributeError) as error:
-        # Wrong JSON types fail closed as structural rejections.
+    except (TypeError, KeyError, AttributeError, ValueError, OSError, RecursionError) as error:
+        # Wrong JSON types, invalid text/numbers and unreadable inputs fail closed as structural rejections.
         failure = {'path': '$', 'message': 'malformed input: ' + type(error).__name__}
     return {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None, 'error': failure}
 
@@ -763,8 +856,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     config = check_configuration(configuration)
     runtime = resolve_deployment(deployment)
     catalog = resolve_roles(roles, roots, 'roles')
-    resources = resolve_resources(config['resources'], roots, 'configuration.resources')
-    options, permissions, records, scopes = effective(config['scopes'], original, invocation)
+    resources, contents = resolve_resources(config['resources'], roots, 'configuration.resources')
+    options, permissions, records, scopes, inactive = effective(config['scopes'], original, invocation, resources)
 
     adapters = {name: check_adapter(name, value, 'baseline.' + name) for name, value in BASELINE_ADAPTERS.items()}
     custom_adapters = []
@@ -782,10 +875,21 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         skills[skill['id']] = {**skill, 'source': source, 'path_ref': where}
     tasks, stages = build_plan(options, adapters, catalog, skills, resources)
     selected = {entry['adapter'] for entry in tasks}
-    prompts = resolve_prompts(records['prompts'], adapters, resources, roots, selected, 'prompts')
-    preferences = resolve_prompts(records['preferences'], adapters, resources, roots, selected, 'preferences')
-    guidance = follow(roots['repository'], [name for name in GUIDANCE if os.path.lexists(roots['repository'] / name)],
-                      'guidance')
+    prompts = resolve_prompts(records['prompts'], adapters, resources, contents, selected, 'prompts')
+    preferences = resolve_prompts(records['preferences'], adapters, resources, contents, selected, 'preferences')
+    # Non-matching scopes do not apply, but their records must still be structurally valid.
+    for source, where, scope in inactive:
+        names = set(adapters) | set(scope['options'].get('adapters', {}))
+        for kind in ('prompts', 'preferences'):
+            resolve_prompts([(f'{where}.{kind}[{index}]', source, record) for index, record in enumerate(scope[kind])],
+                            names, resources, contents, set(), kind)
+        for index, record in enumerate(scope['skills']):
+            resolve_skill(record, roots, f'{where}.skills[{index}]')
+    aliases = {}
+    guidance = {'files': follow(roots['repository'], [name for name in GUIDANCE
+                                                     if os.path.lexists(roots['repository'] / name)],
+                                'guidance', aliases=aliases),
+                'symlinks': dict(sorted(aliases.items()))}
 
     prohibited = {item['text'] for item in options['prohibitions']['value'] if item['text'] in ACTIONS}
     for action in original['authorizations']:
@@ -798,8 +902,11 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
                                and action not in prohibited)}
         for action in ACTIONS}
 
+    free_text = [item for item in options['requirements']['value'] + options['prohibitions']['value']
+                 if item['text'] not in ACTIONS]
     custom = {
         'prompts': [entry['id'] for entry in prompts + preferences if entry['applicable']],
+        'policy_text': sorted({item['source'] for item in free_text}),
         'instructions': [entry['id'] for entry in tasks if entry['instructions'] is not None],
         'adapters': sorted(name for name in custom_adapters if name in selected),
         'skills': sorted({entry['skill'] for entry in tasks if entry['skill'] is not None}),
@@ -809,6 +916,9 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         required.add(SKILL_CAPABILITY)
     if effective_permissions['merge']['effective']:
         required.add(MERGE_CAPABILITY)
+    semantic_required = any(custom.values())
+    # The bundled validator check is local and structural, so it also precedes the engine query.
+    validator = bootstrap() if semantic_required else None
 
     # Every local structural check has passed; only now consult the engine (read-only).
     capabilities = transport.capabilities()
@@ -853,7 +963,6 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
                                                             'plan', 'prompts', 'preferences', 'permissions')})
     resource_digest = digest(resource_record)
     capability_digest = digest(capability_record)
-    semantic_required = any(custom.values())
     admission_input = {
         'request_id': request_id,
         'request': {'original_instructions': original['original_instructions'], 'authorizations': original['authorizations']},
@@ -873,7 +982,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         'sources': {'configuration_revision': config['revision'], 'scopes': scopes,
                     'context_digest': context_digest, 'resource_digest': resource_digest,
                     'capability_digest': capability_digest},
-        'validator': bootstrap() if semantic_required else None,
+        'validator': validator,
     }
     require(len(canonical(admission_input)) <= MAX_ADMISSION_INPUT, 'admission_input', 'exceeds byte bound')
     snapshot['admission_input_digest'] = digest(admission_input)
