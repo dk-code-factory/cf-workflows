@@ -29,8 +29,8 @@ MAX_ADMISSION_INPUT = 1 << 20
 SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z][a-z0-9-]{0,63}')
 IDENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
-INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|[^)\s]+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
-REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[[^\]]+\]:\s*(<[^>\n]*>|\S+)')
+INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
+REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)')  # Not footnotes.
 FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})')
 CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
 LOGIN = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?')
@@ -105,6 +105,10 @@ DEFAULTS = {
     'prohibitions': [],
 }
 ACCUMULATED = ('requirements', 'prohibitions')
+
+
+class EngineUnavailable(Exception):
+    """The engine capability query failed; this is not a structural verdict."""
 
 
 class AdmissionError(ValueError):
@@ -213,8 +217,8 @@ def link_targets(body):
         if opening:
             fence = opening[1]
             continue
-        if line.startswith(('    ', '\t')):
-            continue  # Indented code block.
+        # Indented lines are scanned too: nested list items and continuations hold real
+        # links, and an extra link in indented code can only reject, never drop a resource.
         line = CODE_SPAN.sub('', line)
         found = INLINE_LINK.findall(line)
         definition = REFERENCE_DEFINITION.match(line)
@@ -839,6 +843,10 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
     """
     try:
         return _admit(request, configuration, invocation, deployment, roles, roots, transport)
+    except EngineUnavailable as error:
+        # Local structural checks passed; the run is blocked, not structurally rejected.
+        return {'preflight': 'blocked', 'structural': 'accepted', 'semantic': None,
+                'error': {'path': 'capabilities', 'message': str(error)}}
     except AdmissionError as error:
         failure = {'path': error.path, 'message': error.message}
     except (TypeError, KeyError, AttributeError, ValueError, OSError, RecursionError) as error:
@@ -921,7 +929,10 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     validator = bootstrap() if semantic_required else None
 
     # Every local structural check has passed; only now consult the engine (read-only).
-    capabilities = transport.capabilities()
+    try:
+        capabilities = transport.capabilities()
+    except Exception as error:  # Any transport failure; never mistaken for malformed configuration.
+        raise EngineUnavailable('engine capability query failed: ' + type(error).__name__) from error
     fields(capabilities, 'capabilities', ('engine', 'providers'))
     fields(capabilities['engine'], 'capabilities.engine', ('version',))
     require(isinstance(capabilities['providers'], dict), 'capabilities.providers', 'must be an object')

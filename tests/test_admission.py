@@ -417,7 +417,7 @@ class ReviewRegressions(Fixture):
     def test_markdown_reference_forms(self):
         self.write(self.repo, 'AGENTS.md', '\n'.join([
             'See [ref][r], [angle](<docs/a b.md>), [root](/docs/root.md "title") and `[span](nope.md)`.',
-            '```', '[fenced](nope.md)', '```', '    [indented](nope.md)', '[r]: docs/ref.md', '']))
+            '```', '[fenced](nope.md)', '```', '[r]: docs/ref.md', '']))
         for name in ('docs/a b.md', 'docs/root.md', 'docs/ref.md'):
             self.write(self.repo, name, 'x\n')
         files = self.admit()['snapshot']['resources']['guidance']['files']
@@ -427,6 +427,28 @@ class ReviewRegressions(Fixture):
         self.write(self.config_root, 'prompts/review.md', 'Use [p][p].\n\n[p]: <policy.md>\n')
         config = self.configuration(resources=[self.resource('prompts/review.md')])
         self.assertRejected(self.admit(config), 'incomplete resource closure')
+
+    def test_nested_lists_footnotes_and_parentheses(self):
+        self.assertEqual(admission.link_targets('- Rules:\n    - see [policy](policy.md)\n\n  continued [c](c.md)\n'),
+                         ['policy.md', 'c.md'])
+        self.assertEqual(admission.link_targets('Note[^1].\n\n[^1]: See the hidden notes.\n'), [])
+        self.assertEqual(admission.link_targets('[x](a(b).md "t") [y](<z w.md>)'), ['a(b).md', 'z w.md'])
+        # Indented code is scanned too: a link there can only reject, never drop out of the closure.
+        self.write(self.repo, 'AGENTS.md', 'Intro.\n\n    [indented](missing.md)\n')
+        self.assertRejected(self.admit(), 'missing resource missing.md')
+        self.write(self.repo, 'AGENTS.md', '- Rules:\n    - see [x](docs/a(b).md)\n\n[^1]: Hidden notes.\n')
+        self.write(self.repo, 'docs/a(b).md', 'x\n')
+        self.assertEqual(set(self.admit()['snapshot']['resources']['guidance']['files']), {'AGENTS.md', 'docs/a(b).md'})
+
+    def test_engine_transport_failure_is_not_a_structural_rejection(self):
+        transport = FakeTransport()
+        transport.configured['capabilities'] = lambda: (_ for _ in ()).throw(ConnectionError('engine down'))
+        result = self.admit(transport=transport)
+        self.assertEqual((result['preflight'], result['structural']), ('blocked', 'accepted'))
+        self.assertEqual(result['error'], {'path': 'capabilities',
+                                           'message': 'engine capability query failed: ConnectionError'})
+        self.assertNotIn('snapshot', result)
+        self.assertEqual(transport.calls['capabilities'], 1)
 
     def test_guidance_symlinks_inside_repository_are_resolved(self):
         os.symlink('AGENTS.md', self.repo / 'CLAUDE.md')

@@ -46,9 +46,10 @@ match exactly, and its content digest is the SHA-256 of the canonical JSON `{pat
 Admission hashes the files and checks Markdown links from the entry. It never
 loads or runs the skill. Host-installed skill fields reject.
 
-Link closure covers inline links, reference definitions and `<...>` targets. It
-ignores code fences, indented code and code spans, and resolves a leading `/`
-against the root. Configured resources, prompt text and their bytes are read once,
+Link closure covers inline links (including balanced parentheses), reference
+definitions (not footnotes) and `<...>` targets. It ignores fenced code and code
+spans but scans indented lines, so links in nested lists are never dropped. It
+resolves a leading `/` against the root. Configured resources, prompt text and their bytes are read once,
 so a prompt's text is exactly the content whose digest was verified.
 
 Missing or escaping paths, symlinks outside guidance, digest mismatches, incomplete closures,
@@ -56,7 +57,8 @@ legacy qualified selectors, per-task options, cycle hooks, path selectors,
 string `settings`, unknown fields or options and wrong types all reject before
 the engine is contacted. An authorization for a prohibited action also rejects.
 After every local check passes, admission makes one read-only `capabilities()`
-call. Each deployed provider must offer `native_session` and `admitted_roles`,
+call. If that query fails, the result is `preflight: blocked` with structural
+status `accepted`, not a structural rejection. Each deployed provider must offer `native_session` and `admitted_roles`,
 plus `session_scoped_skills` when a supplied skill is applicable and
 `merge_guard` when merge is effectively granted. Admission calls no other
 transport operation.
