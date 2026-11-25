@@ -24,7 +24,6 @@ from cf_workflows.admission import AdmissionError, fields, require, text
 VERDICTS = ('accepted', 'needs_clarification', 'rejected', 'blocked')
 PREFLIGHT = {'accepted': 'admitted', 'needs_clarification': 'waiting', 'rejected': 'rejected', 'blocked': 'blocked'}
 ANSWERS = ('supplement', 'remove', 'replace', 'reject')
-MAX_ROUNDS = 8
 MAX_ITEMS = 64
 PATH = re.compile(r'[^.\[\]]+(?:\.[^.\[\]]+|\[(?:0|[1-9][0-9]*)\])*')
 PATH_TOKEN = re.compile(r'([^.\[\]]+)|\[([0-9]+)\]')
@@ -67,7 +66,9 @@ def locations(admitted):
         if entry['path'] in text_prompts:
             index[entry['path'] + '.text'] = 'prompt_text'
     index.update({entry['path']: 'instruction' for entry in custom['instructions']})
-    index.update({adapter['path']: 'adapter' for adapter in custom['adapters'].values()})
+    # Removing an override restores the baseline adapter; a new adapter name has nothing to fall back to.
+    index.update({adapter['path']: 'adapter' if name in admission.BASELINE_ADAPTERS else 'custom_adapter'
+                  for name, adapter in custom['adapters'].items()})
     for skill in custom['skills'].values():
         index[skill['record']] = 'skill'
         index.update({ref: 'skill_reference' for ref in skill['references']})
@@ -347,12 +348,16 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
         return outcome(admitted, proposal, request_id, None, [],
                        error={'path': 'gates', 'message': 'input gates unavailable: ' + message})
     clarifications = []
-    for _ in range(MAX_ROUNDS):
+    cursor = 0  # Gates are consumed once each, in creation order; every round consumes one.
+    while True:
         identity = evidence_id(admitted)
-        pinned = [gate for gate in gates if gate['evidence_id'] == identity]
-        if not pinned:
+        position = next((number for number in range(cursor, len(gates))
+                         if gates[number]['evidence_id'] == identity), None)
+        if position is None:
+            # Nothing unconsumed asks about this proposal, including one that a revision returned to.
             return assess(admitted, proposal, request_id, clarifications, transport)
-        gate = pinned[-1]
+        gate, cursor = gates[position], position + 1
+        later = any(item['evidence_id'] == identity for item in gates[cursor:])
         payload = gate['request']['payload']
         answers = {item['answer_id'] for item in clarifications}
         try:
@@ -366,20 +371,24 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
                            gate={'gate_id': gate['gate_id'], 'evidence_id': identity, 'status': 'waiting'})
         try:
             revised = reconcile(proposal, admitted, gate)
+            retried = structural(revised) if revised is not None else None
         except (AdmissionError, TypeError, KeyError, IndexError) as failure:
             message = failure.message if isinstance(failure, AdmissionError) else 'path does not exist'
+            retried = {'preflight': 'rejected', 'error': {'path': 'answer', 'message': message}}
+        if retried is not None and retried['preflight'] == 'rejected':
+            # Not applied: the proposal and verdict stand, and the user is asked again exactly once.
+            if later:
+                continue
+            error = retried['error']
             return ask(admitted, proposal, request_id, verdict, validator, clarifications, transport,
-                       retry='answer ' + gate['answer']['answer_id'] + ' was not applied: ' + message)
+                       retry=f"answer {gate['answer']['answer_id']} was not applied: {error['path']}: {error['message']}")
         clarifications.append({'gate_id': gate['gate_id'], 'evidence_id': identity,
                                'answer_id': gate['answer']['answer_id'], 'value': gate['answer']['value'],
                                'conflicts': verdict['conflicts'], 'uncertainties': verdict['uncertainties']})
         if revised is None:
             rejected = {**verdict, 'verdict': 'rejected', 'summary': 'The user rejected the proposal.'}
             return outcome(admitted, proposal, request_id, rejected, clarifications, validator)
-        proposal = revised
-        admitted = structural(proposal)
+        proposal, admitted = revised, retried
         if admitted['preflight'] != 'semantic_required':
-            # A structurally invalid revision rejects; removing every custom input leaves the default path.
+            # Removing every custom input leaves the default path; a failed engine query stays blocked.
             return {**admitted, 'clarifications': clarifications, 'proposal': copy.deepcopy(proposal)}
-    return outcome(admitted, proposal, request_id, None, clarifications,
-                   error={'path': 'gates', 'message': 'clarification exceeded its bounded rounds'})

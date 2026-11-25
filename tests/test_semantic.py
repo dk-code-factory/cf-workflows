@@ -368,6 +368,69 @@ class Clarification(Semantic):
         self.assertEqual([item['text'] for item in task['input']['prohibitions']], ['Never edit vendored code.'])
         self.assertEqual(result['assessment']['conflicts'], conflict)
 
+    def test_revision_back_to_an_earlier_proposal_is_assessed_afresh(self):
+        self.wait()
+        self.engine.answer('gate-1', 'answer-1', {'action': 'supplement', 'text': 'Tests are in scope.'})
+        second = [{'id': 'u2', 'paths': ['invocation.prompts[1]'], 'question': 'Which tests?'}]
+        self.assertEqual(self.run_semantic(verdict('needs_clarification', uncertainties=second))['gate']['gate_id'],
+                         'gate-2')
+        # Removing the supplement returns to the original proposal, whose only gate is already consumed.
+        self.engine.answer('gate-2', 'answer-2', {'action': 'remove', 'paths': ['invocation.prompts[1]']})
+        result = self.run_semantic(verdict('accepted'))
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'))
+        self.assertEqual([item['answer_id'] for item in result['clarifications']], ['answer-1', 'answer-2'])
+        self.assertEqual(result['assessment']['evidence_id'], self.engine.gates[0]['evidence_id'])
+        self.calls(sessions=1, capabilities=3)
+
+    def test_long_dialogues_are_not_bounded_by_a_round_count(self):
+        self.wait()
+        for number in range(1, 11):
+            self.engine.answer(f'gate-{number}', f'answer-{number}', {'action': 'supplement', 'text': f'Note {number}.'})
+            question = [{'id': f'u{number}', 'paths': [f'invocation.prompts[{number}]'], 'question': 'More?'}]
+            result = self.run_semantic(verdict('needs_clarification', uncertainties=question))
+            self.assertEqual(result['gate']['gate_id'], f'gate-{number + 1}')
+            self.calls(sessions=1, gates_opened=1, capabilities=number + 1)
+        self.engine.answer('gate-11', 'answer-11', {'action': 'reject'})
+        self.assertEqual(self.run_semantic()['semantic'], 'rejected')
+        self.calls(capabilities=11)
+
+    def test_structurally_invalid_revision_asks_again_once(self):
+        self.wait()
+        self.engine.answer('gate-1', 'answer-1', {'action': 'supplement', 'text': 'See [notes](NOTES.md).'})
+        result = self.run_semantic()
+        self.assertEqual((result['preflight'], result['gate']['gate_id']), ('waiting', 'gate-2'))
+        self.assertIn('answer-1 was not applied', result['error']['message'])
+        self.assertIn('inline prompt text cannot link local files', result['error']['message'])
+        self.assertEqual(result['proposal']['invocation'], self.invocation)
+        self.assertEqual(result['clarifications'], [])
+        self.calls(gates_opened=1)  # The invalid revision rejects locally, before any engine query.
+        # Replaying the failed answer does not open yet another gate.
+        result = self.run_semantic()
+        self.assertEqual((result['preflight'], result['gate']['gate_id']), ('waiting', 'gate-2'))
+        self.calls()
+        self.engine.answer('gate-2', 'answer-2', {'action': 'supplement', 'text': 'Notes are in the PR body.'})
+        self.assertEqual(self.run_semantic(verdict('accepted'))['semantic'], 'accepted')
+        self.calls(sessions=1, capabilities=2)
+
+    def test_grouped_reviewer_instructions_are_editable(self):
+        self.invocation = {'options': {'tasks': [[{'stage': 'reviews', 'reviewers': [
+            {'task': 'review', 'instructions': 'Be harsh.'}]}]], 'finalizers': []}}
+        path = 'invocation.options.tasks[0][0].reviewers[0].instructions'
+        question = [{'id': 'u1', 'paths': [path], 'question': 'Harsh how?'}]
+        self.run_semantic(verdict('needs_clarification', uncertainties=question))
+        self.engine.answer('gate-1', 'answer-1', {'action': 'replace', 'path': path, 'text': 'Be thorough.'})
+        result = self.run_semantic(verdict('accepted'))
+        self.assertEqual(result['semantic'], 'accepted')
+        self.assertEqual(self.transport.assignments[0]['input']['custom']['instructions'][0]['text'], 'Be thorough.')
+
+    def test_only_baseline_adapter_overrides_are_removable(self):
+        adapters = {'describe-pr': {'assignment': 'Write a haiku.'}, 'lint': {'assignment': 'Lint.'}}
+        self.invocation = {'options': {'tasks': ['describe-pr', 'lint'], 'finalizers': [], 'adapters': adapters}}
+        uncertain = [{'id': 'u1', 'paths': ['invocation.options.adapters.lint'], 'question': 'Which linter?'}]
+        self.run_semantic(verdict('needs_clarification', uncertainties=uncertain))
+        self.assertEqual(self.engine.gates[0]['request']['payload']['editable'],
+                         {'invocation.options.adapters.describe-pr': ['remove']})
+
     def test_gate_failures_block(self):
         self.engine.open = lambda request: (_ for _ in ()).throw(TimeoutError())
         result = self.run_semantic(verdict('needs_clarification', uncertainties=UNCERTAIN))

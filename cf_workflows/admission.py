@@ -785,7 +785,7 @@ def build_plan(options, adapters, roles, skills, resources, locations):
                 stages.append({'kind': stage, 'phase': phase})
             elif stage == 'reviews':
                 if 'reviewers' in group[0]:
-                    reviewers, prefix = group[0]['reviewers'], f'{base}[{index}].reviewers'
+                    reviewers, prefix = group[0]['reviewers'], base + at(raw, index, 0) + '.reviewers'
                 else:
                     reviewers = options['reviewers']['value']
                     prefix = f"{locations[options['reviewers']['source']]}.options.reviewers"

@@ -70,22 +70,27 @@ one gate through `open_input_gate(request)`, bound to the original
 `request_id` and pinned to the proposal's evidence ID. The gate payload holds
 the full verdict, the validator reference and the editable paths.
 
-On every call the helper reads `input_gates(request_id)` and replays answered
-gates in order:
+On every call the helper reads `input_gates(request_id)` and replays the gates
+in creation order. Each gate is consumed at most once. The next gate for the
+current proposal is the first unconsumed gate pinned to its evidence ID:
 
-- A waiting gate for the current proposal returns `waiting` again, with no new
-  session or gate.
+- A waiting gate returns `waiting` again, with no new session or gate.
 - `supplement` adds the answer text as an invocation-local `additional` prompt.
-- `remove` deletes custom prompts, preferences, task instructions, custom
-  adapters or skill references.
+- `remove` deletes custom prompts, preferences, task instructions, skill
+  references or overrides of baseline adapters. A newly named adapter can't be
+  removed this way, because its selections would have nothing to run.
 - `replace` rewrites inline prompt text or task instructions.
 - `reject` settles the proposal as `rejected`.
 
 Answers can never edit requirements, prohibitions, permissions or the original
-request. An answer that cannot be applied opens a new gate with the same verdict
-and the reason. The exact revised proposal is then admitted structurally again
-and gets a fresh validator session. Removing every custom input returns to the
-default path without a session.
+request. The revised proposal is admitted structurally again. If the answer
+can't be applied, or the revision fails structural admission, the proposal and
+verdict stand. One new gate then asks again with the reason, and later replays
+reuse that gate instead of opening another. Otherwise the exact revised proposal
+gets a fresh validator session. If a revision returns to an earlier proposal,
+its consumed gates are not reused, so it is assessed afresh. Dialogues have no
+round limit; each answered round costs one read-only capability query on replay.
+Removing every custom input returns to the default path without a session.
 
 A changed proposal has a different `request_id` and evidence ID, so earlier
 gates and answers do not apply to it. Answers are recorded in `clarifications`,
