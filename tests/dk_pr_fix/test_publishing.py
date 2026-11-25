@@ -14,7 +14,7 @@ from prfix.core import Ledger, artifact, canonical, digest, identity
 from prfix.prepare import CHECKLIST
 from action import dispatch as application_dispatch
 from prfix.publication import PublicationError, UncertainEffect
-from test_publication import AUTH, BASE, HEAD, FakeGitHub
+from test_publication import AUTH, BASE, GRANTS, HEAD, FakeGitHub
 
 PRODUCER = "agent_" + "1" * 32
 AUDIENCE = "agent_" + "2" * 32
@@ -31,7 +31,7 @@ class PublishingTests(unittest.TestCase):
         self.pr = identity("https://github.com/o/r/pull/7")
         self.plan = {"logical_run": "fixture", "pr": self.pr, "instructions": "Exact original user instruction",
                      "options": {"permissions": {"reply_to_feedback": True, "edit_pr": True}},
-                     "authorizations": {"iterate": AUTH, "merge": AUTH},
+                     "authorizations": dict(GRANTS),
                      "tasks": [self.task("description", "description"), self.task("review", "review"), self.task("finding_verification", "verification")]}
         self.plan.update(definitions={"audience": "audience-definition"}, helper_manifest={},
                          limits={"retries_per_task": 1})
@@ -234,16 +234,16 @@ class PublishingTests(unittest.TestCase):
                 {"id": prepared["id"], "agent": AUDIENCE, "report": report})
         observed = publishing.reconcile_operation(self.root, self.provider, self.ledger, self.plan, {"id": prepared["id"]})
         self.assertEqual(observed["outcome"], "completed")
-        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "uncertain")
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "pending")
         recorded = publishing.dispatch("publication_record", self.root, self.provider, self.ledger, self.plan,
                                       {"id": prepared["id"], "receipt": observed["result"]})
-        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "completed")
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM publication_intents").fetchone()[0], "applied")
         self.assertEqual(publishing.publication_record(self.root, self.provider, self.ledger, self.plan,
             {"id": prepared["id"], "receipt": observed["result"]}), recorded)
         self.assertEqual(len(self.provider.writes), 1)
         corrupt = copy.deepcopy(observed["result"])
         corrupt["actor_id"] = 999
-        with self.assertRaisesRegex(PublicationError, "receipt identity"):
+        with self.assertRaisesRegex(PublicationError, "duplicate receipt"):
             publishing.publication_record(self.root, self.provider, self.ledger, self.plan,
                 {"id": prepared["id"], "receipt": corrupt})
 
@@ -274,6 +274,10 @@ class PublishingTests(unittest.TestCase):
         with patch.object(app, "coverage", side_effect=lambda *args: copy.deepcopy(self.covered)):
             current = publishing.readiness(self.root, self.provider, self.ledger, self.plan)
             self.assertTrue(current["ready"], current)
+            # Merge authority alone is not enough: the permission defaults off.
+            disabled = publishing.merge_proposal(self.root, self.provider, self.ledger, self.plan, {})
+            self.assertEqual((disabled["invoke"], disabled["blockers"]), (False, ["configured permission forbids merge"]))
+            self.plan["options"]["permissions"]["merge"] = True
             merge = publishing.merge_proposal(self.root, self.provider, self.ledger, self.plan, {})
             self.assertTrue(merge["invoke"])
             self.assertEqual(merge["proposal"]["sources"], [review, verified])

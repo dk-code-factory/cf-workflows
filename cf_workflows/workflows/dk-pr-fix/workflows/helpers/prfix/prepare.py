@@ -188,6 +188,11 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         raise ValueError("unsupported portable option: " + ", ".join(sorted(set(options) - allowed_options)))
     from .ci import configuration
     configuration(options)
+    from .publication import PERMISSION_INPUTS
+    permissions = options.get("permissions", {})
+    if (not isinstance(permissions, dict) or set(permissions) - set(PERMISSION_INPUTS)
+            or any(type(value) is not bool for value in permissions.values())):
+        raise ValueError("permissions accept only the declared boolean publication inputs")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,

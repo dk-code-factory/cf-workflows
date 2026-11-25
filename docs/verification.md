@@ -33,6 +33,9 @@ from a relocated read-only copy against a separate checkout.
 `tests/test_dk_pr_fix_continuation.py` counts native dispatches while it replaces
 runs, deletes checkpoints and changes configuration, and checks the
 [retained budgets, occurrences and continuation](dk-pr-fix.md#budgets-occurrences-and-continuation).
+`tests/test_dk_pr_fix_publication.py` injects response loss before and after the
+effect of every supported write kind and counts dispatches, as described in
+[exact-intent publication](publication.md#verification).
 
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any

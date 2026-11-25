@@ -108,6 +108,9 @@ name: cf-workflows:dk-pr-fix
           resolve_threads: false
           create_draft_prs: false
           request_review: false
+          post_findings: false
+          rerun_ci: false
+          merge: false
       ci:
         type: object
         default:

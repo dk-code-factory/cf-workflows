@@ -1,9 +1,25 @@
-"""One guarded publication operation at a time; YAML owns all orchestration.
+"""Exact-intent publication: one guarded external write at a time.
 
-The intent is committed before dispatch. A failed acknowledgement leaves its
-state uncertain. Reconciliation only observes the service and never changes the
-ledger; only an execute invocation may commit the resulting receipt or absence
-proof. Creation absence is deliberately never a proof that a write did not run.
+Adapted from Agent Workflow's portable PR-fix example (MIT; see LICENSE).
+
+Every write is an immutable intent in the logical run's SQLite ledger before
+dispatch. The intent pins the numeric actor and PR identity, head, target,
+branch and repository leases, the exact payload, accepted sources, the user
+authorization and configured permission it relies on, and its pre-dispatch
+baseline. Dispatch rechecks all of them, retains the independent audience
+assessment and takes the run's publication lock in the same transaction that
+moves the intent to ``pending``. Journal states follow the state contract:
+
+- ``prepared``: never dispatched.
+- ``pending``: dispatch may have happened; the intent holds the lock.
+- ``applied``: the exact effect was observed and its receipt retained.
+- ``not_applied``: the transport conclusively reported a refusal without effect.
+- ``blocked``: a dispatch-time recheck found drift; it was never dispatched.
+
+Only read-only reconciliation that observes the exact effect settles a pending
+intent. Missing, unchanged or ambiguous observations keep it pending and never
+authorize replay. A ``not_applied`` or ``blocked`` intent is never resent; a
+later attempt is a fresh intent with its own preparation and audience.
 """
 from __future__ import annotations
 
@@ -24,6 +40,20 @@ class UncertainEffect(PublicationError):
     pass
 
 
+class Drift(PublicationError):
+    """A retained binding no longer holds at dispatch; the intent is blocked."""
+
+
+class Rejected(Exception):
+    """Raised by a transport only when the service conclusively refused a write
+    before any effect. Timeouts, malformed or generic errors and absence are
+    never conclusive; the GitHub transport raises this for nothing yet."""
+
+    def __init__(self, evidence):
+        super().__init__("service conclusively rejected the write")
+        self.evidence = evidence
+
+
 def repository_merge_requirements(provider, pr, metadata, head):
     if metadata.get("mergeable") is not True or metadata.get("mergeable_state") != "clean" or metadata.get("draft"):
         raise PublicationError("repository merge requirements are not currently satisfied")
@@ -38,17 +68,30 @@ def repository_merge_requirements(provider, pr, metadata, head):
     return actual
 
 
-KINDS = {
-    "push", "rewrite", "edit_pr", "reply", "reply_inline", "resolve_thread",
-    "split_push", "split_pr", "request_review", "ci_rerun", "merge",
+# Supported kinds: (contract remote-write action, workflow permission input).
+SUPPORTED = {
+    "push": ("push", "push_commits"), "rewrite": ("push", "rewrite_commits"),
+    "edit_pr": ("edit_pr", "edit_pr"),
+    "reply": ("reply", "reply_to_feedback"), "reply_inline": ("reply", "reply_to_feedback"),
+    "resolve_thread": ("resolve_thread", "resolve_threads"),
+    "split_push": ("create_pr", "create_draft_prs"), "split_pr": ("create_pr", "create_draft_prs"),
+    "request_review": ("request_review", "request_review"),
+    "ci_rerun": ("rerun_ci", "rerun_ci"),
+    "submit_review": ("post_findings", "post_findings"),
+    "merge": ("merge", "merge"),
 }
-PERMISSIONS = {
-    "push": "push_commits", "rewrite": "rewrite_commits",
-    "edit_pr": "edit_pr", "reply": "reply_to_feedback",
-    "reply_inline": "reply_to_feedback", "resolve_thread": "resolve_threads",
-    "split_push": "create_draft_prs", "split_pr": "create_draft_prs",
-    "request_review": "request_review", "ci_rerun": "push_commits",
-}
+# Extension contract: these kinds are reserved for their owning PRs. Each needs
+# its own payload, dispatch, read-only observation, effect key and fixtures
+# before it is added to SUPPORTED; until then preparation denies it.
+EXTENSIONS = {"approve_pr": "#31", "create_issue": "#32", "edit_issue": "#32", "approve_fork_ci": "#35"}
+KINDS = set(SUPPORTED)
+PERMISSIONS = {kind: setting for kind, (_, setting) in SUPPORTED.items()}
+PERMISSION_INPUTS = sorted(set(PERMISSIONS.values()))
+STATES = ("prepared", "pending", "applied", "not_applied", "blocked")
+TERMINAL = {"not_applied", "blocked"}
+FRESH_ATTEMPTS = 3
+REVIEW_EVENTS = {"COMMENT": "COMMENTED", "REQUEST_CHANGES": "CHANGES_REQUESTED"}
+_COLUMNS = "id,fingerprint,value,state,receipt,audience"
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _BRANCH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,240}$")
@@ -89,18 +132,43 @@ def _json(raw):
 def _row(row):
     if row is None:
         raise PublicationError("unknown publication intent")
-    return {"id": row[0], "fingerprint": row[1], "intent": _json(row[2]),
-            "state": row[3], "receipt": _json(row[4]) if row[4] else None}
+    return {"id": row[0], "fingerprint": row[1], "intent": _json(row[2]), "state": row[3],
+            "receipt": _json(row[4]) if row[4] else None, "audience": _json(row[5]) if row[5] else None}
 
 
 def _discussion(ev):
     return digest({key: ev.get(key, []) for key in ("comments", "reviews", "inline", "threads")})
 
 
+def effect_key(intent, receipt):
+    """The unique external object an applied receipt names, or None.
+
+    One external effect can settle only one intent; a second intent that
+    observes the same object is a duplicate receipt and stays unsettled.
+    """
+    kind, result = intent["kind"], (receipt or {}).get("result")
+    if not isinstance(result, dict):
+        return None
+    if kind in ("push", "rewrite", "split_push"):
+        return f"ref:{intent.get('head_repository')}:{result.get('branch')}:{result.get('head')}"
+    if kind in ("reply", "reply_inline"):
+        return ("comment:" if kind == "reply" else "review_comment:") + str(result.get("id"))
+    if kind == "split_pr":
+        return "pull:" + str(result.get("number"))
+    if kind == "submit_review":
+        return "review:" + str(result.get("review", {}).get("id"))
+    if kind == "merge":
+        return "merge:" + str(result.get("commit", {}).get("sha"))
+    if kind == "ci_rerun":
+        # The rerun creates the next attempt of the exact run.
+        return f"run:{result.get('id', intent['payload']['run_id'])}:{result.get('run_attempt')}"
+    return None
+
+
 def original_discussion(ledger, plan, discussion):
     """Remove only exact, reconciled effects created by this logical run."""
     result = copy.deepcopy(discussion)
-    for row in ledger.db.execute("SELECT id,fingerprint,value,state,receipt FROM publication_intents WHERE state='completed' ORDER BY rowid DESC"):
+    for row in ledger.db.execute(f"SELECT {_COLUMNS} FROM publication_intents WHERE state='applied' ORDER BY rowid DESC"):
         saved = _row(row)
         intent, receipt = saved["intent"], saved["receipt"]
         if (saved["fingerprint"] != digest(intent) or intent.get("run") != plan["logical_run"]
@@ -120,6 +188,12 @@ def original_discussion(ledger, plan, discussion):
             before = intent["before"].get("thread")
             if before is not None:
                 result["threads"] = [copy.deepcopy(before) if thread == observed else thread for thread in result["threads"]]
+        elif kind == "submit_review" and isinstance(observed, dict):
+            review = observed.get("review")
+            created = {c.get("id") for c in observed.get("comments", [])}
+            result["reviews"] = [item for item in result["reviews"] if item != review]
+            result["inline"] = [item for item in result["inline"]
+                                if not (item.get("id") in created and item.get("user", {}).get("id") == intent["actor_id"])]
     return result
 
 
@@ -161,62 +235,97 @@ class Publication:
         text(viewer.get("login"), "authenticated actor login")
         return ev
 
+    @staticmethod
+    def _kind(kind):
+        if not isinstance(kind, str):
+            raise PublicationError("unsupported publication operation")
+        if kind in EXTENSIONS:
+            raise PublicationError(f"{kind} is an extension kind owned by {EXTENSIONS[kind]}; this release denies it")
+        if kind not in SUPPORTED:
+            raise PublicationError("unsupported publication operation")
+        return kind
+
     def _authorization(self, kind):
-        values = self.plan.get("authorizations", {})
-        value = values.get(kind)
-        if value is None and kind != "merge":
-            value = values.get("iterate")
+        # Authority is per contract action. An iteration or another action's
+        # grant never stands in for it.
+        action = SUPPORTED[kind][0]
+        value = self.plan.get("authorizations", {}).get(action)
         if value is None:
-            raise PublicationError(f"explicit user authorization required for {kind}")
+            raise PublicationError(f"explicit user authorization required for {action}")
         auth(value)
         return value
 
     def _permission(self, kind):
-        if kind == "merge":
-            return
+        # Every permission defaults to false, including merge.
         permissions = self.plan.get("options", {}).get("permissions", {})
         if permissions.get(PERMISSIONS[kind]) is not True:
             raise PublicationError(f"configured permission forbids {kind}")
 
+    def _select(self, ident):
+        return self.ledger.db.execute(f"SELECT {_COLUMNS} FROM publication_intents WHERE id=?", (ident,)).fetchone()
+
     def _load(self, ident):
         if not isinstance(ident, str) or not _ID.fullmatch(ident):
             raise PublicationError("invalid publication operation ID")
-        row = self.ledger.db.execute(
-            "SELECT id,fingerprint,value,state,receipt FROM publication_intents WHERE id=?", (ident,)
-        ).fetchone()
+        row = self._select(ident)
         if row is None:
             alias = self.ledger.db.execute(
                 "SELECT canonical_id FROM publication_aliases WHERE id=?", (ident,)
             ).fetchone()
             if alias:
-                row = self.ledger.db.execute(
-                    "SELECT id,fingerprint,value,state,receipt FROM publication_intents WHERE id=?", (alias[0],)
-                ).fetchone()
+                row = self._select(alias[0])
         value = _row(row)
         if value["fingerprint"] != digest(value["intent"]):
             raise PublicationError("retained publication intent changed")
         if value["intent"].get("run") != self.plan["logical_run"] or value["intent"].get("pr") != self.pr:
             raise PublicationError("publication intent belongs to another run or PR")
+        response = self.ledger.db.execute(
+            "SELECT value FROM publication_events WHERE intent=? AND event='response' ORDER BY seq DESC LIMIT 1",
+            (value["id"],)).fetchone()
+        value["response"] = _json(response[0]) if response else None
         return value
+
+    def events(self, ident):
+        """The retained, append-only history of one intent."""
+        saved = self._load(ident)
+        return [{"event": row[0], "value": _json(row[1])} for row in self.ledger.db.execute(
+            "SELECT event,value FROM publication_events WHERE intent=? ORDER BY seq", (saved["id"],))]
+
+    def _event(self, ident, event, value):
+        # Called inside a ledger transaction.
+        seq = self.ledger.db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM publication_events WHERE intent=?",
+                                     (ident,)).fetchone()[0]
+        self.ledger.db.execute("INSERT INTO publication_events(intent,seq,event,value) VALUES(?,?,?,?)",
+                               (ident, seq, event, canonical(value).decode()))
+
+    @staticmethod
+    def _pending_reviews(actor, ev):
+        return [r for r in ev.get("reviews", []) if r.get("state") == "PENDING"
+                and r.get("user", {}).get("id") == actor]
 
     def _live_binding(self, intent, ev, *, discussion=True):
         meta = ev["metadata"]
         if ev["viewer"]["id"] != intent["actor_id"]:
-            raise PublicationError("authenticated actor changed")
+            raise Drift("authenticated actor changed")
+        if meta.get("id") != intent["pr_id"]:
+            raise Drift("numeric PR identity changed")
         if meta.get("state") != "open" or meta.get("merged") or meta.get("draft") and intent["kind"] == "merge":
-            raise PublicationError("publication requires the expected open PR")
+            raise Drift("publication requires the expected open PR")
         head, base = meta.get("head", {}), meta.get("base", {})
         expected = (intent["lease"], intent["target"], intent["branch"], intent["head_repository"])
         actual = (head.get("sha"), base.get("sha"), head.get("ref"),
                   str(head.get("repo", {}).get("full_name", "")).lower())
         if actual != expected:
-            raise PublicationError("PR head, target, branch or repository lease changed")
+            raise Drift("PR head, target, branch or repository lease changed")
         if discussion and _discussion(ev) != intent["discussion"]:
-            raise PublicationError("incoming discussion changed after preparation")
+            raise Drift("incoming discussion changed after preparation")
         if intent["kind"] == "reply_inline":
             destination = intent["payload"]["comment_id"]
             if sum(1 for c in ev.get("inline", []) if c.get("id") == destination) != 1:
-                raise PublicationError("inline destination is not present in the exact PR")
+                raise Drift("inline destination is not present in the exact PR")
+        if intent["kind"] == "submit_review" and self._pending_reviews(intent["actor_id"], ev):
+            # Never discard or submit another draft; its recovery is separate.
+            raise Drift("the actor has a pending review; submission waits for its separate recovery")
         source = intent.get("source")
         if source:
             kind = source.get("kind")
@@ -225,7 +334,7 @@ class Publication:
                 raise PublicationError("invalid original feedback kind")
             matches = [c for c in ev.get(key, []) if c.get("id") == source.get("id")]
             if len(matches) != 1 or digest(matches[0]) != source.get("fingerprint"):
-                raise PublicationError("original feedback changed or disappeared")
+                raise Drift("original feedback changed or disappeared")
             if intent["kind"] == "reply_inline" and source["id"] != intent["payload"]["comment_id"]:
                 raise PublicationError("inline destination differs from original feedback")
 
@@ -240,6 +349,7 @@ class Publication:
             "merge": {"merge_method"},
             "split_push": {"branch", "new_head", "paths", "reason"},
             "split_pr": {"title", "body", "head", "base", "draft", "push_operation"},
+            "submit_review": {"event", "body", "comments"},
         }
         if kind in exact:
             expected = exact[kind]
@@ -291,7 +401,40 @@ class Publication:
             text(payload["push_operation"], "reconciled split push")
             if "head_repo" in payload and not re.fullmatch(r"[A-Za-z0-9_.-]+", payload["head_repo"]):
                 raise PublicationError("invalid exact split head repository")
+        if kind == "submit_review":
+            if payload["event"] not in REVIEW_EVENTS:
+                raise PublicationError("review submission supports COMMENT and REQUEST_CHANGES; approval is the approve_pr extension")
+            comments = payload["comments"]
+            if not isinstance(comments, list) or len(comments) > 64:
+                raise PublicationError("review comments require a bounded list")
+            anchors = set()
+            for comment in comments:
+                if not isinstance(comment, dict) or set(comment) != {"path", "line", "side", "body"}:
+                    raise PublicationError("review comment requires exactly path, line, side and body")
+                path = text(comment["path"], "review comment path")
+                if path.startswith("/") or ".." in path.split("/"):
+                    raise PublicationError("review comment path must stay in the checkout")
+                _positive(comment["line"], "review comment line")
+                if comment["side"] not in ("LEFT", "RIGHT"):
+                    raise PublicationError("review comment side must be LEFT or RIGHT")
+                text(comment["body"], "review comment body")
+                anchors.add((path, comment["line"], comment["side"]))
+            if len(anchors) != len(comments):
+                raise PublicationError("duplicate review comment anchor")
         return copy.deepcopy(payload)
+
+    def _attempts(self, base):
+        """The original intent and its fresh attempts, oldest first."""
+        rows = []
+        for number in range(FRESH_ATTEMPTS + 1):
+            ident = base if number == 0 else f"{base}.r{number}"
+            if not _ID.fullmatch(ident):
+                raise PublicationError("invalid publication operation ID")
+            row = self._select(ident)
+            if row is None:
+                break
+            rows.append(self._load(ident))
+        return rows
 
     def prepare(self, proposal):
         if not isinstance(proposal, dict):
@@ -299,9 +442,7 @@ class Publication:
         unknown = set(proposal) - {"id", "kind", "head", "lease", "target", "payload", "sources", "source"}
         if unknown:
             raise PublicationError(f"unsupported publication proposal fields: {sorted(unknown)}")
-        kind = proposal.get("kind")
-        if kind not in KINDS:
-            raise PublicationError("unsupported publication operation")
+        kind = self._kind(proposal.get("kind"))
         authority = self._authorization(kind)
         self._permission(kind)
         payload = self._payload(kind, proposal.get("payload", {}))
@@ -317,45 +458,51 @@ class Publication:
         semantic = {"kind": kind, "head": head, "lease": lease, "target": target,
                     "payload": payload, "sources": list(sources), "source": proposal.get("source")}
         requested_id = proposal.get("id")
+        ident, supersedes = requested_id, None
         if requested_id is not None:
             if not isinstance(requested_id, str) or not _ID.fullmatch(requested_id):
                 raise PublicationError("invalid publication operation ID")
             # A retained effect is immutable even after a push or merge changes
             # the live head. Return its identity; execute/checkpoint validation
             # verifies the effect without preparing a replacement publication.
-            old = self.ledger.db.execute(
-                "SELECT id,fingerprint,value,state,receipt FROM publication_intents WHERE id=?", (requested_id,)
-            ).fetchone()
             alias = self.ledger.db.execute(
                 "SELECT canonical_id,fingerprint FROM publication_aliases WHERE id=?", (requested_id,)
             ).fetchone()
-            if old:
-                saved = self._load(requested_id)
-                original = saved["intent"]
-                expected = {key: original.get(key) for key in semantic}
-                if expected != semantic or original["authorization"] != authority:
+            if alias and alias[1] != digest(semantic):
+                raise PublicationError("conflicting publication operation identity")
+            attempts = self._attempts(alias[0] if alias else requested_id)
+            if attempts:
+                original = attempts[0]["intent"]
+                if not alias and {key: original.get(key) for key in semantic} != semantic:
                     raise PublicationError("conflicting publication operation identity")
-                return self._public(saved)
-            if alias:
-                if alias[1] != digest(semantic):
-                    raise PublicationError("conflicting publication operation identity")
-                saved = self._load(alias[0])
-                if saved["intent"]["authorization"] != authority:
-                    raise PublicationError("retained publication authority changed")
-                return self._public(saved)
+                latest = attempts[-1]
+                if latest["state"] not in TERMINAL:
+                    if latest["intent"]["authorization"] != authority:
+                        raise PublicationError("retained publication authority changed")
+                    return self._public(latest)
+                # A terminal intent is never resent. A later attempt is a fresh
+                # intent with its own preparation, baseline and audience.
+                if len(attempts) > FRESH_ATTEMPTS:
+                    raise PublicationError("fresh publication attempts exhausted for this proposal")
+                ident = f"{attempts[0]['id']}.r{len(attempts)}"
+                supersedes = latest["id"]
         ev = self._capture()
         meta = ev["metadata"]
+        action, setting = SUPPORTED[kind]
         intent = {
             "run": self.plan["logical_run"], "pr": self.pr, "kind": kind,
+            "pr_id": _positive(meta.get("id"), "numeric PR identity"),
             "head": head, "lease": lease, "target": target,
             "branch": _branch(meta.get("head", {}).get("ref")),
             "head_repository": str(meta.get("head", {}).get("repo", {}).get("full_name", "")).lower(),
             "actor_id": ev["viewer"]["id"], "payload": payload,
-            "authorization": authority, "sources": list(sources),
-            "discussion": _discussion(ev), "before": {},
+            "authorization": authority, "action": action, "permission": setting,
+            "sources": list(sources), "discussion": _discussion(ev), "before": {},
         }
         if proposal.get("source") is not None:
             intent["source"] = copy.deepcopy(proposal["source"])
+        if supersedes is not None:
+            intent["supersedes"] = supersedes
         if kind not in ("push", "rewrite", "split_push") and head != lease:
             raise PublicationError("non-Git publication requires the current published head")
         self._live_binding(intent, ev)
@@ -375,9 +522,11 @@ class Publication:
             threads = [thread for thread in ev.get("threads", []) if thread.get("id") == payload["thread_id"]]
             if len(threads) == 1:
                 intent["before"]["thread"] = copy.deepcopy(threads[0])
+        elif kind == "submit_review":
+            intent["before"]["review_ids"] = [_positive(r.get("id"), "review ID") for r in ev.get("reviews", [])]
         elif kind == "split_pr":
             pushed = self._load(payload["push_operation"])
-            if pushed["state"] != "completed" or pushed["intent"]["kind"] != "split_push" or not self.validate(pushed["id"], pushed["receipt"]):
+            if pushed["state"] != "applied" or pushed["intent"]["kind"] != "split_push" or not self.validate(pushed["id"], pushed["receipt"]):
                 raise PublicationError("split PR requires its current reconciled branch publication")
             split = pushed["intent"]
             owner = split["head_repository"].split("/", 1)[0]
@@ -395,14 +544,12 @@ class Publication:
             intent["before"]["pr_numbers"] = [_positive(v.get("number"), "PR baseline number") for v in prs]
             if self.pr["number"] not in intent["before"]["pr_numbers"]:
                 raise PublicationError("split PR baseline omitted the source PR")
-        ident = proposal.get("id") or digest(intent)
+        ident = ident or digest(intent)
         if not isinstance(ident, str) or not _ID.fullmatch(ident):
             raise PublicationError("invalid publication operation ID")
         fingerprint = digest(intent)
         with self.ledger.transaction():
-            existing = self.ledger.db.execute(
-                "SELECT id,fingerprint,value,state,receipt FROM publication_intents WHERE id=?", (ident,)
-            ).fetchone()
+            existing = self._select(ident)
             alias = self.ledger.db.execute(
                 "SELECT canonical_id,fingerprint FROM publication_aliases WHERE id=?", (ident,)
             ).fetchone()
@@ -416,14 +563,15 @@ class Publication:
                 saved = self._load(alias[0])
                 self._assert_replay(saved["intent"], intent)
                 return self._public(saved)
-            if kind in ("reply", "reply_inline"):
+            if kind in ("reply", "reply_inline") and supersedes is None:
                 rows = self.ledger.db.execute(
-                    "SELECT id,fingerprint,value,state,receipt FROM publication_intents ORDER BY rowid"
+                    f"SELECT {_COLUMNS} FROM publication_intents ORDER BY rowid"
                 ).fetchall()
                 key = self._reply_key(intent)
                 for row in rows:
                     saved = _row(row)
-                    if saved["intent"].get("kind") in ("reply", "reply_inline") and self._reply_key(saved["intent"]) == key:
+                    if (saved["state"] not in TERMINAL and saved["intent"].get("kind") in ("reply", "reply_inline")
+                            and self._reply_key(saved["intent"]) == key):
                         self.ledger.db.execute(
                             "INSERT INTO publication_aliases(id,canonical_id,fingerprint) VALUES(?,?,?)",
                             (ident, saved["id"], digest(semantic)),
@@ -433,6 +581,7 @@ class Publication:
                 "INSERT INTO publication_intents(id,fingerprint,value,state,receipt) VALUES(?,?,?,'prepared','')",
                 (ident, fingerprint, canonical(intent).decode()),
             )
+            self._event(ident, "prepared", {"fingerprint": fingerprint, "supersedes": supersedes})
         return {"id": ident, "fingerprint": fingerprint, "intent": intent, "state": "prepared"}
 
     @staticmethod
@@ -512,13 +661,13 @@ class Publication:
                 raise PublicationError("publish only the clean accepted local head")
             current = self._git_observation(intent)
             if current != intent["lease"]:
-                raise PublicationError("remote branch changed before push")
+                raise Drift("remote branch changed before push")
             if kind == "push":
                 # merge-base --is-ancestor returns status one for a rewrite.
                 self._git("merge-base", "--is-ancestor", intent["lease"], wanted)
         else:
             if payload["branch"] == intent["branch"] or self._git_observation(intent) is not None:
-                raise PublicationError("split publication requires a new branch absence lease")
+                raise Drift("split publication requires a new branch absence lease")
             changed = self._git("diff", "--name-only", "--no-renames", "-z", intent["target"], wanted)
             paths = [p for p in changed.split("\x00") if p]
             if not set(paths) <= set(payload["paths"]):
@@ -527,7 +676,7 @@ class Publication:
     def _check_resolution(self, intent, ev):
         payload = intent["payload"]
         reply = self._load(payload["reply_operation"])
-        if reply["state"] != "completed" or reply["intent"]["kind"] != "reply_inline":
+        if reply["state"] != "applied" or reply["intent"]["kind"] != "reply_inline":
             raise PublicationError("thread resolution requires a completed inline answer")
         receipt = reply["receipt"]
         if not receipt or not self._validate_receipt(reply, receipt, ev):
@@ -547,6 +696,7 @@ class Publication:
         if self.readiness is None:
             raise PublicationError("live application merge-readiness verification unavailable")
         evidence = self.readiness(intent)
+        # Completion of the selected plan never implies readiness.
         if not isinstance(evidence, dict) or evidence.get("ready") is not True:
             raise PublicationError("selected application work or live PR requirements incomplete")
         if evidence.get("head") != intent["head"] or evidence.get("target") != intent["target"]:
@@ -560,27 +710,44 @@ class Publication:
         repository_merge_requirements(self.provider, self.pr, ev["metadata"], intent["head"])
 
     def _gate(self, intent, ev, audience):
-        if self._authorization(intent["kind"]) != intent["authorization"]:
-            raise PublicationError("retained user authority changed")
-        self._permission(intent["kind"])
+        kind = intent["kind"]
+        try:
+            authority = self._authorization(kind)
+        except (PublicationError, ValueError) as error:
+            raise Drift("retained user authority was withdrawn") from error
+        if authority != intent["authorization"]:
+            raise Drift("retained user authority changed")
+        if SUPPORTED.get(kind) != (intent["action"], intent["permission"]):
+            raise Drift("retained permission scope differs from this release")
+        try:
+            self._permission(kind)
+        except PublicationError as error:
+            raise Drift("configured permission no longer allows this write") from error
         if not isinstance(audience, dict) or audience.get("suitable") is not True or audience.get("fingerprint") != digest(intent):
             raise PublicationError("accepted audience review must name the exact payload fingerprint")
         _strings(audience.get("evidence"), "audience review evidence")
         text(audience.get("audience"), "intended audience")
         if self.source_validator is None:
             raise PublicationError("accepted publication-source validation unavailable")
-        for source in intent["sources"] + audience["evidence"]:
+        for source in intent["sources"]:
             if self.source_validator(source) is not True:
-                raise PublicationError("publication evidence is stale or unaccepted")
+                raise Drift("publication source is stale or unaccepted")
+        for source in audience["evidence"]:
+            if self.source_validator(source) is not True:
+                raise PublicationError("audience evidence is stale or unaccepted")
         self._live_binding(intent, ev)
-        kind = intent["kind"]
         if kind in ("push", "rewrite", "split_push"):
             self._check_git(intent)
         elif kind == "resolve_thread":
             self._check_resolution(intent, ev)
+        elif kind == "edit_pr":
+            # Never overwrite a field someone else changed after preparation.
+            meta = ev["metadata"]
+            if any(meta.get(key) not in (value, intent["payload"][key]) for key, value in intent["before"].items()):
+                raise Drift("PR field changed after preparation")
         elif kind == "split_pr":
             pushed = self._load(intent["payload"]["push_operation"])
-            if pushed["state"] != "completed" or not self.validate(pushed["id"], pushed["receipt"]):
+            if pushed["state"] != "applied" or not self.validate(pushed["id"], pushed["receipt"]):
                 raise PublicationError("split branch changed before draft PR dispatch")
         elif kind == "ci_rerun":
             payload = intent["payload"]
@@ -592,31 +759,33 @@ class Publication:
 
     def execute(self, ident, audience):
         saved = self._load(ident)
-        if saved["state"] == "completed":
+        state = saved["state"]
+        if state == "applied":
             if not self.validate(saved["id"], saved["receipt"]):
                 raise PublicationError("retained publication receipt no longer validates")
             return saved["receipt"]
-        if saved["state"] == "uncertain":
+        if state == "pending":
+            # Read-only reconciliation only. Absence or an unchanged service
+            # never authorizes sending the original again.
             observed = self.reconcile(saved["id"])
             if observed["outcome"] == "completed":
-                self._complete(saved, observed["result"])
+                self._settle(saved, observed["result"])
                 return observed["result"]
-            if observed["outcome"] != "no_effect":
-                raise UncertainEffect("publication may have taken effect; reconcile before retry")
-            with self.ledger.transaction():
-                self.ledger.db.execute("UPDATE publication_intents SET state='prepared',receipt=? WHERE id=? AND state='uncertain'",
-                                       (canonical({"no_effect": observed["proof"]}).decode(), saved["id"]))
-            saved = self._load(saved["id"])
-        if saved["state"] != "prepared":
-            raise PublicationError("publication intent is not dispatchable")
+            raise UncertainEffect("publication may have taken effect; it stays pending until reconciliation observes it")
+        if state in TERMINAL:
+            raise PublicationError(f"publication intent is {state}; a later attempt needs fresh preparation")
         intent = saved["intent"]
         ev = self._capture()
-        self._gate(intent, ev, audience)
+        try:
+            self._gate(intent, ev, audience)
+        except Drift as error:
+            self._block(saved, str(error))
+            raise
         # Exact pre-existing effects do not dispatch again. This is particularly
         # useful for distinct IDs proposing the same original reply.
         observed = self._observe(saved, ev)
         if observed["outcome"] == "completed":
-            self._complete(saved, observed["result"])
+            self._settle(saved, observed["result"])
             return observed["result"]
         if intent["kind"] == "ci_rerun":
             limit = self.plan.get("options", {}).get("limits", {}).get("ci_reruns_per_head", 3)
@@ -627,34 +796,79 @@ class Publication:
             except ValueError as error:
                 raise PublicationError("retained per-head CI rerun allowance exhausted or changed") from error
         with self.ledger.transaction():
-            unresolved = self.ledger.db.execute(
-                "SELECT id FROM publication_intents WHERE state='uncertain' AND id<>? LIMIT 1", (saved["id"],)
-            ).fetchone()
-            if unresolved:
-                raise UncertainEffect("another publication operation needs reconciliation")
+            holder = self.ledger.db.execute("SELECT intent FROM publication_lock WHERE singleton=1").fetchone()
+            if holder and holder[0] != saved["id"]:
+                raise UncertainEffect("publication lock is held by an unsettled intent; reconcile it first")
             cursor = self.ledger.db.execute(
-                "UPDATE publication_intents SET state='uncertain',receipt='' WHERE id=? AND state='prepared'", (saved["id"],)
-            )
+                "UPDATE publication_intents SET state='pending',audience=? WHERE id=? AND state='prepared'",
+                (canonical(audience).decode(), saved["id"]))
             if cursor.rowcount != 1:
                 raise UncertainEffect("publication acquired by another invocation")
-        response = self._dispatch(intent)
-        # Keep the exact acknowledged ID before observation. If observation is
-        # temporarily unavailable, the next reconciliation can use this receipt.
+            self.ledger.db.execute("INSERT OR REPLACE INTO publication_lock(singleton,intent) VALUES(1,?)", (saved["id"],))
+            self._event(saved["id"], "dispatch", {"audience": audience})
+        try:
+            response = self._dispatch(intent)
+        except Rejected as rejection:
+            self._not_applied(saved, rejection.evidence)
+            raise PublicationError("the service conclusively rejected the write; it settles not_applied") from rejection
+        except BaseException as error:
+            # Keep the failure as evidence; the intent stays pending.
+            try:
+                with self.ledger.transaction():
+                    self._event(saved["id"], "error", {"type": type(error).__name__})
+            except Exception:
+                pass
+            raise
+        # Keep the exact acknowledged response before observation. If observation
+        # is temporarily unavailable, the next reconciliation can use it.
         with self.ledger.transaction():
-            self.ledger.db.execute("UPDATE publication_intents SET receipt=? WHERE id=? AND state='uncertain'",
-                                   (canonical({"dispatch_response": response}).decode(), saved["id"]))
+            self._event(saved["id"], "response", response)
         observed = self.reconcile(saved["id"])
         if observed["outcome"] != "completed":
             raise UncertainEffect("publication response retained; its effect is not yet verified")
-        self._complete(saved, observed["result"])
+        self._settle(saved, observed["result"])
         return observed["result"]
 
-    def _complete(self, saved, receipt):
+    def _settle(self, saved, receipt):
+        """Record the exact applied receipt once and release the lock."""
+        key = effect_key(saved["intent"], receipt)
         with self.ledger.transaction():
-            changed = self.ledger.db.execute("UPDATE publication_intents SET state='completed',receipt=? WHERE id=? AND fingerprint=?",
-                                   (canonical(receipt).decode(), saved["id"], saved["fingerprint"]))
+            if key is not None:
+                owner = self.ledger.db.execute("SELECT intent FROM publication_effects WHERE effect=?", (key,)).fetchone()
+                if owner and owner[0] != saved["id"]:
+                    raise PublicationError("duplicate receipt: this effect already settles another intent")
+                self.ledger.db.execute("INSERT OR IGNORE INTO publication_effects(effect,intent) VALUES(?,?)", (key, saved["id"]))
+            row = self.ledger.db.execute("SELECT state,receipt FROM publication_intents WHERE id=? AND fingerprint=?",
+                                         (saved["id"], saved["fingerprint"])).fetchone()
+            if row is None or row[0] not in ("prepared", "pending", "applied"):
+                raise PublicationError("publication intent changed before receipt commit")
+            encoded = canonical(receipt).decode()
+            if row[0] == "applied":
+                if row[1] != encoded:
+                    raise PublicationError("duplicate receipt: the intent already has a different receipt")
+                return
+            self.ledger.db.execute("UPDATE publication_intents SET state='applied',receipt=? WHERE id=?",
+                                   (encoded, saved["id"]))
+            self.ledger.db.execute("DELETE FROM publication_lock WHERE intent=?", (saved["id"],))
+            self._event(saved["id"], "applied", {"effect": key})
+
+    def _block(self, saved, reason):
+        with self.ledger.transaction():
+            changed = self.ledger.db.execute(
+                "UPDATE publication_intents SET state='blocked' WHERE id=? AND state='prepared'", (saved["id"],))
+            if changed.rowcount == 1:
+                self._event(saved["id"], "blocked", {"reason": reason})
+
+    def _not_applied(self, saved, evidence):
+        if not isinstance(evidence, dict) or not evidence:
+            raise UncertainEffect("rejection without retained evidence stays pending")
+        with self.ledger.transaction():
+            changed = self.ledger.db.execute(
+                "UPDATE publication_intents SET state='not_applied' WHERE id=? AND state='pending'", (saved["id"],))
             if changed.rowcount != 1:
-                raise PublicationError("publication intent disappeared before receipt commit")
+                raise UncertainEffect("publication state changed before settling its rejection")
+            self.ledger.db.execute("DELETE FROM publication_lock WHERE intent=?", (saved["id"],))
+            self._event(saved["id"], "rejected", evidence)
 
     def _dispatch(self, intent):
         kind, payload = intent["kind"], copy.deepcopy(intent["payload"])
@@ -679,6 +893,10 @@ class Publication:
             return self._request("POST", self.pr_path + "/requested_reviewers", payload)
         if kind == "ci_rerun":
             return self._request("POST", f"{self.repo}/actions/runs/{payload['run_id']}/rerun-failed-jobs")
+        if kind == "submit_review":
+            return self._request("POST", self.pr_path + "/reviews", {
+                "commit_id": intent["head"], "event": payload["event"], "body": payload["body"],
+                "comments": payload["comments"]})
         if kind == "merge":
             response = self._request("PUT", self.pr_path + "/merge", {**payload, "sha": intent["head"]})
             if response.get("merged") is not True:
@@ -696,32 +914,36 @@ class Publication:
                 "actor_id": intent["actor_id"], "result": result,
                 "evidence": ["read-only exact service reconciliation"]}
 
+    @staticmethod
+    def _known(saved):
+        """The acknowledged response, or the retained receipt's result."""
+        if saved.get("response"):
+            return saved["response"]
+        return (saved.get("receipt") or {}).get("result") or {}
+
     def _observe(self, saved, ev):
+        """Read-only: ``completed`` with an exact receipt, otherwise ``unknown``.
+
+        Absence, an unchanged branch or an unrequested reviewer never proves
+        that a dispatched write did not happen, so there is no ``no_effect``.
+        """
         intent = saved["intent"]
         kind, payload, meta = intent["kind"], intent["payload"], ev["metadata"]
         if ev["viewer"]["id"] != intent["actor_id"]:
             return {"outcome": "unknown", "proof": {"reason": "authenticated actor differs"}}
-        found, absent, result = False, False, None
+        found, result = False, None
         if kind in ("push", "rewrite", "split_push"):
             current = self._git_observation(intent)
             found = current == payload["new_head"]
-            absent = current is None if kind == "split_push" else current == intent["lease"]
-            # An absent branch after an uncertain creation can have been deleted;
-            # only the pre-dispatch fresh check may use an absence lease.
-            if kind == "split_push" and saved["state"] == "uncertain":
-                absent = False
             result = {"head": current, "branch": payload.get("branch", intent["branch"])}
         elif kind == "edit_pr":
             found = all(meta.get(k) == v for k, v in payload.items())
-            absent = (meta.get("head", {}).get("sha") == intent["lease"] and
-                      all(meta.get(k) == v for k, v in intent["before"].items()))
             result = {k: meta.get(k) for k in payload}
         elif kind in ("reply", "reply_inline"):
             wanted = intent["before"].get("satisfied_comment_id")
-            retained = saved.get("receipt") or {}
-            response = retained.get("dispatch_response", retained.get("result", {}))
-            if response:
-                wanted = _positive(response.get("id"), "acknowledged reply ID")
+            known = self._known(saved)
+            if known:
+                wanted = _positive(known.get("id"), "acknowledged reply ID")
             matches = self._matching_replies(intent, ev)
             if wanted:
                 matches = [v for v in matches if v["id"] == wanted]
@@ -729,11 +951,10 @@ class Publication:
                 matches = [v for v in matches if v["id"] not in intent["before"]["comment_ids"]]
             if len(matches) == 1:
                 found, result = True, matches[0]
-            # Missing and ambiguous creations remain unknown, never no_effect.
+            # Missing and ambiguous creations remain unknown.
         elif kind == "resolve_thread":
             thread = self._check_resolution(intent, ev)
             found = thread.get("isResolved") is True
-            absent = thread.get("isResolved") is False
             result = thread
         elif kind == "request_review":
             result = self._request("GET", self.pr_path + "/requested_reviewers")
@@ -745,6 +966,26 @@ class Publication:
             result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
             found = result.get("head_sha") == intent["head"] and result.get("run_attempt") == payload["attempt"] + 1
             # Same-attempt state can be a delayed request; no automatic replay.
+        elif kind == "submit_review":
+            known = self._known(saved)
+            wanted = known.get("review", known).get("id") if known else None
+            state = REVIEW_EVENTS[payload["event"]]
+            matches = [r for r in ev.get("reviews", [])
+                       if isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
+                       and r.get("user", {}).get("id") == intent["actor_id"] and r.get("state") == state
+                       and r.get("body") == payload["body"] and r.get("commit_id") == intent["head"]]
+            if wanted is not None:
+                matches = [r for r in matches if r["id"] == wanted]
+            else:
+                matches = [r for r in matches if r["id"] not in intent["before"]["review_ids"]]
+            if len(matches) == 1:
+                review = matches[0]
+                comments = self._request("GET", f"{self.pr_path}/reviews/{review['id']}/comments?per_page=100")
+                if isinstance(comments, list) and len(comments) < 100:
+                    observed = sorted((c.get("path"), c.get("line"), c.get("side"), c.get("body")) for c in comments)
+                    expected = sorted((c["path"], c["line"], c["side"], c["body"]) for c in payload["comments"])
+                    found = observed == expected and all(c.get("user", {}).get("id") == intent["actor_id"] for c in comments)
+                    result = {"review": review, "comments": comments}
         elif kind == "merge":
             merged = meta.get("merged") is True and meta.get("state") == "closed"
             merge_sha = meta.get("merge_commit_sha")
@@ -753,12 +994,8 @@ class Publication:
                 wanted = [intent["target"]] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
                 found = commit.get("sha") == merge_sha and [p.get("sha") for p in commit.get("parents", [])] == wanted
                 result = {"pr": meta, "commit": commit}
-            absent = (not merged and meta.get("state") == "open" and
-                      meta.get("head", {}).get("sha") == intent["head"] and meta.get("base", {}).get("sha") == intent["target"])
         elif kind == "split_pr":
-            retained = saved.get("receipt") or {}
-            response = retained.get("dispatch_response", retained.get("result", {}))
-            wanted_number = response.get("number")
+            wanted_number = self._known(saved).get("number")
             matches = []
             for pr in self._pages(f"{self.repo}/pulls?state=all&per_page=100"):
                 if wanted_number is not None and pr.get("number") != wanted_number:
@@ -781,13 +1018,18 @@ class Publication:
                 found, result = True, matches[0]
         proof = {"intent": saved["fingerprint"], "observation": digest(result), "kind": kind}
         if found:
-            receipt = self._receipt(saved, result)
-            return {"outcome": "completed", "proof": proof, "result": receipt}
-        return {"outcome": "no_effect" if absent else "unknown", "proof": proof}
+            return {"outcome": "completed", "proof": proof, "result": self._receipt(saved, result)}
+        return {"outcome": "unknown", "proof": proof}
 
     def reconcile(self, ident):
-        """Read-only: return an observation without advancing local state."""
+        """Read-only: return an observation without advancing local state.
+
+        ``no_effect`` comes only from the journal: an intent that was never
+        dispatched, was blocked before dispatch or was conclusively rejected.
+        """
         saved = self._load(ident)
+        if saved["state"] == "prepared" or saved["state"] in TERMINAL:
+            return {"outcome": "no_effect", "proof": {"intent": saved["fingerprint"], "state": saved["state"]}}
         try:
             return self._observe(saved, self._capture())
         except Exception as error:
@@ -797,7 +1039,7 @@ class Publication:
         expected = self._receipt(saved, receipt.get("result"))
         if receipt != expected:
             return False
-        observed = self._observe(dict(saved, receipt={"dispatch_response": receipt.get("result", {})}), ev)
+        observed = self._observe(dict(saved, response=receipt.get("result", {})), ev)
         return observed.get("outcome") == "completed" and observed.get("result") == receipt
 
     def validate(self, ident, receipt):

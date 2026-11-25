@@ -143,13 +143,13 @@
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publication.py",
       "upstream": "examples/pr-fix/workflows/helpers/prfix/publication.py",
       "upstream_sha256": "55bfcac6a5e195fbb678d40dd5fb7e9180037ae91ff5f06cb8f0cc8751fce146",
-      "change": "verbatim"
+      "change": "adapted"
     },
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publishing.py",
       "upstream": "examples/pr-fix/workflows/helpers/prfix/publishing.py",
       "upstream_sha256": "0f5ad8c3b8cae9ff3e0aa34b5db1b644402cde7529c30c71eae010760f462208",
-      "change": "verbatim"
+      "change": "adapted"
     },
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/main.yml",

@@ -255,15 +255,55 @@ class Preflight(PreflightFixture):
                 self.assertNotIn('inputs', result)
                 self.assertNotIn('state', result)
 
-    def test_publication_and_merge_stay_disabled(self):
-        grant = {'request_id': 'r1', 'instruction': 'Push the fix.', 'source': 'chat:1'}
-        result = self.preflight(request={**self.request, 'authorizations': {'push': grant}})
-        self.assertEqual((result['preflight'], result['structural']), ('rejected', 'accepted'))
-        self.assertEqual(result['error']['path'], 'request.authorizations')
-        self.assertEqual(self.transport.calls['capabilities'], 1)
+    def test_publication_needs_enabled_permission_and_explicit_authorization(self):
+        grant = {'request_id': 'r1', 'instruction': 'Push the fix and answer the review.', 'source': 'chat:1'}
+        # An enabled permission alone grants nothing.
         result = self.preflight(invocation={'permissions': {'push': True}})
         self.assertEqual(result['preflight'], 'admitted')
         self.assertFalse(any(result['inputs']['permissions'].values()))
+        self.assertEqual(result['state']['request_document']['authorizations'], {})
+        # An authorization without the accepted permission rejects instead of silently dropping it.
+        result = self.preflight(request={**self.request, 'authorizations': {'push': grant}})
+        self.assertEqual((result['preflight'], result['structural']), ('rejected', 'accepted'))
+        self.assertEqual(result['error']['path'], 'request.authorizations.push')
+        self.assertNotIn('state', result)
+        # Both together enable exactly the mapped inputs and stage exactly those grants.
+        result = self.preflight(request={**self.request, 'authorizations': {'push': grant, 'reply': grant}},
+                                invocation={'permissions': {'push': True, 'reply': True, 'edit_pr': True}})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual({key for key, value in result['inputs']['permissions'].items() if value},
+                         {'push_commits', 'reply_to_feedback'})
+        self.assertEqual(set(result['inputs']['permissions']), set(dk_pr_fix.PERMISSION_INPUTS))
+        self.assertEqual(result['state']['request_document']['authorizations'], {'push': grant, 'reply': grant})
+        self.assertEqual(self.transport.calls['capabilities'], 1)
+
+    def test_unavailable_publication_actions_reject(self):
+        grant = {'request_id': 'r1', 'instruction': 'Do it.', 'source': 'chat:1'}
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+        for action, owner in (('merge', '#19'), ('approve_pr', '#31'), ('create_issue', '#32'),
+                              ('edit_issue', '#32'), ('approve_fork_ci', '#35')):
+            with self.subTest(action=action):
+                result = self.preflight(request={**self.request, 'authorizations': {action: grant}},
+                                        invocation={'permissions': {action: True}}, transport=FakeTransport(offered))
+                self.assertEqual(result['preflight'], 'rejected')
+                self.assertEqual(result['error']['path'], 'request.authorizations.' + action)
+                self.assertIn(owner, result['error']['message'])
+                self.assertNotIn('state', result)
+
+    def test_installed_permission_inputs_match_the_publication_helpers(self):
+        body = (INSTALL / 'workflows' / 'main.yml').read_text()
+        block = body.split('      permissions:\n', 1)[1].split('      ci:\n', 1)[0]
+        declared = re.findall(r'^          ([a-z_]+): false$', block, re.M)
+        self.assertEqual(declared, list(dk_pr_fix.PERMISSION_INPUTS))
+        sys.path.insert(0, str(HELPERS))
+        try:
+            from prfix.publication import PERMISSION_INPUTS
+        finally:
+            sys.path.remove(str(HELPERS))
+        self.assertEqual(sorted(declared), PERMISSION_INPUTS)
+        self.assertLessEqual(set(dk_pr_fix.PUBLICATION_ACTIONS), set(admission.ACTIONS))
+        self.assertEqual(set(dk_pr_fix.PUBLICATION_ACTIONS) | set(dk_pr_fix.UNAVAILABLE_ACTIONS), set(admission.ACTIONS))
 
     def test_tampered_or_overlapping_installation_rejects_before_the_engine(self):
         copy_root = clean_install(self.base / 'install copy')
