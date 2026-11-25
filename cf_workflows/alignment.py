@@ -343,8 +343,11 @@ class Ledger:
                 require(request is not None, f'{stage_key} is settled; changed inputs, guidance or head do not '
                         f'authorize repeating it without a direct user request for {DIRECT_SKILL}',
                         AuthorizationRequired)
-                require(latest['request'] != request['id'],
-                        f'{stage_key} already completed under direct request {request["id"]}; '
+                # Any earlier attempt of this stage under the request consumed it, not only the latest.
+                consumed = self.db.execute('SELECT 1 FROM attempts WHERE key = ? AND request = ?',
+                                           (stage_key, request['id'])).fetchone()
+                require(consumed is None,
+                        f'{stage_key} already ran under direct request {request["id"]}; '
                         'a distinct direct user request is required', AuthorizationRequired)
             if request is not None:
                 old = self.db.execute('SELECT value FROM requests WHERE id = ?', (request['id'],)).fetchone()

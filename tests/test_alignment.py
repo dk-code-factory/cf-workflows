@@ -176,6 +176,12 @@ class ArchitectureOnceTest(Fixture):
                   request=request('r2'))
         self.assertEqual(sessions.calls['comparison:retry'], 3)
         self.assertEqual(len(self.ledger.history('comparison:retry')), 3)
+        # An earlier request stays consumed after a later one ran: R1, R2, then R1 again is refused.
+        with self.assertRaisesRegex(AuthorizationRequired, 'distinct'):
+            self.step(sessions, 'comparison', 'retry', head=self.heads[1], inputs={'guidance': '0' * 64},
+                      request=request('r1'))
+        self.assertEqual(sessions.calls['comparison:retry'], 3)
+        self.assertEqual(self.ledger.usage('architecture')['used'], 7)
 
     def test_downstream_of_an_authorized_comparison_needs_its_own_coverage(self):
         sessions = Sessions({**architecture(decisions=('retry', 'cache')), 'alignment': aligned()})
