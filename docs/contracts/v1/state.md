@@ -11,7 +11,7 @@ Back to the [contract index](README.md). `kind` is `application_state`.
 | `occurrences` | Stable task keys, selected plan, dependencies, pins, status, original output refs and accepted checklist refs |
 | `budgets` | Per-run consumed/reserved review, fix, retry, checklist, CI repair/rerun allowances and absolute deadlines |
 | `feedback` | Separate implementation dispositions, concrete response obligations and resolution evidence ([feedback.md](../../feedback.md), [responses.md](../../responses.md)) |
-| `decisions`, `alignment` | Original selections/sourced resolutions, current commitments and freshness bindings |
+| `decisions`, `alignment` | Original selections/sourced resolutions, current commitments and freshness bindings ([alignment.md](../../alignment.md)) |
 | `publications` | Exact-intent journal refs, original request, actor, target/payload digests and uncertainty/receipt status |
 | `upgrade` | Original version/ref, target version, transaction status and recovery refs, or null |
 
