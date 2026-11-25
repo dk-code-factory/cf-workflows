@@ -132,6 +132,10 @@ with the exact parents, and so on. An unchanged branch, a missing comment or
 reviewer, a timeout or a generic error keeps the intent `pending`. Executing a
 `pending` intent again only reconciles; it never sends the write again.
 
+A reply receipt stays valid after the reply itself changes. Validation compares
+the reply's ID, body, author and parent, not reactions or `updated_at`. The
+discussion baseline also uses those fields to strip the run's own replies.
+
 While an intent is `pending`, no other write of the run can dispatch. There is
 no automatic override.
 

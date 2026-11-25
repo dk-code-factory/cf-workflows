@@ -61,13 +61,15 @@ runs these steps in order, with helpers from
      to `#issuecomment-401` does not link comment 40.
    - Settled sources get nothing, so a reply is never repeated.
    - Each reply intent records the source's kind, ID and body version
-     (`source.version`) next to the raw-item digest that pins dispatch. Suppose
-     a reply to the same source body is already `pending`, or `applied` but not
-     yet recorded. Reactions or other metadata changes since then don't matter.
-     The retained original is listed first
-     for read-only reconciliation, never a new reply. The original keeps the
-     run's publication lock until it settles. If a recorded reply was later
-     removed, the helper reports a blocker and does not answer again.
+     (`source.version`) next to the raw-item digest that pins dispatch. Matching
+     uses kind, ID and version, so reactions or metadata changes don't matter.
+     If a reply to the same source body already exists, no new reply is listed:
+     - A `pending` original is listed first, for read-only reconciliation only.
+       It keeps the run's publication lock until it settles.
+     - An `applied` original that is not recorded yet is not relisted.
+       `responses_settle` records it from its stored receipt.
+     - If a recorded reply was later removed, the helper reports a blocker and
+       does not answer again.
 3. Each proposal goes through [exact-intent publication](publication.md) with
    its own independent audience.
 4. `responses_settle` records every applied reply of the run once the reply is

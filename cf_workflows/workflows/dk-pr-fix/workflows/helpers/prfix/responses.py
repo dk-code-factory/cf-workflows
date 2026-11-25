@@ -139,7 +139,7 @@ def _dispatched(ledger, plan, source):
         retained = intent.get("source")
         if (intent["kind"] in REPLY_KINDS and isinstance(retained, dict)
                 and {key: retained.get(key) for key in wanted} == wanted):
-            return {"id": saved["id"], **{key: intent.get(key) for key in
+            return {"id": saved["id"], "state": saved["state"], **{key: intent.get(key) for key in
                                           ("kind", "head", "lease", "target", "payload", "sources", "source")}}
     return None
 
@@ -185,8 +185,11 @@ def proposals(root, provider, ledger, plan, snapshot):
                 elif record.recorded(original["id"]):
                     # Its observed reply was later removed. Never answer again automatically.
                     result["blockers"].append(f"the recorded reply {original['id']} to {key} is no longer observable")
-                else:
+                elif original.pop("state") == "pending":
                     result["reconcile"].append(original)
+                # An applied original already holds its receipt: responses_settle records
+                # it from that receipt. Relisting it would re-observe our own reply, whose
+                # reactions or updated_at may differ from the receipt, and fail.
         # Resolve a thread only after its own answer from this run is applied and
         # feedback.resolution() allows it: authority, fully answered, nobody awaited.
         answered = {}

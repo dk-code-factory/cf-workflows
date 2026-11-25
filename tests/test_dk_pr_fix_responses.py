@@ -278,6 +278,22 @@ class BeforeReview(Fixture):
             self.assertEqual(self.stage(self.open())["status"], "complete")
         self.assertEqual(self.github.counts["write"], 3, "two replies and one resolution, nothing resent")
 
+    def test_reaction_to_our_own_reply_before_settle_still_records_it(self):
+        # Review cycle 2: an applied original already holds its receipt; it is never
+        # re-observed for recovery, where a reaction to our reply would differ from it.
+        self.respond()
+        for item in self.listed()["items"]:
+            self.publish(item)
+        self.assertEqual(self.github.counts["write"], 2)
+        for item in self.github.ev["comments"] + self.github.ev["inline"]:
+            if item["user"]["id"] == 11:
+                item["reactions"] = {"total_count": 1, "+1": 1}
+        resumed = self.open()
+        self.assertEqual(self.listed(resumed)["items"], [], "applied originals are not relisted")
+        for _ in range(2):
+            self.assertEqual(self.stage(self.open())["status"], "complete")
+        self.assertEqual(self.github.counts["write"], 3, "two replies and one resolution, nothing resent")
+
     def test_an_id_prefix_link_does_not_stand_in_for_the_source_link(self):
         # Review cycle 1: #issuecomment-401 contains #issuecomment-40 as a substring only.
         value = self.drafts()
