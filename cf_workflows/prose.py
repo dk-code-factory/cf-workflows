@@ -22,11 +22,13 @@ from collections import Counter
 import copy
 import difflib
 import hashlib
+import io
 import os
 from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import subprocess
+import tokenize
 
 from . import admission, configuration, dk_pr_fix, semantic
 from .admission import AdmissionError, digest, fields, require, text
@@ -96,6 +98,8 @@ COMMENTS = {
     '--': ('.sql', '.lua', '.hs'),
     ';': ('.clj', '.lisp', '.el'),
 }
+# Constructs the comment lexer cannot follow; a file containing one has no editable prose.
+UNLEXED = {'#': ('<<', '%q', '%Q', '%w', '=begin', '=pod'), '//': ('R"', '<<<', '@"'), '--': ('[[',), ';': ()}
 RULE_NUMBER = re.compile(r'\b(?:rule|R)\s?\d+(?:\.\d+)+', re.I)
 
 
@@ -317,27 +321,94 @@ def _tokens(chunk):
             'machine directives': Counter(match.group(0).strip() for match in DIRECTIVE.finditer(chunk))}
 
 
-def _docstrings(source):
-    """0-based lines of Python module, class and function docstrings."""
+def _python_prose(source):
+    """0-based Python lines that are wholly a comment token or wholly a docstring; nothing if it does not lex."""
     try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
         tree = ast.parse(source)
-    except (SyntaxError, ValueError):
+    except (SyntaxError, ValueError, tokenize.TokenError):
         return set()
-    lines = set()
+    code = {line for token in tokens if token.type not in (
+        tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER)
+        for line in range(token.start[0] - 1, token.end[0])}
+    lines = {token.start[0] - 1 for token in tokens
+             if token.type == tokenize.COMMENT and not token.string.startswith('#!')} - code
+    rows = source.splitlines()
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             first = node.body[0]
             if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
-                    and isinstance(first.value.value, str)):
+                    and isinstance(first.value.value, str)
+                    and not rows[first.lineno - 1][:first.col_offset].strip()
+                    and not rows[first.end_lineno - 1][first.end_col_offset:].split('#')[0].strip()):
                 lines.update(range(first.lineno - 1, first.end_lineno))
     return lines
+
+
+def _comment_prose(marker, suffix, text):
+    """0-based lines that are wholly comment, from a small lexer over strings and comments.
+
+    Strings may span lines; a line that starts inside a string or holds any code or string
+    character is not prose. Files with constructs this lexer cannot follow (heredocs, raw
+    strings, YAML block scalars, long brackets) yield no prose at all. Errors only shrink prose.
+    """
+    if any(opener in text for opener in UNLEXED[marker]) or (
+            suffix in ('.yaml', '.yml') and re.search(r'(?m)[:-]\s*[|>][-+0-9]*\s*(?:#.*)?$', text)) or (
+            suffix == '.lua' and re.search(r'\[=*\[', text)):
+        return set()
+    block = ('/*', '*/') if marker == '//' else None
+    quotes = ('"', "'", '`') if marker == '//' else ('"', "'")
+    result, line, state, code, comment = set(), 0, None, False, False
+    position, size = 0, len(text)
+    while position <= size:
+        char = text[position] if position < size else '\n'
+        if char == '\n':
+            if comment and not code:
+                result.add(line)
+            line, position = line + 1, position + 1
+            if state == 'line' or (state == "'" and marker == '//'):
+                state = None  # Line comments and C-family character literals end at the line.
+            # A line that starts inside a string is string content; inside a block comment, comment.
+            code, comment = state in quotes, state == 'block'
+            continue
+        if state == 'line':
+            position += 1
+        elif state == 'block':
+            comment = True
+            if text.startswith(block[1], position):
+                state, position = None, position + len(block[1])
+            else:
+                position += 1
+        elif state in quotes:
+            code = True
+            if char == '\\' and not (marker == '#' and state == "'"):  # Shell single quotes have no escapes.
+                position += 1 if text.startswith('\n', position + 1) else 2  # Line numbers stay exact.
+                continue
+            if char == state:
+                state = None
+            position += 1
+        elif char.isspace():
+            position += 1
+        elif text.startswith(marker, position) and not (marker == '#' and text.startswith('#!', position)):
+            state, comment = 'line', True
+            position += len(marker)
+        elif block and text.startswith(block[0], position):
+            state, comment = 'block', True
+            position += len(block[0])
+        elif char in quotes:
+            state, code = char, True
+            position += 1
+        else:
+            code = True
+            position += 2 if char == '\\' and not text.startswith('\n', position + 1) else 1
+    return result
 
 
 def prose_lines(path, lines):
     """0-based lines of a file that may hold prose, or None when its type has no recognized prose syntax.
 
-    Documentation: every line except fenced and indented code blocks. Source: whole
-    comment lines (and Python docstrings); trailing comments on code lines stay protected.
+    Documentation: every line except fenced and indented code blocks. Source: lines that
+    are wholly comment (and Python docstrings); a comment next to code on its line stays protected.
     """
     suffix = PurePosixPath(path).suffix.lower()
     result = set()
@@ -357,17 +428,9 @@ def prose_lines(path, lines):
     marker = next((marker for marker, suffixes in COMMENTS.items() if suffix in suffixes), None)
     if marker is None:
         return None
-    block = False
-    for number, line in enumerate(lines):
-        stripped = line.strip()
-        if marker == '//' and (block or stripped.startswith('/*')):
-            result.add(number)
-            block = '*/' not in stripped[2 if not block else 0:]
-        elif stripped.startswith(marker) and not (marker == '#' and stripped.startswith('#!')):
-            result.add(number)
     if suffix == '.py':
-        result |= _docstrings(''.join(lines))
-    return result
+        return _python_prose(''.join(lines))
+    return _comment_prose(marker, suffix, ''.join(lines))
 
 
 def check_edits(path, before, after, allowed, constraints):

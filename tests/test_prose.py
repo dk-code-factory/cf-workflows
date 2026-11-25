@@ -387,6 +387,10 @@ class SourceAndCodeBlocks(Fixture):
         self.write('src/app.js', 'function ok(count, limit) {\n  // It is the case that we check the limit here.\n'
                                  '  if (count > limit) { return false; }\n  return true;\n}\n')
         self.write('docs/indented.md', 'Run the following command in order to greet.\n\n    echo hello world\n')
+        self.write('src/edge.js', 'function ok(count, limit) {\n'
+                                  '  /* Check the limit here. */ if (count > limit) { return false; }\n'
+                                  '  /* Multi-line\n     note. */ if (count == limit) { return true; }\n'
+                                  '  const banner = `\n// Do not remove the cache before the build.\n`;\n}\n')
         self.write('settings.json', '{"note": "It is the case that this is set."}\n')
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-q', '-m', 'more changes')
@@ -409,6 +413,10 @@ class SourceAndCodeBlocks(Fixture):
                 'operator': ('src/app.js', 'count > limit', 'count < limit'),
                 'comment to code': ('src/app.js', '// It is the case that we check the limit here.',
                                     'if (count === 0) { return true; }'),
+                'code after a block comment': ('src/edge.js', '(count > limit)', '(count < limit)'),
+                'code after a block comment end': ('src/edge.js', '(count == limit)', '(count != limit)'),
+                'comment-like template literal': ('src/edge.js', 'Do not remove the cache before',
+                                                  'Remove the cache before'),
                 'indented code block': ('docs/indented.md', 'echo hello world', 'echo hi world'),
                 'unknown file type': ('settings.json', 'It is the case that this', 'This')}.items():
             with self.subTest(label):
@@ -422,6 +430,19 @@ class SourceAndCodeBlocks(Fixture):
         self.assertEqual(prose.prose_lines('a.c', ['int a;\n', '/* one\n', ' * two */\n', '*p = 1;\n']), {1, 2})
         self.assertEqual(prose.prose_lines('x.py', ['#!/bin/sh\n', 'x = 1  # trailing\n', '# whole\n']), {2})
         self.assertIsNone(prose.prose_lines('data.csv', ['a,b\n']))
+
+    def test_only_whole_comment_lines_outside_strings_are_prose(self):
+        def lines(path, text):
+            return prose.prose_lines(path, text.splitlines(True))
+        self.assertEqual(lines('src/edge.js', (self.repo / 'src/edge.js').read_text()), {2})
+        self.assertEqual(lines('a.js', 'const s = "a\\\n// in string";\n// real\n'), {2})
+        self.assertEqual(lines('a.sh', 'echo "a\n# in string\n"\n# real\necho \'it\'\\\'\'s\'\n# real2\n'), {3, 5})
+        self.assertEqual(lines('a.py', 's = \"\"\"\n# in string\n\"\"\"\n# real\nx = 1  # trailing\n'), {3})
+        for path, text in {'a.sh': 'cat <<EOF\n# in heredoc\nEOF\n', 'a.yaml': 'a: |\n  # in block\n# real\n',
+                           'a.cpp': 'auto s = R"(\n// raw\n)";\n// real\n',
+                           'a.lua': 'local s = [[\n-- long\n]]\n-- real\n'}.items():
+            with self.subTest(path):
+                self.assertEqual(lines(path, text), set())  # Unlexable constructs: no editable prose.
 
 
 # -- ASD-STE100 ------------------------------------------------------------------------------------

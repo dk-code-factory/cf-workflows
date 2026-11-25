@@ -43,8 +43,13 @@ and any request authorization reject before the engine is contacted.
    - documentation (`.md`, `.markdown`, `.rst`, `.txt`, `.adoc`, `.asciidoc`):
      every line outside fenced and indented code blocks;
    - source files with a known comment syntax (`#`, `//` and `/* */`, `--`, `;`,
-     by extension): whole comment lines only, plus Python docstrings. A trailing
-     comment on a code line stays protected.
+     by extension): lines that are wholly comment, plus Python docstrings. A small
+     lexer follows strings (including multi-line strings and template literals)
+     and block comments, so a comment-like line inside a string is code, and a
+     line with code before `/*` or after `*/` stays protected. Python uses
+     `tokenize`. A file with a construct the lexer cannot follow (heredocs, C++
+     raw strings, YAML block scalars, Lua long brackets and similar) has no
+     editable prose.
 
    Other file types, and binary or non-UTF-8 files, are listed as skipped and
    never edited.
@@ -142,7 +147,9 @@ session counts. Coverage:
 - **Direct.** Edits only in changed prose, with unrelated, protected and binary
   content unchanged and a local commit. Reuse without a session. Rejection and
   restore for edits outside changed prose, code in non-Python sources,
-  comments turned into code, indented code blocks, unrecognized file types,
+  comments turned into code, code beside block-comment delimiters,
+  comment-like template-literal text, indented code blocks, unrecognized file
+  types,
   code blocks, code spans, link
   targets, numbers, requirement keywords, Python code, unchanged files and
   quoted wording. Sourced no-ops, incomplete passes, observation violations, a
