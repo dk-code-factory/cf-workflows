@@ -361,9 +361,10 @@ class EventsAndAuthority(Fixture):
             "preparation": "preparations/" + hexes + ".json differs.",
             "task": "Occurrence " + task + " was skipped.",
             "claim": "claim_" + hexes + " never finished.",
-            "finding": "Duplicate of finding_" + hexes[:24] + ".",
-            "group": "The reviewers in group_1 disagreed.",
-            "run": "Run " + plan["logical_run"] + " is partial.",
+            "finding": "Duplicate of finding_" + hexes + ".",
+            "agent": "Session agent_" + hexes[:32] + " timed out.",
+            "publication": "Intent findings_" + hexes + " is pending.",
+            "run": "Default run review_" + hexes[:32] + " is partial.",
         }
         reported = [self.finding(key, value, "pr_description") for key, value in quoted.items()]
         reported.append(self.finding("subject", SUBJECT, "commit_message", commit=self.commit))
@@ -371,11 +372,27 @@ class EventsAndAuthority(Fixture):
         listing, _ = self.barrier(plan, ledger)
         reasons = {read_id(entry["finding"], ledger, plan): entry["reasons"] for entry in listing["withheld"]}
         self.assertEqual(reasons, {key: ["private_details"] for key in quoted})
+        # Confirmed findings left out are a visible (private) gap, never a silent omission.
+        self.assertEqual(len([b for b in listing["blockers"] if "was not published: private_details" in b]),
+                         len(quoted))
         self.assertEqual(self.writes(), 1)
         self.assertNotIn("assignment", self.payload_text())
         self.assertIn(SUBJECT, self.github.posted[0]["body"])
-        # Ordinary identifiers that merely share a prefix stay publishable.
-        self.assertFalse(findings._private(self.root, plan, "Rename push_add and merge_base; group_name is unused."))
+
+    def test_ordinary_code_identifiers_and_a_user_chosen_run_name_stay_publishable(self):
+        # A user-chosen logical run name is ordinary text; only generated identity formats are private.
+        plan = self.prepare(run="fix")
+        ledger = self.ledger(plan)
+        texts = ["This does not fix the overflow in `value`.", "`group_2` is assigned but never read.",
+                 "The `merge_20240115` migration is not reversible.", "Rename `push_add` and `merge_base`.",
+                 "`task_12345678` collides with `pr_deadbeef` and `review_cafe`.",
+                 "`claim_" + "a" * 63 + "` is one character short of a generated claim ID."]
+        self.reviewed(plan, ledger, [self.finding(f"f{n}", value, "pr_description") for n, value in enumerate(texts)])
+        listing, _ = self.barrier(plan, ledger)
+        self.assertEqual((listing["withheld"], listing["blockers"]), ([], []))
+        body = self.github.posted[0]["body"]
+        for value in texts:
+            self.assertEqual(body.count(value), 1, value)
 
     def test_publication_needs_its_own_permission_and_authorization(self):
         for authorizations, permissions in (({}, {"post_findings": True}), ({"post_findings": GRANT}, {})):

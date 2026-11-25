@@ -141,8 +141,11 @@ A finding is published only when all of these hold:
   the reviewer's;
 - its text names no local execution detail: the checkout or state namespace
   path (mounted, configured or resolved), a `cf-workflows/repositories/` path,
-  an `artifacts/`, `requests/` or `preparations/` state reference, the logical
-  run, or an agent, claim, task, finding, group or publication identity;
+  an `artifacts/`, `requests/` or `preparations/` state reference, or a
+  generated identity in its exact format (`agent_` + 32 hex, `task_` + 24 hex,
+  default `pr_`/`review_` + 32 hex runs, and `claim_`, `finding_`, `findings_`,
+  `publication_`, `push_` or `merge_` + 64 hex). A user-chosen run name and
+  ordinary code identifiers such as `group_2` or `merge_20240115` do not count;
 - analysis is not [provisional](provisional.md);
 - no prepared, pending or applied submission of this run already carries it,
   by finding identity or by exact location and text.
@@ -155,7 +158,8 @@ one overview sentence (counts only); `false`, the default, removes only that sen
 body-only review keeps every finding. A review with only inline findings and
 no summary has an empty body. Coverage gaps, withheld findings, operational
 errors and other diagnostics stay in the listing's private `withheld` and
-`blockers` fields.
+`blockers` fields. A confirmed finding left out for any reason other than a
+superseded report also adds a blocker, so it is never silently omitted.
 
 The event is `REQUEST_CHANGES` only when the review outcome is `findings`
 (complete coverage with an ordinary reviewer), the PR is not the user's own

@@ -40,12 +40,15 @@ MAX_INLINE = 64
 MAX_BODY = 60000
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-# Workflow state locations and opaque execution identities (core.py, app.py, prepare.py).
+# Workflow state locations and the exact formats of generated execution identities:
+# agents (engine), tasks and default logical runs (prepare.py, dk_pr_review.py),
+# claims and findings (app.py), and publication intents (publishing.py, findings.py).
+# Only these generated forms match, so ordinary code identifiers stay publishable.
 _PRIVATE = re.compile(
     r"\.agent-workflow|\.pr-fix-portable|cf-workflows-state|\.owned-by-cf-workflows"
     r"|cf-workflows/repositories/|\b(?:artifacts|requests|preparations)/[0-9a-f]{64}\.json"
-    r"|\b(?:agent|claim|task|finding|group|pr|review|publication|findings|push|merge)_[0-9a-f]{8,}\b"
-    r"|\bgroup_\d+\b")
+    r"|\bagent_[0-9a-f]{32}\b|\btask_[0-9a-f]{24}\b|\b(?:pr|review)_[0-9a-f]{32}\b"
+    r"|\b(?:claim|finding|findings|publication|push|merge)_[0-9a-f]{64}\b")
 
 
 class LocationError(ValueError):
@@ -180,10 +183,11 @@ def key(place, finding_text):
 def _private(root, plan, finding_text):
     """Local execution details never enter public review text.
 
-    The checkout and state namespace paths, workflow state references and the
-    opaque identities of agents, claims, tasks, findings, groups and the run.
+    The checkout and state namespace paths, workflow state references and
+    generated identities. A user-chosen logical run name is ordinary text
+    ("fix"); only the generated default form matches.
     """
-    paths = {str(root), plan["logical_run"]}
+    paths = {str(root)}
     raw = os.environ.get(STATE_ENV, "")
     if raw:
         paths.update({raw, os.path.realpath(raw)})
@@ -289,8 +293,8 @@ def listing(root, provider, ledger, plan, publisher, validate_source):
                        and f.get("sources") == candidate["sources"] for f in report.get("findings", [])):
                 reasons.append("stale")
         status = dispositions.get(candidate["id"])
-        if status == "rejected":
-            continue
+        if status == "rejected" or candidate["id"] in reserved_ids:
+            continue  # Rejected, or already carried by a retained submission.
         if status != "confirmed":
             reasons.append("unverified")
         if verifier_agent is not None and verifier_agent == candidate["agent"]:
@@ -304,8 +308,6 @@ def listing(root, provider, ledger, plan, publisher, validate_source):
         except LocationError as error:
             reasons.append("location: " + str(error))
         if not reasons:
-            if candidate["id"] in reserved_ids:
-                continue
             identity = key(place, candidate["text"])
             if identity in reserved_keys:
                 continue
@@ -316,6 +318,10 @@ def listing(root, provider, ledger, plan, publisher, validate_source):
                 reasons.append("another finding already uses this inline anchor; a later run publishes it")
         if reasons:
             result["withheld"].append({"finding": candidate["id"], "reasons": reasons})
+            if status == "confirmed" and "stale" not in reasons:
+                # Superseded reports are history; any other confirmed finding left out is a visible gap.
+                result["blockers"].append("verified finding " + candidate["id"] + " was not published: "
+                                          + "; ".join(reasons))
             continue
         reserved_keys.add(identity)
         evidence = _evidence(root, snapshot, report, candidate)
