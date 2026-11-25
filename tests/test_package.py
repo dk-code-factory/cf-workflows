@@ -12,6 +12,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import unicodedata
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +73,8 @@ class Descriptor(unittest.TestCase):
             'extra skill field': DESCRIPTOR.replace('    workflow: workflows/main.yml',
                                                     '    workflow: workflows/main.yml\n    host: codex'),
             'schema': DESCRIPTOR.replace('schema-version: 1', 'schema-version: 2'),
+            'root workflow': DESCRIPTOR.replace('workflow: workflows/main.yml', 'workflow: main.yml'),
+            'empty component': DESCRIPTOR.replace('workflow: workflows/main.yml', 'workflow: workflows//main.yml'),
             'duplicate skill': DESCRIPTOR.replace('resources:', '  - name: dk-pr-fix\n    path: skills/x/SKILL.md\n'
                                                   '    workflow: workflows/x.yml\nresources:'),
         }
@@ -156,7 +159,41 @@ class Closure(unittest.TestCase):
             text = (root / 'workflows/native.yml').read_text().replace('agents/leaf.yaml', 'agents/leaf.toml')
             (root / 'workflows/native.yml').write_text(text)
 
-        cases = {'undeclared': (plant, 'notes.txt'), 'unreachable workflow': (unreachable, 'workflows/extra.yml'),
+        def flow_files(root):
+            text = (root / 'workflows/ci-poll.yml').read_text().replace(
+                '      files:\n      - helpers/\n      - agents/\n', '      files: [helpers/, agents/, helpers/absent.py]\n')
+            (root / 'workflows/ci-poll.yml').write_text(text)
+
+        def flow_definitions(root):
+            text = (root / 'workflows/native.yml').read_text().replace(
+                'definitions:\n', 'definitions: {leaf: agents/absent.yaml}\n          x-definitions:\n')
+            (root / 'workflows/native.yml').write_text(text)
+
+        def not_reusable(root):
+            text = (root / 'workflows/helper.yml').read_text().replace('  workflow_call:', '  workflow_dispatch:')
+            (root / 'workflows/helper.yml').write_text(text)
+
+        def invalid_utf8(root):
+            (root / 'skills/dk-pr-fix/SKILL.md').write_bytes(b'---\nname: dk-pr-fix\ndescription: \xff\n---\nx\n')
+
+        def invalid_workflow_utf8(root):
+            with (root / 'workflows/helper.yml').open('ab') as stream:
+                stream.write(b'# \xff\n')
+
+        def normalization(root):
+            (root / 'extra').mkdir()
+            for form in ('NFC', 'NFD'):
+                (root / 'extra' / unicodedata.normalize(form, 'caf\u00e9.txt')).write_text(form)
+            text = (root / 'plugin.yaml').read_text().replace('  - LICENSE', '  - LICENSE\n  - extra')
+            (root / 'plugin.yaml').write_text(text)
+
+        cases = {'flow files': (flow_files, 'workflows/ci-poll.yml:21: files must be a block list'),
+                 'flow definitions': (flow_definitions, 'definitions must be a block list'),
+                 'not reusable': (not_reusable, 'workflows/helper.yml: a called plugin workflow requires'),
+                 'invalid UTF-8 skill': (invalid_utf8, 'SKILL.md: must be UTF-8'),
+                 'invalid UTF-8 workflow': (invalid_workflow_utf8, 'helper.yml: must be UTF-8'),
+                 'normalization collision': (normalization, 'normalizing hosts'),
+                 'undeclared': (plant, 'notes.txt'), 'unreachable workflow': (unreachable, 'workflows/extra.yml'),
                  'missing resource': (missing, 'request.example.json'), 'symlink': (link, 'skills/dk-pr-fix/SKILL.md'),
                  'hand-maintained manifest': (manifest, '.codex-plugin'), 'case collision': (collision, 'license'),
                  'bytecode': (bytecode, 'workflows/helpers/__pycache__'),
@@ -167,7 +204,8 @@ class Closure(unittest.TestCase):
             with self.subTest(name):
                 root = copy_root(self.base / name)
                 change(root)
-                if name not in ('hand-maintained manifest', 'case collision', 'bytecode', 'symlink'):
+                if name not in ('hand-maintained manifest', 'case collision', 'bytecode', 'symlink',
+                                'normalization collision'):
                     regenerate(root)  # Even a refreshed closure.json cannot admit the change.
                 with self.assertRaises(package.PackageError) as raised:
                     package.check(root)

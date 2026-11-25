@@ -36,18 +36,21 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
 It writes nothing.
 
 1. It validates the descriptor with the upstream schema 1 rules: exact fields,
-   identities and exact semantic versions, unique skills, local workflow paths,
-   and contained resource paths. It also requires both hosts. The parser accepts
+   identities and exact semantic versions, unique skills, local workflow paths
+   inside a `workflows/` directory, and contained resource paths. It also requires both hosts. The parser accepts
    only the block-style subset this descriptor uses.
 2. It collects the declared closure: each `SKILL.md`, whose frontmatter name must
    match its binding; the local reusable-workflow closure from each skill's
    workflow; the helper paths declared under `files:`; the agent definitions
    under `definitions:`, which must be YAML that admission accepts; and the
-   declared resources. Remote or unsupported references, path traversal,
-   missing files and symlinks reject.
+   declared resources. A called workflow must declare `on.workflow_call`.
+   `files:` and `definitions:` must use block form, since the scanner reads no
+   flow values. Remote or unsupported references, path traversal, missing
+   files, invalid UTF-8 and symlinks reject.
 3. The installed files must be exactly that closure. An undeclared file rejects,
-   even when `closure.json` is regenerated to include it. So do case-insensitive
-   name collisions, Python bytecode and special files. A checked-in
+   even when `closure.json` is regenerated to include it. So do non-UTF-8 names,
+   names that collide after NFC normalization and case folding, Python bytecode
+   and special files. A checked-in
    `.codex-plugin`, `.claude-plugin`, `.agents`, `plugin.json`,
    `marketplace.json` or `compatibility.json` rejects, because the toolchain
    generates them. The files must also match `closure.json`.
@@ -112,8 +115,9 @@ the plugin root under paths with spaces and with different timestamps. They
 yield the same report and closure digest, and the closure equals `closure.json`
 plus the manifest itself. It also covers invalid descriptors, undeclared,
 unreachable, missing, linked, colliding and bytecode files, hand-maintained
-manifests, skill name mismatch, remote references, helper traversal, native
-agent formats, a manifest mismatch, executable modes, unknown inventory rows,
+manifests, skill name mismatch, remote references, helper traversal, flow-form
+helper and agent lists, called workflows without `workflow_call`, invalid UTF-8,
+Unicode normalization collisions, native agent formats, a manifest mismatch, executable modes, unknown inventory rows,
 foreign identities and blockers that inventory edits cannot remove.
 
 [`tests/test_prerequisites.py`](../tests/test_prerequisites.py) uses disposable
