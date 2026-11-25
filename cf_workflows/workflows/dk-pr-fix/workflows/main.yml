@@ -15,6 +15,7 @@ name: cf-workflows:dk-pr-fix
         - reconcile-decisions
         - address-feedback
         - stage: publication
+        - stage: responses
         - assess-scope
         - describe-pr
         - stage: reviews
@@ -24,6 +25,7 @@ name: cf-workflows:dk-pr-fix
         default:
         - inspect-commits
         - sync-guidance
+        - stage: responses
         - stage: ci
       reviewers:
         type: array
@@ -73,6 +75,13 @@ name: cf-workflows:dk-pr-fix
             writes: true
             assignment: Synchronize governing repository content only where the exact original request and selected
               policy require changes; account for every changed path.
+            definition: leaf
+          reply-feedback:
+            kind: reply
+            writes: false
+            assignment: 'Assess every feedback source against the published changes: quote each request, its addressee,
+              implementation disposition and response disposition. Draft one exact reply for each source that needs
+              an answer. Do not publish.'
             definition: leaf
           review:
             kind: review

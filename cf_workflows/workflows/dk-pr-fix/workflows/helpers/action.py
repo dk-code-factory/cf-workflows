@@ -97,6 +97,10 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
             ledger.db.execute("INSERT INTO ci_observations VALUES(?,?,?,?)",
                               (inputs["_operation"], observed["head"], observed["status"], canonical(observed).decode()))
         return observed
+    if operation in {"responses_settle", "responses_status"}:
+        from prfix import responses
+        handler = responses.settle if operation == "responses_settle" else responses.status
+        return handler(root, provider, ledger, plan, inputs)
     if operation.startswith("publication_") or operation == "merge_proposal":
         from prfix.publishing import dispatch as publish
         return publish(operation, root, provider, ledger, plan, inputs)

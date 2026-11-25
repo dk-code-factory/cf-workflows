@@ -86,13 +86,21 @@ def publication_list(root, provider, ledger, plan, inputs):
     from . import app
     snapshot = app._snapshot(root, provider, plan)
     selector = inputs.get("kind", "ordinary")
-    if selector not in {"ordinary", "merge", "all"}:
+    if selector not in {"ordinary", "merge", "responses", "all"}:
         raise PublicationError("unsupported publication selector")
     if not snapshot["identities"]["current"]:
         # Provisional analysis is private: no proposal is listed until the PR
         # metadata reaches the analyzed revision.
         return {"items": [], "provisional": app.provisional(snapshot),
                 "blockers": ["publication is withheld while analysis is provisional"]}
+    from . import responses
+    if selector == "responses":
+        # Feedback replies and resolutions. Retained dispatched originals come first,
+        # for read-only reconciliation only: they hold the lock and are never re-prepared.
+        listed = responses.proposals(root, provider, ledger, plan, snapshot)
+        return {"items": listed["reconcile"] + listed["items"], "blockers": listed["blockers"]}
+    # Replies to feedback sources belong to the selected response stage.
+    owned = responses.responder(plan) is not None
     selected, seen = [], {}
     rows = ledger.db.execute("SELECT * FROM accepted_reports ORDER BY rowid").fetchall()
     if selector != "merge" and snapshot["local_head"] != snapshot["head"]:
@@ -150,6 +158,9 @@ def publication_list(root, provider, ledger, plan, inputs):
             merge = proposal.get("kind") == "merge"
             if selector == "ordinary" and merge or selector == "merge" and not merge:
                 continue
+            if (selector == "ordinary" and owned and proposal.get("kind") in responses.REPLY_KINDS
+                    and proposal.get("source") is not None):
+                continue
             sources = proposal.get("sources")
             if sources is None or sources == []:
                 proposal["sources"] = [row["reference"]]
@@ -168,6 +179,11 @@ def publication_list(root, provider, ledger, plan, inputs):
                 continue
             seen[key] = fingerprint
             selected.append(proposal)
+    if selector == "all" and owned:
+        for proposal in responses.proposals(root, provider, ledger, plan, snapshot)["items"]:
+            if proposal["id"] not in seen:
+                seen[proposal["id"]] = digest(proposal)
+                selected.append(proposal)
     return {"items": selected}
 
 
@@ -350,7 +366,8 @@ def readiness(root, provider, ledger, plan, inputs=None):
     try:
         covered = app.coverage(root, provider, ledger, plan, {})
         result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []),
-                      withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []))
+                      withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []),
+                      responses=covered.get("responses"))
         snapshot = covered["snapshot"]
         result.update(head=snapshot["head"], target=snapshot["target"], provisional=app.provisional(snapshot))
         current_identity = snapshot["identities"]["current"]

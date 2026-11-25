@@ -577,6 +577,14 @@ def accept(root, provider, ledger, plan, inputs):
         report = decode_native_report(report)
         complete = verify_report(root, task, report)
         _dispositions(root, ledger, plan, task, report, agent, assignment)
+        if task["kind"] == "reply" and complete:
+            # The responder must account for every current source and draft every owed reply.
+            from .feedback import FeedbackError
+            from .responses import accept as retain_responses
+            try:
+                retain_responses(root, provider, plan, report)
+            except FeedbackError as error:
+                raise ReportContractError("feedback responses: " + str(error)) from error
     except ReportContractError as error:
         return _reject_report(root, provider, ledger, plan, claim, assignment,
                               report, agent, round_number, error)
@@ -811,6 +819,12 @@ def coverage(root, provider, ledger, plan, inputs):
         elif (not observed or observed["head"] != snapshot["head"] or observed["status"] != "success"
                 or snapshot["local_head"] != snapshot["head"]):
             missing.append("current_head_ci")
+    # A selected response stage completes only with every owed reply verified. An
+    # unselected one is reported as such, never as settled.
+    from .responses import status as response_status
+    responses = response_status(root, provider, ledger, plan)
+    if responses["selected"] and responses["status"] != "complete":
+        missing.append("feedback_responses")
     # Selected-plan coverage, current identity agreement and readiness stay
     # separate. Provisional coverage is private analysis of the pinned revision.
     # Once waits are exhausted, nothing more a cycle can do: the run settles.
@@ -820,6 +834,6 @@ def coverage(root, provider, ledger, plan, inputs):
             "provisional": provisional(snapshot), "reconciliation": waits,
             "waiting": waits is not None and not waits["exhausted"],
             "settled": analyzed and (waits is None or waits["exhausted"]),
-            "missing": missing, "withheld": withheld, "unresolved": unresolved,
+            "missing": missing, "withheld": withheld, "unresolved": unresolved, "responses": responses,
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

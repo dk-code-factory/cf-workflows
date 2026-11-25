@@ -25,6 +25,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Installed dk-pr-fix workflow, preflight and state namespace](docs/dk-pr-fix.md)
 - [Plugin descriptor, resource closure and runtime prerequisites](docs/packaging.md)
 - [Feedback implementation, response obligations and thread resolution](docs/feedback.md)
+- [Feedback replies settled before independent review](docs/responses.md)
 - [Supplied-skill bindings and engine-observed evidence](docs/skills.md)
 - [Exact-intent publication and uncertain-effect reconciliation](docs/publication.md)
 - [Provisional analysis while PR metadata reconciles](docs/provisional.md)

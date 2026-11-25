@@ -280,6 +280,18 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md",
       "reason": "Suite skill entry point; no upstream counterpart (docs/packaging.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py",
+      "reason": "Feedback obligations (#20), installed so helper containers run the response stage; no upstream counterpart (docs/feedback.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/responses.py",
+      "reason": "Response stage helpers (#21); no upstream counterpart (docs/responses.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/responses.yml",
+      "reason": "Response stage orchestration (#21); no upstream counterpart (docs/responses.md)."
     }
   ],
   "corrections": [

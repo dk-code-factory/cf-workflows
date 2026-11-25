@@ -46,9 +46,11 @@ ACTIONS = ('push', 'edit_pr', 'reply', 'resolve_thread', 'request_review', 'crea
 PRECEDENCE = ('personal', 'repository', 'upstream', 'pr', 'invocation')
 ADMITTED_ROLES = ('leaf', 'reviewer', 'verifier', 'fixer', 'audience')
 GUIDANCE = ('AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', '.github/copilot-instructions.md')
-STAGES = ('publication', 'reviews', 'ci')
+STAGES = ('publication', 'responses', 'reviews', 'ci')
 KINDS = ('review', 'inspection', 'decisions', 'fix', 'scope', 'description', 'cleanup',
-         'synchronization', 'task')
+         'synchronization', 'reply', 'task')
+# The response stage's read-only adapter; it runs only inside that stage (docs/responses.md).
+RESPONDER = 'reply-feedback'
 PROMPT_SLOTS = ('task', 'reviewer', 'finalizer', 'assessment', 'selection', 'reconciliation',
                 'reply', 'cleanup', 'commit', 'behavior_replacement', 'behavior_addition',
                 'completion', 'additional')
@@ -92,6 +94,9 @@ BASELINE_ADAPTERS = {
     'sync-guidance': {'kind': 'synchronization', 'writes': True, 'definition': 'leaf', 'assignment':
         'Synchronize governing repository content only where the exact original request and selected policy require changes; '
         'account for every changed path.'},
+    'reply-feedback': {'kind': 'reply', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Assess every feedback source against the published changes: quote each request, its addressee, implementation '
+        'disposition and response disposition. Draft one exact reply for each source that needs an answer. Do not publish.'},
     'review': {'kind': 'review', 'writes': False, 'definition': 'reviewer', 'assignment':
         'Review the actual changes against the originating issue, documented repository standards and accepted user scope. '
         'Return supported actionable findings or an evidenced no-findings report.', 'checklist': [
@@ -101,8 +106,8 @@ BASELINE_ADAPTERS = {
 }
 DEFAULTS = {
     'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback', {'stage': 'publication'},
-              'assess-scope', 'describe-pr', {'stage': 'reviews'}, {'stage': 'publication'}],
-    'finalizers': ['inspect-commits', 'sync-guidance', {'stage': 'ci'}],
+              {'stage': 'responses'}, 'assess-scope', 'describe-pr', {'stage': 'reviews'}, {'stage': 'publication'}],
+    'finalizers': ['inspect-commits', 'sync-guidance', {'stage': 'responses'}, {'stage': 'ci'}],
     'reviewers': ['review'],
     'adapters': {},
     'limits': {'review_cycles': 5, 'retries_per_task': 1, 'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3},
@@ -794,6 +799,7 @@ def check_adapter(name, adapter, path):
     for key in ('writes', 'history', 'head_sensitive', 'cacheable'):
         require(type(adapter.get(key, False)) is bool, f'{path}.{key}', 'must be boolean')
     require(not (adapter.get('writes') and kind == 'review'), path + '.writes', 'reviewers cannot write')
+    require(not (adapter.get('writes') and kind == 'reply'), path + '.writes', 'the response stage cannot write')
     checklist = adapter.get('checklist', CHECKLIST)
     require(isinstance(checklist, list) and 0 < len(checklist) <= 32, path + '.checklist', 'invalid checklist')
     for index, item in enumerate(checklist):
@@ -809,6 +815,7 @@ def check_adapter(name, adapter, path):
 
 def build_plan(options, adapters, roles, skills, resources, locations):
     tasks, stages = [], []
+    responder = None
 
     def at(raw, index, n):
         """Exact selection path inside a raw plan: [index] or [index][n] for a parallel group."""
@@ -819,6 +826,8 @@ def build_plan(options, adapters, roles, skills, resources, locations):
         require(name in adapters, path + '.task', 'unavailable selected adapter: ' + name)
         adapter = adapters[name]
         require(fallback is None or adapter['kind'] == fallback, path, 'reviewer selection must use read-only review adapters')
+        require(fallback == 'reply' or adapter['kind'] != 'reply', path + '.task',
+                'reply adapters run only inside the response stage; select {"stage": "responses"}')
         for index, ref in enumerate(adapter['resources']):
             resource_ref(ref, resources, f'options.adapters.{name}.resources[{index}]')
         skill = call.get('skill')
@@ -843,6 +852,12 @@ def build_plan(options, adapters, roles, skills, resources, locations):
             stage = group[0].get('stage')
             if stage in ('publication', 'ci'):
                 stages.append({'kind': stage, 'phase': phase})
+            elif stage == 'responses':
+                # Every response stage shares one responder occurrence, so a later stage
+                # reuses its current result and only new or changed feedback reruns it.
+                if responder is None:
+                    responder = task({'task': RESPONDER}, f'{where}.stage', phase, 'reply')
+                stages.append({'kind': 'responses', 'phase': phase, 'task': responder['id']})
             elif stage == 'reviews':
                 if 'reviewers' in group[0]:
                     reviewers, prefix = group[0]['reviewers'], base + at(raw, index, 0) + '.reviewers'

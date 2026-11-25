@@ -33,6 +33,8 @@ REVIEW = {"kind": "review", "definition": "reviewer", "writes": False, "cacheabl
           "assignment": "Review the exact fixture and retain original findings."}
 RULED = {"kind": "review", "definition": "reviewer", "writes": False, "resources": ["rules"],
          "assignment": "Review against the governing rules resource."}
+RESPONDER = {"kind": "reply", "definition": "leaf", "writes": False,
+             "assignment": "Assess every feedback source and draft each owed reply."}
 
 
 def git(root, *args):
@@ -116,7 +118,7 @@ class Continuation(unittest.TestCase):
 
     def prepare(self, tasks=(), finalizers=(), execution="exec-1", logical_run=None, settings=None, **options):
         controls = {"tasks": list(tasks), "finalizers": list(finalizers), "settings": settings or {},
-                    "adapters": {**DEFAULT_ADAPTERS, "review": REVIEW, "ruled-review": RULED,
+                    "adapters": {**DEFAULT_ADAPTERS, "review": REVIEW, "ruled-review": RULED, "reply-feedback": RESPONDER,
                                  "plain-review": {**RULED, "resources": []}},
                     "resources": ["rules"], "turns": 8, **options}
         request = {"pr": PR_URL, "instructions": "Fix the selected issue.", "authorizations": {}}

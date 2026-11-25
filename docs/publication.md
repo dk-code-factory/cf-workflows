@@ -44,6 +44,11 @@ effect, an effect key when it creates a unique object, and preparation,
 dispatch and reconciliation fixtures with response loss before and after the
 effect. Until then it stays in `EXTENSIONS` and denies.
 
+Replies to feedback sources and thread resolutions come from the selected
+[response stage](responses.md) through the `responses` listing. When that stage
+is selected, the ordinary barrier skips native reply proposals that name a
+feedback source.
+
 ## Intents
 
 Preparation records an immutable intent in the logical run's SQLite ledger. The

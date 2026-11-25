@@ -16,6 +16,10 @@ unanswered, and each such decision is retained privately with its reason.
 The record is a versioned SQLite database per logical run in the suite's state
 namespace. Discussion is read from one GitHub capture per observation; nothing here
 publishes, and a reply counts only once it is observed in the exact location.
+
+This module is part of the installed helper closure, so it uses only the
+standard library and runs inside helper containers. The response stage
+(``responses.py``) drives it from the dk-pr-fix workflow.
 """
 import hashlib
 import json
@@ -24,9 +28,7 @@ from pathlib import Path
 import re
 import sqlite3
 
-from cf_workflows import admission
-from cf_workflows.admission import digest
-
+SUITE = 'cf-workflows'
 SCHEMA_VERSION = 1
 KIND = 'feedback_state'
 COLLECTIONS = {'comment': 'comments', 'review': 'reviews', 'inline': 'inline'}
@@ -40,6 +42,15 @@ _LOGIN = re.compile(r'^[A-Za-z0-9-]{1,39}(\[bot\])?$')
 
 class FeedbackError(ValueError):
     """Feedback evidence or a proposed disposition is not supported."""
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'),
+                      ensure_ascii=False, allow_nan=False).encode('utf-8')
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value)).hexdigest()
 
 
 def require(condition, message):
@@ -272,20 +283,35 @@ def ledger_path(state_directory, logical_run):
 
 
 def dumps(value):
-    return admission.canonical(value).decode('utf-8')
+    return canonical(value).decode('utf-8')
 
 
 class Ledger:
     """Retained feedback decisions for one logical run and PR."""
 
-    def __init__(self, path, *, logical_run, pr):
+    def __init__(self, path, *, logical_run, pr, read_only=False):
         self.path = Path(path)
+        expected = {'suite': SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr['url'].lower()}
+        if read_only:
+            # Checkpoint validation and status reads never create or migrate the record.
+            require(not self.path.is_symlink() and self.path.is_file(), 'feedback ledger is unavailable')
+            self.db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True,
+                                      isolation_level=None, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            try:
+                version = self.db.execute('PRAGMA user_version').fetchone()[0]
+                require(version == SCHEMA_VERSION, f'unsupported feedback ledger version {version}')
+                require(dict(self.db.execute('SELECT key, value FROM meta').fetchall()) == expected,
+                        'feedback ledger belongs to another logical run or PR')
+            except (FeedbackError, sqlite3.DatabaseError) as error:
+                self.db.close()
+                raise FeedbackError(str(error)) from error
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         require(not self.path.is_symlink(), 'feedback ledger must not be a symlink')
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
         self.db.row_factory = sqlite3.Row
         os.chmod(self.path, 0o600)
-        expected = {'suite': admission.SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr['url'].lower()}
         try:
             with self.transaction():
                 version = self.db.execute('PRAGMA user_version').fetchone()[0]
@@ -388,6 +414,29 @@ class Ledger:
     def replies(self, source_key, fingerprint):
         return [row['reply'] for row in self.db.execute(
             'SELECT reply FROM replies WHERE source = ? AND fingerprint = ? ORDER BY rowid', (source_key, fingerprint))]
+
+    def recorded(self, reference):
+        """Whether a publication reference was ever recorded as an observed reply."""
+        return self.db.execute('SELECT 1 FROM replies WHERE reference = ?', (dumps(reference),)).fetchone() is not None
+
+
+class Unrecorded:
+    """A logical run with no feedback record yet: nothing assessed, nothing replied."""
+
+    def current(self, source, fingerprint):
+        return None
+
+    def history(self, source):
+        return []
+
+    def replies(self, source_key, fingerprint):
+        return []
+
+    def recorded(self, reference):
+        return False
+
+    def close(self):
+        pass
 
 
 # -- Stage completion and thread resolution --------------------------------------------------

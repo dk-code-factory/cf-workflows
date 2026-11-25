@@ -54,6 +54,16 @@ jobs:
     secrets:
       github_token: ${{ secrets.github_token }}
     if: ${{ inputs.stage.kind == 'ci' }}
+  responses:
+    uses: workflows/responses.yml
+    with:
+      plan: ${{ inputs.plan }}
+      stage: ${{ inputs.stage }}
+      cycle: ${{ inputs.cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    if: ${{ inputs.stage.kind == 'responses' }}
   ci:
     uses: workflows/ci-pass.yml
     with:

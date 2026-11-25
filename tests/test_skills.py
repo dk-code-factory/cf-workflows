@@ -389,16 +389,17 @@ class InstalledOccurrences(Fixture):
     def test_occurrence_ids_match_the_installed_prepare_helper(self):
         import test_dk_pr_fix_continuation as installed
         tasks = [['read-feedback', 'assess-scope', {'task': 'describe-pr', 'instructions': 'Short.'}],
-                 'describe-pr', {'stage': 'reviews', 'reviewers': [['review', 'review']]}]
+                 {'stage': 'responses'}, 'describe-pr', {'stage': 'reviews', 'reviewers': [['review', 'review']]}]
+        finalizers = ['inspect-commits', {'stage': 'responses'}]
         harness = installed.Continuation('run')
         harness.setUp()
         try:
-            prepared = installed.Continuation.prepare(harness, tasks=tasks, finalizers=['inspect-commits'])
+            prepared = installed.Continuation.prepare(harness, tasks=tasks, finalizers=finalizers)
         finally:
             harness.doCleanups()
         fixed = {'finding_verification', 'finding_fix', 'ci_repair'}
         expected = [task['id'] for task in prepared['tasks'] if task['id'] not in fixed]
-        result = self.admit(invocation={'options': {'tasks': tasks, 'finalizers': ['inspect-commits']}})
+        result = self.admit(invocation={'options': {'tasks': tasks, 'finalizers': finalizers}})
         self.assertEqual([item['occurrence'] for item in skills.session_plan(result)['occurrences']], expected)
 
 
