@@ -84,6 +84,43 @@ def _kill_process_group(child):
             raise
 
 
+class CommandFailed(RuntimeError):
+    """A nonzero exit. Keeps the bounded standard output, never standard error."""
+
+    def __init__(self, program, code, stdout):
+        super().__init__(program + " exited with status " + str(code))
+        self.code = code
+        self.stdout = stdout
+
+
+class HTTPFailure(RuntimeError):
+    """A GitHub write answered with an HTTP error status.
+
+    ``status`` is the exact status line code and ``body`` the decoded JSON
+    object, or ``None`` when the body was not one. Response headers are dropped.
+    The transport classifies nothing; publication policy decides whether a
+    failure is conclusive.
+    """
+
+    def __init__(self, status, body):
+        super().__init__("GitHub write failed with HTTP status " + str(status))
+        self.status = status
+        self.body = body
+
+
+_STATUS = re.compile(r"HTTP/[0-9](?:\.[0-9])? ([1-5][0-9]{2})(?: [^\r\n]*)?")
+
+
+def _included(raw):
+    """Split ``gh api --include`` output into its exact status and body."""
+    parts = re.split(r"\r?\n\r?\n", raw.decode("utf-8", errors="strict"), maxsplit=1)
+    status = _STATUS.fullmatch(parts[0].splitlines()[0]) if parts[0] else None
+    if status is None:
+        raise ValueError("malformed GitHub response status")
+    # Headers without a following blank line mean an empty body.
+    return int(status.group(1)), parts[1] if len(parts) == 2 else ""
+
+
 def run(root, argv, data=None, *, timeout=60, limit=MAX_OUTPUT, env=None):
     """Bound both pipes while the process runs, including diagnostic output.
 
@@ -142,7 +179,7 @@ def run(root, argv, data=None, *, timeout=60, limit=MAX_OUTPUT, env=None):
             if code:
                 # Avoid copying credential-bearing gh diagnostics into durable
                 # application state. The enclosing runtime owns redaction.
-                raise RuntimeError(argv[0] + " exited with status " + str(code))
+                raise CommandFailed(argv[0], code, bytes(streams[child.stdout][0]))
             completed = True
             return bytes(streams[child.stdout][0])
         finally:
@@ -186,11 +223,36 @@ class GitHub:
                 or any(p in (".", "..") for p in path.split("?", 1)[0].split("/"))):
             raise ValueError("relative GitHub API route required")
         args = ["gh", "api", "--hostname", self.host, "--method", method, path]
+        # Writes include the status line so an HTTP failure keeps its exact
+        # status and body as evidence; headers are dropped.
+        include = method != "GET"
+        if include:
+            args.append("--include")
         data = None
         if payload is not None:
             data = canonical(payload)
             args += ["--input", "-"]
-        observed = run(self.root, args, data, env=self._environment())
+        try:
+            observed = run(self.root, args, data, env=self._environment())
+        except CommandFailed as failed:
+            if not include:
+                raise
+            try:
+                status, body = _included(failed.stdout)
+            except (ValueError, UnicodeError):
+                raise failed from None
+            if status < 400:
+                raise failed
+            try:
+                decoded = _decode(body.encode())
+            except (ValueError, UnicodeError):
+                decoded = None
+            raise HTTPFailure(status, decoded if isinstance(decoded, dict) else None) from None
+        if include:
+            status, body = _included(observed)
+            if status >= 400:
+                raise ValueError("GitHub reported an HTTP error with a successful exit")
+            observed = body.encode()
         if raw:
             return observed.decode("utf-8", errors="strict")
         return _decode(observed) if observed.strip() else {}

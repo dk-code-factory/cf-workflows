@@ -37,6 +37,9 @@ runs, deletes checkpoints and changes configuration, and checks the
 `tests/test_dk_pr_fix_publication.py` injects response loss before and after the
 effect of every supported write kind and counts dispatches, as described in
 [exact-intent publication](publication.md#verification).
+`tests/test_dk_pr_fix_pending_review.py` ports the dk-workflows#260
+[pending-review](publication.md#pending-reviews) scenarios on the same
+fail-closed transport and counts review submissions.
 
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any

@@ -58,8 +58,8 @@ intent holds:
 
 The ID is stable. Preparing the same ID again returns the original intent, and
 any change to the kind, pins, payload or sources is a conflict. An existing
-actor-owned pending review refuses a review submission. It is never submitted
-or discarded.
+actor-owned pending review refuses a review submission before any intent is
+recorded (see [pending reviews](#pending-reviews)).
 
 ## Dispatch
 
@@ -100,14 +100,52 @@ reviewer, a timeout or a generic error keeps the intent `pending`. Executing a
 While an intent is `pending`, no other write of the run can dispatch. There is
 no automatic override.
 
-`not_applied` needs a transport that raises `Rejected` with evidence. The
-GitHub transport does not classify any failure as conclusive yet (#18 adds the
-pending-review case). So every real failure stays `pending`.
+`not_applied` needs conclusive evidence from the original dispatch: a
+transport that raises `Rejected` with evidence, or the
+[pending-review rejection](#pending-reviews). Every other real failure stays
+`pending`.
 
 A `not_applied` or `blocked` intent is never resent. Preparing its ID again
 creates a fresh attempt, `<id>.r<n>`. The attempt records which intent it
 supersedes, takes a new baseline and needs its own audience assessment. At most
 three fresh attempts follow an original.
+
+## Pending reviews
+
+GitHub allows one pending (draft) review per actor and PR. A pending review
+owned by the authenticated actor is never submitted, deleted, overwritten or
+adopted. Another account's draft is not the actor's pending review.
+
+- **Preflight.** Preparing a `submit_review` captures the PR first. An
+  actor-owned pending review refuses with `PendingReview`, which names the
+  review IDs and the recovery step: submit or delete the draft on GitHub, then
+  prepare again. No intent is recorded.
+- **Dispatch.** The dispatch recheck repeats the check. A draft that appeared
+  after preparation blocks the intent without a write.
+- **Rejection.** A draft can still appear between the recheck and the request.
+  For writes, the GitHub transport runs `gh api --include` and raises
+  `HTTPFailure` with the exact status and JSON body; headers and standard
+  error are dropped. Dispatch retains that failure in an `error` event before
+  classifying it. Only HTTP 422 whose body is exactly `message: Unprocessable
+  Entity` with `errors: ["User can only have one pending review per pull
+  request"]` (and optionally `status: "422"` and `documentation_url`) is
+  conclusive. It settles the intent `not_applied` with a `rejected` event that
+  holds the classifier, the intent fingerprint and the body.
+- **Uncertain.** Timeouts, transport errors, other or additional 422 errors,
+  malformed bodies, other statuses, and the presence or absence of a draft now
+  keep the intent `pending`. Reconciliation then needs the exact review, and
+  nothing is resent.
+- **Resumed recovery.** If the process stops after the failure was retained but
+  before settlement, reconciliation (still read-only) reports `no_effect` from
+  that retained original evidence, and executing the intent settles it
+  `not_applied`. This needs exactly one dispatch, no acknowledged response and
+  exactly one retained failure. It is decided before any observation, so the
+  rejected intent never adopts a review that exists later, even one with the
+  same text.
+- **Later attempts.** A `not_applied` intent is never resent and never gets a
+  receipt. Preparing its ID again refuses while the draft remains. Afterwards
+  it creates a fresh attempt with the original, unchanged payload, a new
+  baseline and its own audience assessment.
 
 ## Receipts
 
@@ -146,6 +184,15 @@ write to the ledger. It also covers:
 - each drift class blocking without a write;
 - payload conflicts and bounded fresh attempts;
 - conclusive rejection, and rejection without evidence;
+- pending reviews, in
+  [`tests/test_dk_pr_fix_pending_review.py`](../tests/test_dk_pr_fix_pending_review.py),
+  which ports the dk-workflows#260 scenarios. Its fake review endpoint refuses
+  like GitHub while the actor owns a draft. It covers preflight, a draft
+  created before the dispatch recheck and one created after it, eleven
+  ambiguous failures with a draft present, a timeout with no draft, conclusive
+  rejection after the draft is gone, resumed recovery in a fresh process next
+  to an identical later review, a fresh attempt that cannot reuse the original
+  identity or receipt, and the transport's status and body parsing;
 - duplicate receipts;
 - a second writer refused by the lock;
 - a restart that keeps the intent and its audience;
@@ -163,7 +210,9 @@ mapping of permissions and authorizations.
 - Running the workflow, and so real dispatch through the engine, needs Agent
   Workflow #129 and #130.
 - Merge stays disabled until #19 and Agent Workflow #138.
-- Conclusive pending-review rejection and its recovery: #18.
+- The pending-review classifier matches the exact 422 body reported
+  in dk-workflows#260. Live conformance of that body needs separate
+  authorization.
 - Approval, issue and fork-CI kinds: #31, #32 and #35.
 - GitHub publication conformance needs separate authorization; these fixtures
   do not establish it.
