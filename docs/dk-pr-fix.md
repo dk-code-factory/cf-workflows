@@ -38,6 +38,9 @@ extracted file and ported test to its path and SHA-256 at the pinned commit
 `16ec5eecccd367dfdffcf1b529c51d181bbced49`. Each file is `verbatim`, `adapted` or
 `converted`. Every other file of the example is listed as excluded, with a reason:
 the copy-into-workspace README and the optional review-profile generator.
+Its `corrections` list upstream fixes consumed after the pin. Each names the
+upstream commit and the exact definitions taken from it, such as the merge
+guard from Agent Workflow #138.
 The [baseline checker](verification.md) compares the files with the pinned objects.
 
 The five Codex TOML roles are converted to the engine's canonical YAML form:
@@ -89,8 +92,10 @@ starts no session and runs nothing.
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission
-   rejects, and so do merge, approval, issue and fork-CI actions (see
-   [exact-intent publication](publication.md)). Every other input is `false`.
+   rejects, and so do approval, issue and fork-CI actions (see
+   [exact-intent publication](publication.md)). Merge also needs the engine's
+   `merge_guard` capability ([merge readiness](publication.md#merge-readiness)).
+   Every other input is `false`.
 4. It maps the effective options onto the declared inputs: tasks, finalizers,
    reviewers, the selected baseline adapters, limits, CI timeout, merge method,
    accounts, settings and turns. `inputs.request` names the staged request.
@@ -252,8 +257,7 @@ provider or host capability.
 - [Agent Workflow #139](https://github.com/dk-code-factory/agent-workflow/issues/139)
   discovery-isolation PR: sessions with host and repository skill and plugin
   discovery disabled, and observed evidence of the session's plugin set.
-- [Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138)
-  and #19: merge. Other publication kinds are helper-side only until the
+- Every publication kind, merge included, is helper-side only until the
   workflow runs ([exact-intent publication](publication.md#what-remains)).
 - Proof that budgets, occurrences and continuation hold across real engine runs
   and native sessions needs #129 and #130. The fixtures exercise only the

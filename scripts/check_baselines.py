@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify committed inventory and extraction against exact local Git objects; never fetch or execute them."""
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -93,7 +94,7 @@ def check(dk, engine):
             target.relative_to(ROOT)
             require(target.is_file(), f'{file.relative_to(ROOT)}: broken link {link}')
     print('Verified 29 distinct rows, both pinned host manifests/entries, direct resource hashes, '
-          'portable source paths, the dk-pr-fix extraction, license notices and local Markdown file targets.')
+          'portable source paths, the dk-pr-fix extraction and its upstream corrections, license notices and local Markdown file targets.')
 
 
 def converted_agent(source):
@@ -127,6 +128,42 @@ def check_extraction(engine, commit):
             require(local == converted_agent(source), entry['path'] + ': differs from canonical conversion')
         else:
             require(entry['change'] == 'adapted' and local != source, entry['path'] + ': wrong change kind')
+    check_corrections(engine, commit, provenance)
+
+
+def symbol(source, name):
+    """Exact source of a top-level or dotted nested function/class definition, or None."""
+    nodes, node = ast.parse(source).body, None
+    for part in name.split('.'):
+        node = next((n for n in nodes if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == part), None)
+        if node is None:
+            return None
+        nodes = node.body
+    return ast.get_source_segment(source, node)
+
+
+def check_corrections(engine, commit, provenance):
+    """Upstream corrections consumed after the pin keep their exact upstream definitions."""
+    adapted = {entry['path']: entry['upstream'] for entry in provenance['files'] if entry['change'] == 'adapted'}
+    for correction in provenance.get('corrections', []):
+        fix = correction['commit']
+        require(git(engine, 'cat-file', '-t', fix).strip() == b'commit', 'missing correction ' + fix)
+        require(subprocess.run(['git', '-C', str(engine), 'merge-base', '--is-ancestor', commit, fix]).returncode == 0,
+                fix + ': correction does not descend from the extraction pin')
+        for entry in correction['files']:
+            require(adapted.get(entry['path']) == entry['upstream'], entry['path'] + ': correction target is not adapted')
+            source = git(engine, 'show', f'{fix}:{entry["upstream"]}')
+            require(hashlib.sha256(source).hexdigest() == entry['upstream_sha256'], entry['upstream'] + ': correction digest differs')
+            local = (ROOT / entry['path']).read_text()
+            require(entry['symbols'] and not set(entry['symbols']) & set(entry['adapted_symbols']),
+                    entry['path'] + ': correction symbols must be listed once')
+            for name in entry['symbols']:
+                found = symbol(local, name)
+                require(found is not None and found == symbol(source.decode(), name),
+                        f'{entry["path"]}: {name} differs from correction {fix}')
+            for name, reason in entry['adapted_symbols'].items():
+                require(bool(reason) and symbol(local, name) is not None and symbol(source.decode(), name) is not None,
+                        f'{entry["path"]}: adapted correction symbol {name} missing')
 
 
 if __name__ == '__main__':

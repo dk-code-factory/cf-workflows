@@ -33,7 +33,6 @@ at preflight, and their kinds deny at preparation:
 
 | Action | Owner |
 | --- | --- |
-| `merge` | #19, which also needs Agent Workflow #138 |
 | `approve_pr` | #31 |
 | `create_issue`, `edit_issue` | #32 |
 | `approve_fork_ci` | #35 |
@@ -67,11 +66,42 @@ Dispatch rechecks everything against the current plan and the live service:
 authority, permission, sources, actor, PR identity, pins, incoming discussion,
 remote branch lease, and the PR fields an edit would overwrite. Drift moves the
 intent to `blocked` without a write. A merge also needs current readiness;
-completing the selected plan never implies it.
+completing the selected plan never implies it (see [Merge readiness](#merge-readiness)).
 
 The independent audience assessment of the exact intent fingerprint is
 retained in the same transaction that takes the run's publication lock and
 moves the intent to `pending`. Only then is the write sent.
+
+## Merge readiness
+
+Merge needs its own `merge` permission and authorization, and admission requires
+the engine's `merge_guard` capability. Readiness, when the merge is proposed and
+again at dispatch, needs all of the following:
+
+- complete selected work, with current review and independent verification of
+  the exact clean published head;
+- successful CI for that exact head;
+- an open, clean, mergeable, non-draft PR at the pinned head and target;
+- a review decision of `APPROVED` or explicit `null`;
+- a complete, paginated enumeration of review requests with none outstanding.
+
+The repository check is Agent Workflow #138's corrected guard, consumed
+unchanged (dk-workflows#253). Any pending user or team request holds merge,
+including a request renewed after an approval of the same head, whatever the
+aggregate decision. The hold names the pending users and teams and never
+withdraws a request. A missing, malformed, unsupported or partial enumeration,
+or an omitted or unknown decision, also holds.
+
+At dispatch, the readiness callback recaptures coverage and CI, and the
+repository read follows it immediately before the lock and the write. A
+request, CI change or missing readiness found there keeps the intent `prepared`
+with no write, so it can dispatch once requirements hold again. Head, target,
+authority or permission drift blocks it. A request added after that final read
+is not visible to the helper; the merge call still pins the head.
+
+A merge whose response is lost stays `pending`. Reconciliation only looks for
+the exact merge commit. An open PR, restarted helpers, a lost checkpoint and
+unavailable request data never cause a second merge request.
 
 ## Journal
 
@@ -198,18 +228,25 @@ write to the ledger. It also covers:
 - a restart that keeps the intent and its audience;
 - preserved pending reviews;
 - merge without readiness;
+- merge readiness (`MergeGating`): renewed same-head user and team requests
+  under `APPROVED`, `null`, empty and `REVIEW_REQUIRED` decisions; missing,
+  malformed and unavailable enumeration; incomplete review, verification and
+  CI; head, target, authority and permission drift; requests and CI changes
+  after preparation, including a request that lands after the readiness
+  recapture; no-request paths; and lost merge responses with a lost
+  checkpoint. Each asserts zero or one writes and the number of request reads;
 - unavailable kinds and disabled defaults denied with no service call;
 - the version 2 ledger migration;
 - writes only inside the publication dispatch and no credentials in native-session steps.
 
 [`tests/test_dk_pr_fix.py`](../tests/test_dk_pr_fix.py) covers the preflight
-mapping of permissions and authorizations.
+mapping of permissions and authorizations. The ported example tests carry the
+upstream #138 fixtures for the guard itself.
 
 ## What remains
 
 - Running the workflow, and so real dispatch through the engine, needs Agent
   Workflow #129 and #130.
-- Merge stays disabled until #19 and Agent Workflow #138.
 - The pending-review classifier matches the exact 422 body reported
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.

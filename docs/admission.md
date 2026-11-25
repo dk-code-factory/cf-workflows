@@ -118,6 +118,7 @@ after one level.
 - Supplied-skill bindings and evidence: [skills.md](skills.md); loading needs Agent Workflow #139.
 
 No real engine reports these capabilities yet; the gating issues are Agent
-Workflow #129, #130 and #138. Until they land, real preflight rejects. The tests
-use a fail-closed fake transport, and their results do not certify any engine,
+Workflow #129 and #130. Until they land, real preflight rejects. The #138
+merge-guard correction has landed, and the installed helpers consume it. The
+tests use a fail-closed fake transport, and their results do not certify any engine,
 provider or host.

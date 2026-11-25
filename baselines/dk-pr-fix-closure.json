@@ -281,5 +281,52 @@
       "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md",
       "reason": "Suite skill entry point; no upstream counterpart (docs/packaging.md)."
     }
+  ],
+  "corrections": [
+    {
+      "issue": "https://github.com/dk-code-factory/agent-workflow/issues/138",
+      "pull_request": "https://github.com/dk-code-factory/agent-workflow/pull/141",
+      "commit": "2406f002319528a65de0091bd3b73c366ecc27db",
+      "summary": "Hold merge for outstanding user and team review requests, including renewed requests after same-head approval; missing, malformed or incomplete request data also holds.",
+      "files": [
+        {
+          "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publication.py",
+          "upstream": "examples/pr-fix/workflows/helpers/prfix/publication.py",
+          "upstream_sha256": "f89dec1bc2560ff70d1a6cfe0f1733789f6a86d6c6691cd549fa6548d90b809b",
+          "symbols": [
+            "_review_identity",
+            "_pending_reviewer",
+            "repository_merge_requirements"
+          ],
+          "adapted_symbols": {}
+        },
+        {
+          "path": "tests/dk_pr_fix/test_publication.py",
+          "upstream": "examples/pr-fix/tests/test_publication.py",
+          "upstream_sha256": "450a8bb7b6ccf50357c0650e716609bf6b864f2662c88a6752a81b37be5ff31b",
+          "symbols": [
+            "review_request",
+            "review_page",
+            "RepositoryMergeRequirementsTests",
+            "PublicationTests.test_renewed_same_head_request_holds_dispatch_until_fulfilled",
+            "PublicationTests.test_prepared_merge_restart_requires_current_complete_requests"
+          ],
+          "adapted_symbols": {
+            "PublicationTests.test_uncertain_merge_never_resends_after_restart_or_lost_acknowledgement": "The contract journal state of an unsettled dispatch is pending, not uncertain."
+          }
+        },
+        {
+          "path": "tests/dk_pr_fix/test_publishing.py",
+          "upstream": "examples/pr-fix/tests/test_publishing.py",
+          "upstream_sha256": "fa027f8ff9fb4d66b455f0ee5fdd4b5651573141cf55fb3fc5142132bec4de8e",
+          "symbols": [
+            "PublishingTests.test_readiness_requires_complete_request_enumeration_each_time"
+          ],
+          "adapted_symbols": {
+            "PublishingTests.test_readiness_and_merge_proposal_hold_current_user_and_team_requests": "Enables the merge permission, so each hold comes from the requests, not a missing permission."
+          }
+        }
+      ]
+    }
   ]
 }

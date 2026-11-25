@@ -22,7 +22,7 @@ from prfix import publication as publication_module
 from prfix.core import SCHEMA_VERSION, Ledger, canonical, digest, identity, ledger_path, state_directory
 from prfix.publication import (EXTENSIONS, FRESH_ATTEMPTS, PERMISSION_INPUTS, SUPPORTED, Publication,
                                PublicationError, Rejected, UncertainEffect)
-from test_publication import AUTH, BASE, GRANTS, HEAD, OTHER, FakeGitHub
+from test_publication import AUTH, BASE, GRANTS, HEAD, OTHER, FakeGitHub, review_page, review_request
 
 HELPERS = Path(publication_module.__file__).resolve().parents[1]
 WORKFLOWS = HELPERS.parent
@@ -427,6 +427,196 @@ class HttpKinds(Fixture):
         # Waiting for readiness is not drift; the intent stays dispatchable.
         self.assertEqual(self.state(ledger, prepared["id"]), "prepared")
         self.assertEqual(provider.writes, [])
+
+
+
+class MergeGating(Fixture):
+    """Merge readiness and dispatch hold for current review, CI and review requests (#19).
+
+    Covers dk-workflows#253 through Agent Workflow #138's guard: every pending
+    user or team request holds merge, whatever the aggregate review decision.
+    """
+
+    APPROVAL = {"id": 41, "state": "APPROVED", "commit_id": HEAD, "user": {"id": 31, "login": "alice"}}
+
+    def merge(self, **world):
+        publisher, provider, ledger = self.world(**world)
+        provider.ev["reviews"] = [copy.deepcopy(self.APPROVAL)]
+        prepared = publisher.prepare(self.proposal("merge", {"merge_method": "merge"}, "merge"))
+        return publisher, provider, ledger, prepared
+
+    @staticmethod
+    def request_reads(provider):
+        return sum(1 for method, path, payload in provider.calls
+                   if method == "POST" and path == "graphql" and "reviewRequests" in payload["query"])
+
+    def held(self, publisher, provider, ledger, prepared, pattern, state="prepared"):
+        with self.assertRaisesRegex(PublicationError, pattern):
+            publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual(self.state(ledger, prepared["id"]), state)
+        self.assertIsNone(self.lock(ledger))
+        self.assertEqual(provider.writes, [])
+        self.assertEqual(provider.counts["write"], 0)
+
+    def test_renewed_same_head_requests_hold_every_aggregate_decision(self):
+        for decision in ("APPROVED", None, "", "REVIEW_REQUIRED"):
+            for requested, label in (({"users": [{"login": "alice"}], "teams": []}, "user @alice"),
+                                     ({"users": [], "teams": [{"slug": "core"}]}, "team @o/core")):
+                with self.subTest(decision=decision, label=label):
+                    publisher, provider, ledger, prepared = self.merge()
+                    provider.merge_state["reviewDecision"] = decision
+                    # alice approved this exact head; the request was renewed afterwards.
+                    provider.requested = copy.deepcopy(requested)
+                    self.held(publisher, provider, ledger, prepared, label)
+                    self.assertEqual(provider.ev["reviews"], [self.APPROVAL])
+                    # The hold never withdraws the request.
+                    self.assertEqual(provider.requested, requested)
+
+    def test_missing_malformed_or_unavailable_enumeration_and_incomplete_review_state_hold(self):
+        for page in (None, {}, review_page(total=1), review_page(next_cursor="page2"),
+                     review_page([{"id": "r", "requestedReviewer": {"__typename": "Bot", "id": "b"}}])):
+            with self.subTest(page=page):
+                publisher, provider, ledger, prepared = self.merge()
+                provider.review_pages = {None: page}
+                self.held(publisher, provider, ledger, prepared, "review request")
+        for decision in ("REVIEW_REQUIRED", "CHANGES_REQUESTED", "", "UNKNOWN"):
+            with self.subTest(decision=decision):
+                publisher, provider, ledger, prepared = self.merge()
+                provider.merge_state["reviewDecision"] = decision
+                self.held(publisher, provider, ledger, prepared, "review decision")
+        publisher, provider, ledger, prepared = self.merge()
+        del provider.merge_state["reviewDecision"]
+        self.held(publisher, provider, ledger, prepared, "incomplete")
+        publisher, provider, ledger, prepared = self.merge()
+        original = provider.request
+
+        def unavailable(method, path, payload=None):
+            if path == "graphql" and "reviewRequests" in payload["query"]:
+                raise OSError("request enumeration unavailable")
+            return original(method, path, payload)
+
+        provider.request = unavailable
+        with self.assertRaisesRegex(OSError, "enumeration unavailable"):
+            publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual((self.state(ledger, prepared["id"]), self.lock(ledger), provider.writes),
+                         ("prepared", None, []))
+
+    def test_incomplete_independent_review_verification_or_ci_holds(self):
+        for change, pattern in (({"ready": False}, "incomplete"), ({"clean_review": False}, "independent"),
+                                ({"verified": False}, "independent"),
+                                ({"ci": {"head": HEAD, "success": False}}, "CI"),
+                                ({"ci": {"head": OTHER, "success": True}}, "CI"),
+                                ({"head": OTHER}, "another head"), ({"target": OTHER}, "another head"),
+                                ({"evidence": []}, "evidence")):
+            with self.subTest(change=change):
+                publisher, provider, ledger, prepared = self.merge()
+                saved = copy.deepcopy(self.ready)
+                self.ready.update(change)
+                try:
+                    self.held(publisher, provider, ledger, prepared, pattern)
+                    self.assertEqual(self.request_reads(provider), 0)
+                    # A held merge is not drift: it dispatches once readiness returns.
+                    self.ready = saved
+                    publisher.execute(prepared["id"], self.audience(prepared))
+                    self.assertEqual(len(provider.writes), 1)
+                finally:
+                    self.ready = saved
+
+    def test_head_target_and_authority_drift_block_without_dispatch(self):
+        for drift in ("head", "target", "authorization", "permission"):
+            with self.subTest(drift=drift):
+                publisher, provider, ledger, prepared = self.merge()
+                if drift == "head":
+                    provider.ev["metadata"]["head"]["sha"] = OTHER
+                elif drift == "target":
+                    provider.ev["metadata"]["base"]["sha"] = OTHER
+                elif drift == "authorization":
+                    # Another action's grant never stands in for merge authority.
+                    publisher.plan["authorizations"].pop("merge")
+                else:
+                    publisher.plan["options"]["permissions"]["merge"] = False
+                self.held(publisher, provider, ledger, prepared, "", state="blocked")
+                self.assertEqual(self.request_reads(provider), 0)
+                with self.assertRaisesRegex(PublicationError, "fresh preparation"):
+                    publisher.execute(prepared["id"], self.audience(prepared))
+                self.assertEqual(provider.writes, [])
+
+    def test_requests_and_ci_changes_after_preparation_are_caught_at_dispatch(self):
+        # Readiness held when the merge was proposed; requests and CI then change.
+        publisher, provider, ledger, prepared = self.merge()
+        provider.requested = {"users": [], "teams": [{"slug": "core"}]}
+        self.held(publisher, provider, ledger, prepared, "team @o/core")
+        provider.requested = {"users": [], "teams": []}
+        self.ready["ci"] = {"head": HEAD, "success": False}
+        self.held(publisher, provider, ledger, prepared, "CI")
+        self.ready["ci"] = {"head": HEAD, "success": True}
+
+        # A request that lands after the readiness recapture but before dispatch
+        # is caught by the final repository read.
+        def late(intent):
+            provider.requested = {"users": [{"login": "bob"}], "teams": []}
+            return copy.deepcopy(self.ready)
+
+        publisher.readiness = late
+        self.held(publisher, provider, ledger, prepared, "user @bob")
+        # Once the request is fulfilled, every ordinary requirement is checked again.
+        publisher.readiness = lambda intent: copy.deepcopy(self.ready)
+        provider.requested = {"users": [], "teams": []}
+        reads = self.request_reads(provider)
+        receipt = publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertTrue(receipt["result"]["pr"]["merged"])
+        self.assertEqual(self.request_reads(provider), reads + 1)
+        self.assertEqual(len(provider.writes), 1)
+
+    def test_no_request_paths_merge_once(self):
+        for decision in ("APPROVED", None):
+            with self.subTest(decision=decision):
+                publisher, provider, ledger, prepared = self.merge()
+                provider.merge_state["reviewDecision"] = decision
+                receipt = publisher.execute(prepared["id"], self.audience(prepared))
+                self.assertEqual(self.state(ledger, prepared["id"]), "applied")
+                self.assertEqual(provider.writes, [("PUT", "repos/o/r/pulls/7/merge",
+                                                    {"merge_method": "merge", "sha": HEAD})])
+                self.assertEqual(self.request_reads(provider), 1)
+                self.assertEqual(publisher.execute(prepared["id"], self.audience(prepared)), receipt)
+                self.assertEqual(len(provider.writes), 1)
+
+    def test_lost_merge_response_and_lost_checkpoint_never_resend(self):
+        for fault in ("before", "after"):
+            with self.subTest(fault=fault):
+                publisher, provider, ledger, prepared = self.merge()
+                provider.fault = fault
+                with self.assertRaisesRegex(OSError, "lost " + fault):
+                    publisher.execute(prepared["id"], self.audience(prepared))
+                provider.fault = None
+                # The engine checkpoint is lost: a fresh helper without a readiness
+                # callback reopens the ledger and proposes the same merge again. It
+                # gets the original intent and only reconciles, even while a new
+                # request is pending and request data is unavailable.
+                ledger.close()
+                reopened = Ledger(publisher.root, publisher.plan["logical_run"], self.pr["url"])
+                self.addCleanup(reopened.close)
+                again = Publication(reopened, provider, publisher.root, publisher.plan,
+                                    source_validator=publisher.source_validator)
+                proposal = self.proposal("merge", {"merge_method": "merge"}, "merge")
+                self.assertEqual(again.prepare(proposal)["id"], prepared["id"])
+                provider.requested = {"users": [{"login": "carol"}], "teams": []}
+                provider.review_pages = {None: None}
+                if fault == "before":
+                    for _ in range(2):
+                        self.assertEqual(again.reconcile(prepared["id"])["outcome"], "unknown")
+                        with self.assertRaises(UncertainEffect):
+                            again.execute(prepared["id"], self.audience(prepared))
+                    self.assertEqual(self.state(reopened, prepared["id"]), "pending")
+                    self.assertEqual(self.lock(reopened), prepared["id"])
+                    # The merge lands later; reconciliation observes it without a resend.
+                    provider.ev["metadata"].update(state="closed", merged=True, merge_commit_sha="d" * 40,
+                                                   merged_by={"id": 11})
+                receipt = again.execute(prepared["id"], self.audience(prepared))
+                self.assertTrue(receipt["result"]["pr"]["merged"])
+                self.assertEqual(self.state(reopened, prepared["id"]), "applied")
+                self.assertEqual(len(provider.writes), 1)
+                self.assertEqual(self.request_reads(provider), 1)
 
 
 class GitKinds(Fixture):
