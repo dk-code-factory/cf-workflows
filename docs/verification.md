@@ -103,6 +103,11 @@ dk-preferences with a disposable repository, the real configuration store and
 ledger, and a fake engine with durable gates and claim-reconciled native sessions.
 They count sessions, gates and writes across clarification, lost responses and
 concurrent writers.
+[Decision](decisions.md#verification) tests (`tests/test_decisions.py`) drive
+dk-pr-decisions directly and from a dk-pr-fix plan with the same fake engine and
+the fail-closed fake GitHub transport. They count sessions, gates and writes across
+conflicting and later instructions, changed sources, clarification, unchanged
+reuse and uncertain section publication.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

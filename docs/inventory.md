@@ -18,7 +18,8 @@ and cannot establish implementation of its delegate.
 The three configuration rows (#26) have entry presets, adapter procedures and
 deterministic direct and composed fixtures ([configuration skills](configuration-skills.md)).
 They stay `not_implemented` until they run as engine-managed sessions through an
-installed workflow.
+installed workflow. The same holds for `dk-pr-decisions` (#28,
+[decisions](decisions.md)).
 
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |
