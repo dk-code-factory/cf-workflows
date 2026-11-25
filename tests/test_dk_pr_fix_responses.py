@@ -111,7 +111,8 @@ class Fixture(unittest.TestCase):
             "target_tree": "target-tree", "base_tree": "base-tree", "local_tree": "fixed-tree",
             "diff": "diff", "discussion": "discussion", "instructions": "instructions", "settings": "settings",
             "resource_digests": {}, "definition_digests": {}, "head": HEAD, "target": BASE,
-            "local_head": HEAD, "dirty": False}
+            "local_head": HEAD, "dirty": False,
+            "identities": {"current": True, "pin": HEAD, "metadata_head": HEAD, "git_head": None, "mismatched": []}}
         snapshot = patch.object(app, "_snapshot", side_effect=lambda *args: copy.deepcopy(self.snapshot))
         snapshot.start()
         self.addCleanup(snapshot.stop)
@@ -263,6 +264,46 @@ class BeforeReview(Fixture):
                 replies = [c for c in self.github.ev["inline"] if c["user"]["id"] == 11]
                 self.assertEqual(len(replies), 1)
 
+    def test_reaction_between_publication_and_settle_still_records_the_original(self):
+        # Review cycle 1: the raw source digest changes with reactions; the body does not.
+        self.respond()
+        for item in self.listed()["items"]:
+            self.publish(item)
+        self.assertEqual(self.github.counts["write"], 2)
+        # Interrupted before responses_settle; someone reacts to both answered sources.
+        for item in self.github.ev["comments"] + self.github.ev["inline"]:
+            if item["id"] in (30, 40):
+                item["reactions"] = {"total_count": 1, "+1": 1}
+        for _ in range(2):
+            self.assertEqual(self.stage(self.open())["status"], "complete")
+        self.assertEqual(self.github.counts["write"], 3, "two replies and one resolution, nothing resent")
+
+    def test_an_id_prefix_link_does_not_stand_in_for_the_source_link(self):
+        # Review cycle 1: #issuecomment-401 contains #issuecomment-40 as a substring only.
+        value = self.drafts()
+        value["replies"][1]["body"] = "Kept the literal; see " + URL + "#issuecomment-401 for the protocol."
+        self.respond(value)
+        self.assertEqual(self.stage()["status"], "complete")
+        posted = [call for call in self.github.writes if call[1].endswith("/comments")]
+        self.assertTrue(posted[0][2]["body"].startswith(URL + "#issuecomment-40\n\n"))
+        self.assertEqual(self.stage(self.open())["status"], "complete")
+        self.assertEqual(self.github.counts["write"], 3)
+        self.assertFalse(feedback.links("see " + URL + "#issuecomment-401", URL + "#issuecomment-40"))
+        self.assertTrue(feedback.links("see " + URL + "#issuecomment-40.", URL + "#issuecomment-40"))
+
+    def test_an_applied_reply_that_cannot_be_recorded_is_a_visible_blocker(self):
+        self.respond()
+        for item in self.listed()["items"]:
+            self.publish(item)
+        # The applied comment reply lost its link (edited by someone else) before it was recorded.
+        reply = next(item for item in self.github.ev["comments"] if item["user"]["id"] == 11)
+        reply["body"] = "edited"
+        responses.settle(self.root, self.github, self.ledger, self.plan, {})
+        status = responses.status(self.root, self.github, self.ledger, self.plan)
+        self.assertEqual(status["replies_needed"], ["comment:40"])
+        self.assertTrue(any("does not answer comment:40" in blocker for blocker in status["blockers"]), status)
+        self.assertEqual(self.github.counts["write"], 2)
+
     def test_changed_feedback_gets_one_new_reply_and_settled_sources_none(self):
         self.respond()
         self.assertEqual(self.stage()["status"], "complete")
@@ -330,6 +371,14 @@ class HonestStatus(Fixture):
                 with self.assertRaisesRegex(feedback.FeedbackError, message):
                     responses.accept(self.root, self.github, self.plan,
                                      self.report(deliverables={"feedback": value}))
+        self.assertEqual(self.github.counts["write"], 0)
+
+    def test_provisional_analysis_withholds_replies(self):
+        self.respond()
+        self.snapshot["identities"] = {**self.snapshot["identities"], "current": False, "reason": "metadata_lag", "git_head": OTHER}
+        withheld = self.listed()
+        self.assertEqual(withheld["items"], [])
+        self.assertIn("publication is withheld while analysis is provisional", withheld["blockers"])
         self.assertEqual(self.github.counts["write"], 0)
 
     def test_unselected_or_empty_plans_report_not_selected(self):

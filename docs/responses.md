@@ -51,15 +51,20 @@ runs these steps in order, with helpers from
 
 1. The responder occurrence runs, or its current result is reused.
 2. `publication_list` with `kind: responses` lists exact proposals:
-   - It lists nothing until the local head is published and clean. Replies
-     follow the fix publication.
+   - It lists nothing until the local head is published and clean, and nothing
+     while analysis is provisional. Replies follow the fix publication.
    - It lists one reply for each source in `replies_needed`, and only while the
      `reply` permission is effective. An inline source gets a `reply_inline` in
      its thread. A comment or review body gets a PR comment that links the
-     source's exact URL. The helper prepends the URL when the draft lacks it.
+     source's exact URL. The URL is prepended unless the draft already links it
+     as a whole link, by the same rule `feedback.View.answers` applies. A link
+     to `#issuecomment-401` does not link comment 40.
    - Settled sources get nothing, so a reply is never repeated.
-   - Suppose a reply to the exact source version is already `pending`, or
-     `applied` but not yet recorded. Then the retained original is listed first
+   - Each reply intent records the source's kind, ID and body version
+     (`source.version`) next to the raw-item digest that pins dispatch. Suppose
+     a reply to the same source body is already `pending`, or `applied` but not
+     yet recorded. Reactions or other metadata changes since then don't matter.
+     The retained original is listed first
      for read-only reconciliation, never a new reply. The original keeps the
      run's publication lock until it settles. If a recorded reply was later
      removed, the helper reports a blocker and does not answer again.
@@ -88,8 +93,10 @@ selected. Those replies belong to the response stage.
 | `not_selected` | The plan selects no response stage; the status carries a blocker that says so |
 
 `uncertain` lists reply and resolution intents that are still `pending`. Each
-one adds a blocker to reconcile it. A denied or uncertain action never counts
-as a reply.
+one adds a blocker to reconcile it. An applied reply that settle cannot record
+also adds a blocker. That happens when the reply no longer answers the source
+in its own location. A denied, uncertain or unrecordable action never counts as
+a reply.
 
 With a response stage selected, `coverage` adds `feedback_responses` to
 `missing` until the status is `complete`. In that case the plan, and so
@@ -121,6 +128,11 @@ captures and writes and fails every unmodeled route. The tests cover:
   suggestion without an answer;
 - unselected and empty plans;
 - native reply proposals to feedback in the ordinary barrier;
+- a reaction between a reply's publication and settle, after which the original
+  is still reconciled and recorded with no resend;
+- a draft linking an ID-prefix URL, which still gets the exact source link;
+- an applied reply that cannot be recorded, which raises a visible blocker;
+- provisional analysis, which withholds every reply;
 - the shared responder occurrence, and rejection of a plain responder task.
 
 ## Not established here

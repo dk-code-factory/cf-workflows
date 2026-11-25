@@ -114,18 +114,31 @@ def _reply(plan, snapshot, evidence, view, key, body, reference):
     else:
         # A PR comment answers a comment or review body only when it links the exact source.
         url = text(source["url"], "feedback source URL")
-        kind, payload = "reply", {"body": body if url in body else url + "\n\n" + body}
-    return {"id": "response_" + digest([plan["logical_run"], key, feedback.View.fingerprint(source), payload])[:48],
+        # The same whole-link rule as feedback.View.answers: a link to #issuecomment-401
+        # does not link comment 40, so the exact URL is prepended.
+        kind, payload = "reply", {"body": body if feedback.links(body, url) else url + "\n\n" + body}
+    version = feedback.View.fingerprint(source)
+    return {"id": "response_" + digest([plan["logical_run"], key, version, payload])[:48],
             "kind": kind, "head": snapshot["head"], "target": snapshot["target"], "payload": payload,
             "sources": [reference],
-            "source": {"kind": source["kind"], "id": source["id"], "fingerprint": digest(raw[0])}}
+            # fingerprint pins the raw item for dispatch-time drift; version names the
+            # source's body, which reactions or edited metadata never change.
+            "source": {"kind": source["kind"], "id": source["id"], "fingerprint": digest(raw[0]),
+                       "version": version}}
 
 
 def _dispatched(ledger, plan, source):
-    """This run's dispatched reply to the exact source version, if any: pending or applied."""
+    """This run's dispatched reply to the same source body, if any: pending or applied.
+
+    Matches kind, ID and body version, not the raw item digest, so a reaction or a
+    metadata change after dispatch still finds the original for reconciliation.
+    """
+    wanted = {key: source[key] for key in ("kind", "id", "version")}
     for saved in _intents(ledger, plan, ("pending", "applied")):
         intent = saved["intent"]
-        if intent["kind"] in REPLY_KINDS and intent.get("source") == source:
+        retained = intent.get("source")
+        if (intent["kind"] in REPLY_KINDS and isinstance(retained, dict)
+                and {key: retained.get(key) for key in wanted} == wanted):
             return {"id": saved["id"], **{key: intent.get(key) for key in
                                           ("kind", "head", "lease", "target", "payload", "sources", "source")}}
     return None
@@ -234,6 +247,15 @@ def status(root, provider, ledger, plan, inputs=None):
         record.close()
     uncertain = [saved["id"] for saved in _intents(ledger, plan, ("pending",))]
     blockers = list(result["blockers"]) + ["reply outcome is uncertain; reconcile " + ident for ident in uncertain]
+    # An applied reply that still cannot be recorded never counts and never goes silent.
+    for saved in _intents(ledger, plan, ("applied",)):
+        source = saved["intent"].get("source")
+        if saved["intent"]["kind"] not in REPLY_KINDS or not isinstance(source, dict):
+            continue
+        key = f"{source.get('kind')}:{source.get('id')}"
+        if (key in result["replies_needed"] and key in view.sources
+                and source.get("version") == feedback.View.fingerprint(view.sources[key])):
+            blockers.append(f"applied reply {saved['id']} does not answer {key} in its own location")
     return {"selected": True, "status": result["status"], "replies_needed": result["replies_needed"],
             "unassessed": result["unassessed"], "unanswered": result["unanswered"], "uncertain": uncertain,
             "blockers": blockers}

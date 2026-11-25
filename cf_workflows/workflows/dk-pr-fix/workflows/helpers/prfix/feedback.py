@@ -146,8 +146,7 @@ class View:
         if source['kind'] == 'inline':
             return reply['kind'] == 'inline' and reply['root'] == source['root']
         # The source URL must appear as a whole link: #issuecomment-12 is not #issuecomment-123.
-        return (reply['kind'] == 'comment' and isinstance(source['url'], str)
-                and re.search(re.escape(source['url']) + r'(?![A-Za-z0-9_-])', reply['body']) is not None)
+        return reply['kind'] == 'comment' and links(reply['body'], source['url'])
 
     def later(self, source, login):
         """Whether participant login has spoken after source in the same inline thread."""
@@ -155,6 +154,12 @@ class View:
                    and item['author']['login'].lower() == login.lower()
                    and item['at'] and source['at'] and item['at'] > source['at']
                    for item in self.items.values())
+
+
+def links(body, url):
+    """Whether body links url as a whole link: #issuecomment-12 is not #issuecomment-123."""
+    return (isinstance(url, str) and isinstance(body, str)
+            and re.search(re.escape(url) + r'(?![A-Za-z0-9_-])', body) is not None)
 
 
 def observe(provider, pr):
