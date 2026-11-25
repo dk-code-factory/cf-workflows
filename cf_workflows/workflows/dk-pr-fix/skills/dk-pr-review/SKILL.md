@@ -12,8 +12,12 @@ Incoming review reads the PR and never edits, commits, pushes or replies.
 Configured reviewers and the simplification reviewer run in separate sessions
 with the admitted reviewer role and no skills; a separate verifier session
 checks every finding. A missing reviewer or verification is never a clean
-review. Finding publication, approval and fork-CI approval are not available in
-this release; merge keeps its own explicit grant and current readiness.
+review. With `post_findings` enabled and explicitly authorized, confirmed
+findings are posted once: inline only on the changed line they name, and
+otherwise in the review body with their actual location and evidence. A partial
+review only comments, and posting findings never approves or readies the PR.
+Approval and fork-CI approval are not available in this release; merge keeps
+its own explicit grant and current readiness.
 
 Check the same prerequisites as `dk-pr-fix` before a run and report each
 missing one as guidance. Never log in, refresh or copy credentials, build or

@@ -64,6 +64,7 @@ name: cf-workflows:dk-pr-review
       permissions:
         type: object
         default:
+          post_findings: false
           merge: false
       ci:
         type: object

@@ -103,6 +103,7 @@ schemas:
           - id
           - text
           - sources
+          - location
           properties:
             id:
               type: string
@@ -114,6 +115,48 @@ schemas:
                 and source IDs absent from this report in deliverables.
               items:
                 type: string
+            location:
+              description: The finding's actual location (see location_contract); null when it has none.
+                Never a nearby changed line standing in for another location.
+              type:
+              - object
+              - 'null'
+              required:
+              - kind
+              - path
+              - line
+              - side
+              - commit
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - diff
+                  - file
+                  - commit_message
+                  - pr_title
+                  - pr_description
+                path:
+                  type:
+                  - string
+                  - 'null'
+                line:
+                  type:
+                  - integer
+                  - 'null'
+                side:
+                  type:
+                  - string
+                  - 'null'
+                  enum:
+                  - LEFT
+                  - RIGHT
+                  - null
+                commit:
+                  type:
+                  - string
+                  - 'null'
+              additionalProperties: false
           additionalProperties: false
       evidence:
         type: array

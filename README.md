@@ -13,7 +13,8 @@ engine interfaces. It also extracts the portable PR-fix example into the
 and an external state namespace, and keeps its budgets, deadlines, occurrence
 identities and explicit continuations in the logical run's ledger.
 [Incoming review](docs/review.md) (`cf-workflows:dk-pr-review`) is a review-mode
-preset over that workflow, and `cf-workflows:dk-pr-iter` routing picks fixing or
+preset over that workflow that can publish its independently verified findings
+inline or in the review body, and `cf-workflows:dk-pr-iter` routing picks fixing or
 review from immutable account IDs. One
 [plugin descriptor](docs/packaging.md) declares the Codex and Claude package
 inputs, with a checked resource closure and read-only runtime prerequisite

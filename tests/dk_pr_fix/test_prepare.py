@@ -55,7 +55,8 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(plan["tasks"], [])
         self.assertEqual(result["stages"], [])
         self.assertEqual(plan["fingerprint"], core.digest({k: v for k, v in plan.items() if k != "fingerprint"}))
-        self.assertEqual(set(result), {"logical_run", "plan", "stages", "limits", "turns", "merge_authorized"})
+        self.assertEqual(set(result), {"logical_run", "plan", "stages", "limits", "turns", "merge_authorized",
+                                       "findings_authorized"})
         self.assertFalse((self.root / core.GENERATED).exists())
         after = {path.relative_to(self.root): path.read_bytes() for path in self.root.rglob("*")
                  if path.is_file() and ".git" not in path.parts}

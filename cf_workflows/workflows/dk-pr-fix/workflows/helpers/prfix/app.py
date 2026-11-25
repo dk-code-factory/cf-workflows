@@ -370,6 +370,14 @@ def prepare_claim(root, provider, ledger, plan, inputs):
                   "A fixed disposition without new changes requires verified_existing_fixes for that "
                   "original finding: the earlier controlled fix commit must remain an ancestor and "
                   "all its changed source bytes must remain intact. Do not make redundant edits."}
+    if task["kind"] == "review":
+        # findings.py publishes only at the location a finding actually names.
+        assignment["location_contract"] = (
+            "Give each finding its actual location: {kind:diff,path,line,side} for a line of the PR diff "
+            "(side RIGHT for the new file, LEFT for the old), {kind:file,path,line} for another line of the "
+            "head revision, {kind:commit_message,commit} for a PR commit's message, or {kind:pr_title} / "
+            "{kind:pr_description}. Use null for fields a kind does not use. Never name a nearby changed line "
+            "instead of the real location, and keep local paths and workflow diagnostics out of finding text.")
     reference = artifact(root, assignment)
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.

@@ -29,6 +29,8 @@ SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 HOST = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 REPO_PART = re.compile(r"^[A-Za-z0-9_.-]+$")
 CI_OPTIONS = ("ci", "ci_timeout_seconds", "ci_classifications", "ci_exceptions")
+# Settings that shape only finding publication text (findings.py); they never bind analysis.
+PUBLICATION_SETTINGS = ("include_summary", "request_changes")
 
 
 def _text(value, label):
@@ -654,7 +656,9 @@ def capture(root, provider, plan, *, clean=False):
               "diff": digest({"tracked": hashlib.sha256(diff).hexdigest(), "untracked": untracked}),
               "history": hashlib.sha256(history).hexdigest(), "discussion": digest(discussion),
               "instructions": digest({"request": plan["instructions"], "repository": instruction_files}),
-              "settings": digest({"options": options, "settings": plan.get("settings", {})}),
+              # Finding-publication settings shape only the review text (findings.py).
+              "settings": digest({"options": options, "settings": {
+                  k: v for k, v in plan.get("settings", {}).items() if k not in PUBLICATION_SETTINGS}}),
               "ci_settings": digest(ci_options),
               "resources": digest(resources),
               "definitions": digest(plan.get("definitions", {})),

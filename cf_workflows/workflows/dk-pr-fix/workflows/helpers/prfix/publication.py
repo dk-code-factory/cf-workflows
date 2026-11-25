@@ -480,7 +480,11 @@ class Publication:
             if sum(1 for c in ev.get("inline", []) if c.get("id") == destination) != 1:
                 raise Drift("inline destination is not present in the exact PR")
         source = intent.get("source")
-        if source:
+        if source and source.get("kind") == "findings":
+            # Verified incoming-review findings (findings.py), not a feedback source.
+            if intent["kind"] != "submit_review":
+                raise PublicationError("only a review submission carries verified findings")
+        elif source:
             kind = source.get("kind")
             key = {"comment": "comments", "inline": "inline", "review": "reviews"}.get(kind)
             if key is None:
@@ -514,6 +518,9 @@ class Publication:
             raise PublicationError("review request requires explicit user/team lists")
         for key in ("body", "title", "reason"):
             if key in payload:
+                if kind == "submit_review" and key == "body" and payload["comments"] and payload[key] == "":
+                    # Inline findings need no body; an empty body is never padded with prose.
+                    continue
                 if kind == "edit_pr" and key == "body":
                     if not isinstance(payload[key], str) or "\x00" in payload[key]:
                         raise PublicationError("PR body must be text without NUL")
@@ -574,6 +581,8 @@ class Publication:
                 anchors.add((path, comment["line"], comment["side"]))
             if len(anchors) != len(comments):
                 raise PublicationError("duplicate review comment anchor")
+            if len(payload["body"]) > 65536 or any(len(comment["body"]) > 65536 for comment in comments):
+                raise PublicationError("review text exceeds GitHub's body bound")
         return copy.deepcopy(payload)
 
     def _attempts(self, base):
