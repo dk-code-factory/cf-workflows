@@ -16,9 +16,9 @@ moves the intent to ``pending``. Journal states follow the state contract:
 - ``not_applied``: the transport conclusively reported a refusal without effect.
 - ``blocked``: a dispatch-time recheck found drift; it was never dispatched.
 
-Only read-only reconciliation that observes the exact effect settles a pending
-intent. Missing, unchanged or ambiguous observations keep it pending and never
-authorize replay. A ``not_applied`` or ``blocked`` intent is never resent; a
+Only read-only reconciliation that observes the exact effect, or the original
+dispatch's own conclusive rejection, settles a pending intent. Missing,
+unchanged or ambiguous observations keep it pending and never authorize replay. A ``not_applied`` or ``blocked`` intent is never resent; a
 later attempt is a fresh intent with its own preparation and audience.
 """
 from __future__ import annotations
@@ -29,6 +29,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
+from .capture import HTTPFailure
 from .core import auth, canonical, digest, text
 
 
@@ -44,14 +45,64 @@ class Drift(PublicationError):
     """A retained binding no longer holds at dispatch; the intent is blocked."""
 
 
+class PendingReview(Drift):
+    """The actor owns a pending review on the PR. It is never submitted,
+    discarded, overwritten or adopted; the submission waits for a fresh attempt."""
+
+    def __init__(self, reviews):
+        self.reviews = reviews
+        super().__init__(
+            f"the actor has pending review(s) {reviews}; submit or delete them on GitHub, "
+            "then prepare a fresh attempt. This helper never changes a pending review")
+
+
 class Rejected(Exception):
     """Raised by a transport only when the service conclusively refused a write
     before any effect. Timeouts, malformed or generic errors and absence are
-    never conclusive; the GitHub transport raises this for nothing yet."""
+    never conclusive. The GitHub transport raises ``HTTPFailure`` instead, and
+    only ``pending_review_rejection`` classifies one as conclusive."""
 
     def __init__(self, evidence):
         super().__init__("service conclusively rejected the write")
         self.evidence = evidence
+
+
+# GitHub's exact refusal of a review creation while the actor owns a draft.
+PENDING_REVIEW_ERROR = "User can only have one pending review per pull request"
+_FAILURE_BODY = {"message", "errors", "documentation_url", "status"}
+REJECTED_BY_PENDING_REVIEW = (
+    "GitHub refused the review because the actor has a pending review; it settles not_applied "
+    "and the draft is untouched. Submit or delete the draft, then prepare a fresh attempt")
+
+
+def failure_record(error):
+    """The retained form of an original dispatch failure (no headers or stderr)."""
+    record = {"type": type(error).__name__}
+    if isinstance(error, HTTPFailure):
+        record.update(status=error.status, body=copy.deepcopy(error.body))
+    return record
+
+
+def pending_review_rejection(intent, failure):
+    """Rejection evidence when ``failure`` conclusively refused a review submission
+    because the actor already owns a pending review, otherwise ``None``.
+
+    Only the original dispatch's HTTP 422 carrying exactly GitHub's
+    pending-review error is conclusive. Timeouts, transport errors, other or
+    additional 422 errors, malformed bodies and any current draft observation
+    are not.
+    """
+    if intent.get("kind") != "submit_review" or not isinstance(failure, dict):
+        return None
+    body = failure.get("body")
+    if (failure.get("type") != "HTTPFailure" or failure.get("status") != 422
+            or not isinstance(body, dict) or not set(body) <= _FAILURE_BODY
+            or body.get("message") != "Unprocessable Entity"
+            or body.get("errors") != [PENDING_REVIEW_ERROR]
+            or body.get("status", "422") != "422"):
+        return None
+    return {"classifier": "pending_review_conflict", "intent": digest(intent),
+            "status": 422, "body": copy.deepcopy(body)}
 
 
 def repository_merge_requirements(provider, pr, metadata, head):
@@ -317,15 +368,17 @@ class Publication:
                   str(head.get("repo", {}).get("full_name", "")).lower())
         if actual != expected:
             raise Drift("PR head, target, branch or repository lease changed")
+        if intent["kind"] == "submit_review":
+            pending = self._pending_reviews(intent["actor_id"], ev)
+            if pending:
+                # Never discard, submit, overwrite or adopt another draft.
+                raise PendingReview(sorted(r.get("id") for r in pending))
         if discussion and _discussion(ev) != intent["discussion"]:
             raise Drift("incoming discussion changed after preparation")
         if intent["kind"] == "reply_inline":
             destination = intent["payload"]["comment_id"]
             if sum(1 for c in ev.get("inline", []) if c.get("id") == destination) != 1:
                 raise Drift("inline destination is not present in the exact PR")
-        if intent["kind"] == "submit_review" and self._pending_reviews(intent["actor_id"], ev):
-            # Never discard or submit another draft; its recovery is separate.
-            raise Drift("the actor has a pending review; submission waits for its separate recovery")
         source = intent.get("source")
         if source:
             kind = source.get("kind")
@@ -765,6 +818,12 @@ class Publication:
                 raise PublicationError("retained publication receipt no longer validates")
             return saved["receipt"]
         if state == "pending":
+            # The original dispatch's own conclusive rejection settles it
+            # before any observation, so it never adopts a later receipt.
+            evidence = self._retained_rejection(saved)
+            if evidence is not None:
+                self._not_applied(saved, evidence)
+                raise PublicationError(REJECTED_BY_PENDING_REVIEW)
             # Read-only reconciliation only. Absence or an unchanged service
             # never authorizes sending the original again.
             observed = self.reconcile(saved["id"])
@@ -816,13 +875,19 @@ class Publication:
             self._not_applied(saved, rejection.evidence)
             raise PublicationError("the service conclusively rejected the write; it settles not_applied") from rejection
         except BaseException as error:
-            # Keep the failure as evidence; the intent stays pending.
+            # Retain the original failure before classifying it, so a restart
+            # can still settle a conclusive rejection from it.
+            failure = failure_record(error)
             try:
                 with self.ledger.transaction():
-                    self._event(saved["id"], "error", {"type": type(error).__name__})
+                    self._event(saved["id"], "error", failure)
             except Exception:
                 pass
-            raise
+            evidence = pending_review_rejection(intent, failure)
+            if evidence is None:
+                raise  # The intent stays pending.
+            self._not_applied(saved, evidence)
+            raise PublicationError(REJECTED_BY_PENDING_REVIEW) from error
         # Keep the exact acknowledged response before observation. If observation
         # is temporarily unavailable, the next reconciliation can use it.
         with self.ledger.transaction():
@@ -832,6 +897,21 @@ class Publication:
             raise UncertainEffect("publication response retained; its effect is not yet verified")
         self._settle(saved, observed["result"])
         return observed["result"]
+
+    def _retained_rejection(self, saved):
+        """Conclusive rejection evidence retained from the original dispatch.
+
+        Read-only. Needs exactly one dispatch, no acknowledged response and
+        exactly one retained failure that the classifier accepts.
+        """
+        if saved["intent"].get("kind") != "submit_review":
+            return None
+        events = self.events(saved["id"])
+        names = [event["event"] for event in events]
+        if names.count("dispatch") != 1 or "response" in names or names.count("error") != 1:
+            return None
+        failure = next(event["value"] for event in events if event["event"] == "error")
+        return pending_review_rejection(saved["intent"], failure)
 
     def _settle(self, saved, receipt):
         """Record the exact applied receipt once and release the lock."""
@@ -1036,11 +1116,17 @@ class Publication:
         """Read-only: return an observation without advancing local state.
 
         ``no_effect`` comes only from the journal: an intent that was never
-        dispatched, was blocked before dispatch or was conclusively rejected.
+        dispatched, was blocked before dispatch, was conclusively rejected, or
+        retains its original dispatch's conclusive rejection.
         """
         saved = self._load(ident)
         if saved["state"] == "prepared" or saved["state"] in TERMINAL:
             return {"outcome": "no_effect", "proof": {"intent": saved["fingerprint"], "state": saved["state"]}}
+        evidence = self._retained_rejection(saved) if saved["state"] == "pending" else None
+        if evidence is not None:
+            # From the original rejection, never from current absence.
+            return {"outcome": "no_effect", "proof": {"intent": saved["fingerprint"], "state": "pending",
+                                                      "rejection": evidence}}
         try:
             return self._observe(saved, self._capture())
         except Exception as error:
