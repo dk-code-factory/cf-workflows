@@ -38,7 +38,10 @@ def check(dk, engine):
     require(len(inventory['skills']) == 29, 'inventory must contain exactly 29 rows')
     require({row['name'] for row in inventory['skills']} == EXPECTED,
             'missing, duplicate or unexpected inventory skill')
-    for host, manifest_path in zip(('claude', 'codex'), baseline['host_manifests']):
+    manifests = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']
+    require(baseline['host_manifests'] == manifests,
+            'baseline must declare the exact Claude and Codex host manifests')
+    for host, manifest_path in zip(('claude', 'codex'), manifests):
         manifest = json.loads(git(dk, 'show', f'{sha}:{manifest_path}'))
         require(manifest['version'] == '5.17.0', f'{host} manifest version mismatch')
         require(manifest['name'] == 'dk-workflows', f'{host} manifest identity mismatch')

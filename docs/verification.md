@@ -7,6 +7,7 @@ clones that contain the exact pinned objects:
 python3 scripts/check_baselines.py \
   --dk-workflows /path/to/dk-workflows \
   --agent-workflow /path/to/agent-workflow
+python3 -m unittest discover -s tests -v
 ```
 
 If necessary, fetch the exact commits into those source clones separately; the
@@ -17,6 +18,8 @@ portable source existence, exact copied license bytes and local Markdown file
 targets. It does not validate remote URLs, Markdown anchors, transitive runtime
 resource closure or semantic correctness of the descriptions. Review the latter
 against the pinned entries and [contracts](contracts/v1/README.md).
+The regression test verifies that missing or extra host-manifest entries reject
+before any source-object reads, instead of silently checking a partial host set.
 
 This documentation-only PR has no runtime transports or fixture operations.
 No fake runtime execution is presented as implemented admission or host support.
