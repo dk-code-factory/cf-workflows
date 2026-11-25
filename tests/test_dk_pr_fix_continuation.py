@@ -116,7 +116,8 @@ class Continuation(unittest.TestCase):
 
     def prepare(self, tasks=(), finalizers=(), execution="exec-1", logical_run=None, settings=None, **options):
         controls = {"tasks": list(tasks), "finalizers": list(finalizers), "settings": settings or {},
-                    "adapters": {**DEFAULT_ADAPTERS, "review": REVIEW, "ruled-review": RULED},
+                    "adapters": {**DEFAULT_ADAPTERS, "review": REVIEW, "ruled-review": RULED,
+                                 "plain-review": {**RULED, "resources": []}},
                     "resources": ["rules"], "turns": 8, **options}
         request = {"pr": PR_URL, "instructions": "Fix the selected issue.", "authorizations": {}}
         if logical_run:
@@ -359,6 +360,49 @@ class Continuation(unittest.TestCase):
         self.assertEqual(app.candidates(self.root, ledger, replacement), original)
         self.assertEqual(len(app._claims(ledger, review)), 2)
         self.assertEqual(self.native, 2)
+
+    def change_code(self, value):
+        (self.root / "code.py").write_text("value = " + value + "\n")
+        git(self.root, "commit", "-am", "Change value to " + value)
+        self.transport.evidence["metadata"]["head"]["sha"] = git(self.root, "rev-parse", "HEAD")
+
+    def review_round(self, plan, ledger, agents=AGENTS[:2]):
+        return [self.run_task(plan, ledger, self.task(plan, name)["id"], agent)["invoke"]
+                for name, agent in zip(("plain-review", "ruled-review"), agents)]
+
+    def test_reviewers_with_different_claim_histories_share_each_round(self):
+        selections = dict(tasks=[["plain-review", "ruled-review"]], limits={"review_cycles": 5})
+        plan = self.prepare(**selections)
+        ledger = self.ledger(plan)
+        self.assertEqual(self.review_round(plan, ledger), [True, True])
+        self.assertEqual(self.consumed(ledger, "review_cycles"), 1)
+        # Only the reviewer reading the changed resource refreshes: one round.
+        (self.root / "rules").write_text("Changed governing rule\n")
+        plan = self.prepare(**selections)
+        self.assertEqual(self.review_round(plan, ledger), [False, True])
+        self.assertEqual(self.consumed(ledger, "review_cycles"), 2)
+        # Their claim counts now differ, yet a source change is still one round.
+        self.change_code("3")
+        plan = self.prepare(**selections)
+        self.assertEqual(self.review_round(plan, ledger), [True, True])
+        self.assertEqual(self.consumed(ledger, "review_cycles"), 3)
+        self.assertEqual(self.native, 5)
+
+    def test_continued_reviewer_rejoins_its_original_round(self):
+        plan = self.prepare(tasks=[["plain-review", "ruled-review"]], limits={"review_cycles": 2})
+        ledger = self.ledger(plan)
+        plain, ruled = self.task(plan, "plain-review")["id"], self.task(plan, "ruled-review")["id"]
+        self.run_task(plan, ledger, plain)
+        with self.assertRaisesRegex(ValueError, "without eligible retained retry"):
+            self.fail(plan, ledger, self.claim(plan, ledger, ruled))
+        ledger.extend("retry-ruled", "occurrence:" + ruled, 1, {**AUTH, "request_id": "retry-ruled"})
+        self.run_task(plan, ledger, ruled, AGENTS[2])
+        self.assertEqual(self.consumed(ledger, "review_cycles"), 1)
+        self.change_code("3")
+        plan = self.prepare(tasks=[["plain-review", "ruled-review"]], limits={"review_cycles": 2})
+        self.assertEqual(self.review_round(plan, ledger, AGENTS[3:5]), [True, True])
+        self.assertEqual(self.consumed(ledger, "review_cycles"), 2)
+        self.assertEqual(self.native, 5)
 
     def test_partial_parallel_failure_keeps_sibling_and_needs_explicit_continuation(self):
         plan = self.prepare(tasks=[["read-feedback", "assess-scope"]])

@@ -137,8 +137,10 @@ heads. CI controls bind only `ci_repair`. Task and finalizer selections, limits,
 the merge method and whether an occurrence is required bind nothing. So a
 governing resource change refreshes only the reviewer that reads it, and a
 rewrite that keeps the tree keeps tree-scoped reviews while commit inspection
-refreshes. Review rounds order reviewers by occurrence ID, so reordering them
-does not open a new round.
+refreshes. A review round is keyed by the reviewers' current fingerprints, ordered
+by occurrence ID, and by each reviewer's count of live claims under them. So
+reordering reviewers, refreshing only one of them, or continuing one after a
+superseded claim never charges more than one cycle per round.
 
 **Allowances.** Defaults: five review cycles, one eligible native retry per
 claim, five CI repairs per cycle, three CI reruns per head and three checklist

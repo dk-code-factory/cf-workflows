@@ -200,13 +200,15 @@ CREATE TABLE IF NOT EXISTS local_commits(id TEXT PRIMARY KEY,parent TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS native_failures(claim_id TEXT NOT NULL, round INTEGER NOT NULL,
  agent TEXT NOT NULL, classification TEXT NOT NULL, unsafe TEXT NOT NULL,
  diagnostic TEXT NOT NULL, PRIMARY KEY(claim_id,round));
+CREATE TABLE IF NOT EXISTS review_rounds(claim_id TEXT PRIMARY KEY, task TEXT NOT NULL, basis TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ci_observations(operation TEXT PRIMARY KEY,head TEXT NOT NULL,
  status TEXT NOT NULL,result TEXT NOT NULL);
 """
 
 
 # Version 2 records each deadline's original start, so a narrower runtime
-# ceiling can shorten an absolute window but never extend or restart it.
+# ceiling can shorten an absolute window but never extend or restart it, and
+# records each review claim's round basis so reviewers share one cycle per round.
 SCHEMA_VERSION = 2
 
 

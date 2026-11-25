@@ -305,11 +305,18 @@ def prepare_claim(root, provider, ledger, plan, inputs):
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
     # A new process, execution or generated plan never replenishes this ledger.
+    # The round counts only this reviewer's live claims under the same inputs,
+    # so reviewers whose claim histories differ (one refreshed alone, or one
+    # continued after a superseded claim) still share one cycle per round.
+    basis = None
     if task["kind"] == "review":
-        cycle = digest([plan["review_contract"], invocation,
+        basis = digest([plan["review_contract"],
                         [_fingerprint(snapshot, review) for review in sorted(plan["tasks"], key=lambda t: t["id"])
                          if review["kind"] == "review"]])
-        ledger.reserve("review_cycles", cycle, plan["limits"]["review_cycles"])
+        round_number = ledger.db.execute(
+            "SELECT count(*) FROM review_rounds r JOIN claims c ON c.id=r.claim_id "
+            "WHERE r.task=? AND r.basis=? AND c.state!='superseded'", (task["id"], basis)).fetchone()[0]
+        ledger.reserve("review_cycles", digest([basis, round_number]), plan["limits"]["review_cycles"])
     if task["id"] == "ci_repair":
         latest = ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
         if not latest or latest["head"] != snapshot["head"] or latest["status"] != "failed":
@@ -336,6 +343,8 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             raise ValueError("unfinished logical claim: resume its originating engine execution")
         ledger.db.execute("INSERT INTO claims(id,task,fingerprint,state,assignment) VALUES(?,?,?,?,?)",
                           (key, task["id"], fingerprint, "claimed", reference))
+        if basis is not None:
+            ledger.db.execute("INSERT INTO review_rounds VALUES(?,?,?)", (key, task["id"], basis))
     return {"claim": key, "invoke": True, "complete": False,
             "definition": task["definition"], "prompt": prompt, "task_input": assignment, "report": ""}
 
