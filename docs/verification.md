@@ -41,8 +41,15 @@ every verdict through fake validator sessions and a durable fake gate store that
 outlives helper restarts. They cover interrupted clarification, changed and
 revised proposals, attempted prohibition waivers, validator attempts to run or
 publish, and a default plan with zero validator sessions. Each asserts its
-capability, gate and session counts. These tests do not certify any engine,
-provider or host. Future runtime
+capability, gate and session counts. [Acceptance reuse](acceptance.md) tests
+(`tests/test_acceptance.py`) add a disposable SQLite ledger and the real file
+store with injected faults. They change each relevant input in turn and assert
+which units are assessed and which are reused with their original evidence, and
+that unrelated changes and fresh sessions run no session or gate read. They cover
+clarified acceptances, lost gate responses, lost write responses, interruption
+before and after a write, another writer, compare-and-swap rejection, a
+preserved earlier sibling, backup and restore, and refusal of foreign state.
+These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture
 operations must fail without falling back to network/model execution. Assert

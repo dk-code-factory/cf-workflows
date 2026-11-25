@@ -30,6 +30,8 @@ transport's `validator_session(assignment)`. The assignment fixes:
 - the files it may read, with their admitted digests: configured resources,
   repository guidance and a supplied skill's declared files;
 - every path a verdict may cite;
+- the `subjects` that need a verdict and the `accepted` units reused as context,
+  with their original result references ([acceptance.md](acceptance.md));
 - a claim derived from the proposal's evidence ID, so the engine can reconcile an
   interrupted session.
 
@@ -99,8 +101,9 @@ assessed.
 
 ## Not established here
 
-- Reusing an acceptance in a later run: each call assesses again (#13).
-- Writing an accepted revision back to the configuration store (#13).
+- Reusing an acceptance in a later run and writing an accepted revision back to
+  the configuration store: [acceptance.md](acceptance.md). Without a ledger,
+  each call assesses again.
 - Supplied-skill execution: preflight still rejects it (#16, Agent Workflow #139).
 - Real transport bindings for `validator_session`, `input_gates` and
   `open_input_gate`. The engine needs native sessions for the provider (Agent
