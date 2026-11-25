@@ -125,7 +125,7 @@ class Routing(Semantic):
 
     def test_supplied_skills_stay_rejected_before_any_session(self):
         offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].append('session_scoped_skills')
+        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
         invocation = {'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
                       'skills': [self.skill()]}
         result = self.run_semantic(verdict('accepted'), invocation=invocation, capabilities=offered)
@@ -256,7 +256,7 @@ class Authority(Semantic):
 
     def test_supplied_skill_files_are_readable_but_never_run(self):
         offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].append('session_scoped_skills')
+        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
         invocation = {'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
                       'skills': [self.skill()]}
         with patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):

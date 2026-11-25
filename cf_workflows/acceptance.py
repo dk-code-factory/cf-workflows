@@ -128,7 +128,8 @@ def units(admitted):
     for key, skill in custom['skills'].items():
         used = sorted({task['adapter'] for task in snapshot['plan']['tasks'] if task['skill'] == key})
         add('skill', 'skill:' + key, [skill['record'], *skill['references']],
-            content={key: skill[key] for key in ('name', 'sha256', 'files')}, adapter=[adapter(name) for name in used])
+            content={key: skill[key] for key in ('name', 'sha256', 'files', 'children')},
+            adapter=[adapter(name) for name in used])
     free = [item for item in data['requirements'] + data['prohibitions'] if item['text'] not in admission.ACTIONS]
     if free:
         # Free-text policy is already part of every unit's shared binding; it is one unit of its own.

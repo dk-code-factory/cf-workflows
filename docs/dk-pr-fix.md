@@ -78,7 +78,8 @@ starts no session and runs nothing.
    Custom prompts, per-task instructions, custom adapters and free-text policy
    reject at preflight. Admission reports them as `semantic_required`, but the
    installed workflow has no inputs that carry them yet, so running without them
-   would silently drop them. Supplied skills reject until #16.
+   would silently drop them. Supplied skills reject until Agent Workflow #139
+   ([skills.md](skills.md)).
 3. Remote-write authorizations and effective permissions reject. Publication and
    merge stay disabled until the guarded path in #17 is available. Every
    permission input is `false`.
@@ -248,7 +249,7 @@ provider or host capability.
 - Proof that budgets, occurrences and continuation hold across real engine runs
   and native sessions needs #129 and #130. The fixtures exercise only the
   helpers.
-- Workflow inputs for semantically admitted custom inputs (#12), and #16 for
-  supplied skills.
+- Workflow inputs for semantically admitted custom inputs (#12), and supplied-skill
+  bindings ([skills.md](skills.md)), which need Agent Workflow #139.
 
 No local launcher, controller or second agent loop stands in for these.

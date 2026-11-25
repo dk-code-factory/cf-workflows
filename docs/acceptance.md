@@ -15,7 +15,7 @@ the free-text policy as a whole. Each unit is bound to digests of:
 
 | Binding | Applies to | Contents |
 | --- | --- | --- |
-| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest and files |
+| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest, files and declared children |
 | `resources` | prompts, custom adapters | Transitive closure of the configured resources the unit references |
 | `adapter` | targeted prompts, instructions, skills | The targeted adapter (baseline or custom), its role definition digest and resource closure |
 | `plan` | untargeted prompts and preferences, free-text policy | The set of selected adapters, each with its definition, role digest and resource closure |
@@ -127,6 +127,6 @@ unsettled intents, so an uncertain write is still read back rather than reapplie
   sessions and a fake gate store.
 - Reuse of completed run work, budgets and the logical-run ledger: #15.
 - Supplied-skill units are exercised only with supplied-skill execution patched on
-  (#16, Agent Workflow #139).
+  ([skills.md](skills.md), Agent Workflow #139).
 - Migration of a future ledger version and qualification of backup and upgrade
   across releases: #37.
