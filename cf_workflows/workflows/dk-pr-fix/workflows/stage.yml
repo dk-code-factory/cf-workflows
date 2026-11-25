@@ -42,6 +42,18 @@ jobs:
     secrets:
       github_token: ${{ secrets.github_token }}
     if: ${{ inputs.stage.kind == 'publication' }}
+  identities:
+    # CI belongs to the PR metadata head; while analysis is provisional it is
+    # neither observed nor repaired, and coverage reports current-head CI missing.
+    uses: workflows/helper.yml
+    with:
+      operation: alignment
+      payload:
+        plan: ${{ inputs.plan }}
+        wait: false
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    if: ${{ inputs.stage.kind == 'ci' }}
   ci:
     uses: workflows/ci-pass.yml
     with:
@@ -53,7 +65,8 @@ jobs:
       turns: ${{ inputs.turns }}
     secrets:
       github_token: ${{ secrets.github_token }}
-    if: ${{ inputs.stage.kind == 'ci' and inputs.repairs > 0 }}
+    needs: identities
+    if: ${{ inputs.stage.kind == 'ci' and inputs.repairs > 0 and needs.identities.outputs.result.current }}
     repeat:
       max-attempts: ${{ inputs.repairs }}
       until: ${{ iteration.outputs.settled }}
@@ -66,6 +79,8 @@ jobs:
       turns: ${{ inputs.turns }}
     secrets:
       github_token: ${{ secrets.github_token }}
-    needs: ci
-    if: ${{ inputs.stage.kind == 'ci' and needs.ci.status != 'failed' and needs.ci.status != 'needs_attention'
+    needs:
+    - identities
+    - ci
+    if: ${{ inputs.stage.kind == 'ci' and needs.identities.outputs.result.current and needs.ci.status != 'failed' and needs.ci.status != 'needs_attention'
       and needs.ci.status != 'canceled' }}

@@ -251,5 +251,7 @@ upstream #138 fixtures for the guard itself.
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.
 - Approval, issue and fork-CI kinds: #31, #32 and #35.
+- While analysis is [provisional](provisional.md), nothing is listed, prepared
+  or dispatched.
 - GitHub publication conformance needs separate authorization; these fixtures
   do not establish it.

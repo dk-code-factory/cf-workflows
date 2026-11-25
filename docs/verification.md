@@ -44,6 +44,9 @@ effect of every supported write kind and counts dispatches, as described in
 [pending-review](publication.md#pending-reviews) scenarios on the same
 fail-closed transport and counts review submissions.
 
+`tests/test_dk_pr_fix_provisional.py` covers
+[provisional analysis](provisional.md#verification) under lagging PR metadata,
+with native-dispatch and transport-call counts.
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any
 operation other than the configured `capabilities()` query fails without a live

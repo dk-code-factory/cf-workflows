@@ -56,6 +56,10 @@ class Fixture:
         self.last_capture = copy.deepcopy(self.evidence)
         return self.last_capture
 
+    def pull_ref(self, identity):
+        # The service's Git ref agrees with the metadata: no metadata lag.
+        return {"ref": "refs/pull/17/head", "object": {"type": "commit", "sha": self.metadata["head"]["sha"]}}
+
 
 class CaptureTests(unittest.TestCase):
     def setUp(self):
@@ -126,6 +130,9 @@ class CaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "retained local commit"):
             self.capture()
         self.fixture.plan["allow_local_head"] = local
+        with self.assertRaisesRegex(ValueError, "retained local commit"):
+            self.capture()  # The retained commits must build on the PR head.
+        self.fixture.plan["local_chain"] = [local, self.fixture.head]
         self.assertEqual(self.capture()["local_head"], local)
         self.fixture.plan["allow_local_head"] = True
         with self.assertRaises(ValueError):

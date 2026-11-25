@@ -88,6 +88,11 @@ def publication_list(root, provider, ledger, plan, inputs):
     selector = inputs.get("kind", "ordinary")
     if selector not in {"ordinary", "merge", "all"}:
         raise PublicationError("unsupported publication selector")
+    if not snapshot["identities"]["current"]:
+        # Provisional analysis is private: no proposal is listed until the PR
+        # metadata reaches the analyzed revision.
+        return {"items": [], "provisional": app.provisional(snapshot),
+                "blockers": ["publication is withheld while analysis is provisional"]}
     selected, seen = [], {}
     rows = ledger.db.execute("SELECT * FROM accepted_reports ORDER BY rowid").fetchall()
     if selector != "merge" and snapshot["local_head"] != snapshot["head"]:
@@ -173,7 +178,10 @@ def publication_prepare(root, provider, ledger, plan, inputs):
     # Never accept arbitrary workflow inputs merely because they name an
     # accepted source. Reconstruct the source report's exact original proposal,
     # including the deterministic missing-sources/ID normalization above.
-    listed = publication_list(root, provider, ledger, plan, {"kind": "all"})["items"]
+    listing = publication_list(root, provider, ledger, plan, {"kind": "all"})
+    listed = listing["items"]
+    if listing.get("provisional") and not _retained_original(root, provider, ledger, plan, proposal):
+        raise PublicationError("publication is withheld while analysis is provisional")
     if proposal.get("kind") == "merge":
         final = merge_proposal(root, provider, ledger, plan, {})
         if final["invoke"] and proposal == final["proposal"]:
@@ -200,6 +208,17 @@ def publication_prepare(root, provider, ledger, plan, inputs):
     return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
 
 
+def _retained_original(root, provider, ledger, plan, proposal):
+    ident = proposal.get("id")
+    if not isinstance(ident, str):
+        return False
+    try:
+        _publication(root, provider, ledger, plan)._load(ident)
+    except PublicationError:
+        return False
+    return True
+
+
 def publication_recover(root, provider, ledger, plan, inputs):
     publisher = _publication(root, provider, ledger, plan)
     saved = publisher._load(text(inputs.get("id"), "original publication operation"))
@@ -215,6 +234,13 @@ def publication_execute(root, provider, ledger, plan, inputs):
     from .prepare import CHECKLIST
     publisher = _publication(root, provider, ledger, plan)
     saved = publisher._load(text(inputs.get("id"), "publication operation"))
+    if saved["state"] == "prepared":
+        # Never dispatch, or block, an intent while analysis is provisional; it
+        # stays prepared until the PR metadata reaches the analyzed revision.
+        try:
+            app.require_current(app._snapshot(root, provider, plan), "publication")
+        except app.ProvisionalIdentity as error:
+            raise PublicationError(str(error)) from None
     # A replayed execute accepts only its previously retained native audience;
     # the original report is never replaced after a publication side effect.
     agent = text(inputs.get("agent"), "opaque audience agent")
@@ -319,12 +345,17 @@ def readiness(root, provider, ledger, plan, inputs=None):
     from . import app
     from .ci import classify_current
     result = {"complete": False, "ready": False, "clean_review": False, "verified": False,
+              "provisional": {"provisional": None},
               "head": "", "target": "", "ci": {"head": "", "success": False}, "evidence": [], "blockers": []}
     try:
         covered = app.coverage(root, provider, ledger, plan, {})
-        result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []), unresolved=covered.get("unresolved", []))
+        result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []),
+                      withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []))
         snapshot = covered["snapshot"]
-        result.update(head=snapshot["head"], target=snapshot["target"])
+        result.update(head=snapshot["head"], target=snapshot["target"], provisional=app.provisional(snapshot))
+        current_identity = snapshot["identities"]["current"]
+        if not current_identity:
+            result["blockers"].append("PR metadata has not reached the analyzed revision; analysis is provisional")
         if not covered["complete"]:
             result["blockers"].append("selected task coverage or original finding settlement incomplete")
         reviews = [task for task in plan["tasks"] if task["kind"] == "review"]
@@ -342,6 +373,9 @@ def readiness(root, provider, ledger, plan, inputs=None):
             result["evidence"].append(row["reference"])
         result["clean_review"] = bool(reviews) and all(t["id"] in current for t in reviews) and not covered["unresolved"]
         result["verified"] = bool(verifications) and all(t["id"] in current for t in verifications) and not covered["unresolved"]
+        if not current_identity:
+            # Live CI and repository requirements belong to a reconciled head.
+            return result
         if snapshot.get("local_head") != snapshot["head"] or snapshot.get("dirty"):
             result["blockers"].append("merge requires the exact clean published head")
         observed = provider.observe_ci(plan["pr"], snapshot["head"])
