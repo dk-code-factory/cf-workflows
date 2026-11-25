@@ -57,13 +57,14 @@ While analysis is provisional:
   `merge_proposal` never invokes. Approval and fork-CI approval stay extension
   kinds that deny (#31, #35).
 - The CI stage asks `alignment` first and neither observes CI nor starts the
-  retained CI window. `coverage` reports `current_head_ci` missing, and a CI
-  repair claim refuses.
+  retained CI window. `coverage` reports `current_head_ci` as `withheld`, so
+  `complete` stays false, and a CI repair claim refuses.
 
 ## Bounded reconciliation
 
 `coverage` returns `complete` (selected-plan coverage), `current`,
-`provisional`, `reconciliation`, `waiting` and `settled`. After a provisional
+`provisional`, `reconciliation`, `waiting`, `withheld` (work that needs a
+reconciled head, such as current-head CI) and `settled`. After a provisional
 cycle, `cycle.yml` runs the `alignment` operation with `wait: true` and sleeps
 10 seconds between observations. Each wait reserves one unit of the allowance
 `identity-reconciliation:<pin>` (5 per pinned revision) in the logical run's
@@ -72,10 +73,12 @@ retained result, an interrupted wait stays reserved and its operation stays
 `unknown`, and a new run, session or configuration continues from the retained
 count. Only an explicit continuation for that name (`extend`) adds waits.
 
-`main.yml` repeats cycles until `settled`: complete and either current or out of
-waits. The next cycle after reconciliation reuses the analysis and publishes.
-An exhausted allowance ends waiting. The run then completes provisionally:
-`complete` can be true, `provisional` is true and `ready` is false. A later run
+`main.yml` repeats cycles until `settled`: every analysis occurrence and finding
+settled, and either current or out of waits. Withheld work does not keep the
+loop going. The next cycle after reconciliation reuses the analysis and
+publishes. An exhausted allowance ends waiting and cycling. The run then ends
+provisionally: `provisional` is true and `ready` is false; `complete` is true
+only when nothing was withheld, so a selected CI stage keeps it false. A later run
 whose snapshot agrees proceeds normally and reuses the same results.
 
 ## Verification
@@ -95,6 +98,9 @@ dispatches and transport calls and covers:
 - cross-PR, corrupt, missing and inconsistent snapshots and Git refs, at
   preparation and mid-run;
 - replayed, interrupted, replacement-run, exhausted and continued waits.
+- a selected CI stage withheld while provisional, which settles the run once
+  waits are exhausted, ends it provisionally and becomes missing work after
+  reconciliation.
 
 ## What remains
 

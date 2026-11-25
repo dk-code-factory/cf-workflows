@@ -411,6 +411,34 @@ class Provisional(unittest.TestCase):
         self.assertEqual(self.native, 4)
         self.assertLessEqual(set(self.transport.calls), {"capture", "pull_ref"})
 
+    def test_selected_ci_is_withheld_and_exhausted_waits_settle_the_run(self):
+        plan = self.prepare(tasks=list(TASKS) + [{"stage": "ci"}])
+        ledger = self.ledger(plan)
+        analysis = dict(plan, tasks=[task for task in plan["tasks"] if task["id"] != "ci_repair"])
+        self.run_all(analysis, ledger, self.pin)
+        self.assertEqual(self.native, 4)
+        with self.assertRaisesRegex(ValueError, "CI repair is withheld"):
+            app.prepare_claim(self.root, self.transport, ledger, plan, {"task": "ci_repair"})
+        covered = app.coverage(self.root, self.transport, ledger, plan, {})
+        self.assertEqual((covered["missing"], covered["withheld"]), ([], ["current_head_ci"]))
+        self.assertEqual((covered["complete"], covered["waiting"], covered["settled"]), (False, True, False))
+        for number in range(1, 6):
+            self.assertTrue(self.wait(plan, "wait-%d" % number)["waiting"])
+        self.assertTrue(self.wait(plan, "wait-6")["exhausted"])
+        covered = app.coverage(self.root, self.transport, ledger, plan, {})
+        self.assertEqual((covered["complete"], covered["waiting"], covered["settled"]), (False, False, True),
+                         "withheld CI does not keep cycles repeating once waits are exhausted")
+        completion = self.handle("completion", plan, {}, "completion")["result"]["output"]
+        self.assertEqual((completion["complete"], completion["ready"], completion["provisional"]["provisional"]),
+                         (False, False, True))
+        self.assertEqual(completion["withheld"], ["current_head_ci"])
+        # Once the metadata agrees, CI is ordinary missing work again.
+        self.catch_up()
+        covered = app.coverage(self.root, self.transport, ledger, plan, {})
+        self.assertEqual((covered["missing"], covered["withheld"], covered["settled"]), (["current_head_ci"], [], False))
+        self.assertEqual(self.native, 4)
+        self.assertLessEqual(set(self.transport.calls), {"capture", "pull_ref"})
+
     # -- transport and orchestration ----------------------------------------------
 
     def test_github_transport_reads_only_the_exact_pr_git_ref(self):

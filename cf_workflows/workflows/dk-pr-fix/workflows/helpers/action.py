@@ -84,7 +84,10 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
     if operation == "completion":
         from prfix.publishing import readiness
         result = readiness(root, provider, ledger, plan)
-        if not result["complete"]:
+        # A provisional run ends with its analysis settled and only work that
+        # needs a reconciled head withheld; it is never complete or ready.
+        analyzed = "missing" in result and not result["missing"] and not result["unresolved"]
+        if not result["complete"] and not (analyzed and result["provisional"].get("provisional")):
             raise ValueError("selected task/finalizer plan remains incomplete")
         return result
     if operation == "ci":

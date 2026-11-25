@@ -801,20 +801,25 @@ def coverage(root, provider, ledger, plan, inputs):
         if verification.get(key) != "rejected" and (verification.get(key) != "confirmed"
                 or fixes.get(key) not in {"fixed", "accepted", "deferred"}):
             unresolved.append(key)
+    identities = snapshot["identities"]
+    withheld = []
     if any(stage["kind"] == "ci" for stage in plan["stages"]):
         observed = ledger.db.execute("SELECT * FROM ci_observations ORDER BY rowid DESC LIMIT 1").fetchone()
-        if (not observed or observed["head"] != snapshot["head"] or observed["status"] != "success"
-                or snapshot["local_head"] != snapshot["head"] or not snapshot["identities"]["current"]):
+        if not identities["current"]:
+            # CI belongs to a reconciled head; it is withheld, not missing work.
+            withheld.append("current_head_ci")
+        elif (not observed or observed["head"] != snapshot["head"] or observed["status"] != "success"
+                or snapshot["local_head"] != snapshot["head"]):
             missing.append("current_head_ci")
     # Selected-plan coverage, current identity agreement and readiness stay
     # separate. Provisional coverage is private analysis of the pinned revision.
-    identities = snapshot["identities"]
-    complete = not missing and not unresolved
+    # Once waits are exhausted, nothing more a cycle can do: the run settles.
+    analyzed = not missing and not unresolved
     waits = None if identities["current"] else reconciliation(ledger, identities)
-    return {"complete": complete, "ready": False, "current": identities["current"],
+    return {"complete": analyzed and not withheld, "ready": False, "current": identities["current"],
             "provisional": provisional(snapshot), "reconciliation": waits,
             "waiting": waits is not None and not waits["exhausted"],
-            "settled": complete and (waits is None or waits["exhausted"]),
-            "missing": missing, "unresolved": unresolved,
+            "settled": analyzed and (waits is None or waits["exhausted"]),
+            "missing": missing, "withheld": withheld, "unresolved": unresolved,
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

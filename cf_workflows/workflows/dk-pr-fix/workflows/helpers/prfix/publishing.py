@@ -349,7 +349,8 @@ def readiness(root, provider, ledger, plan, inputs=None):
               "head": "", "target": "", "ci": {"head": "", "success": False}, "evidence": [], "blockers": []}
     try:
         covered = app.coverage(root, provider, ledger, plan, {})
-        result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []), unresolved=covered.get("unresolved", []))
+        result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []),
+                      withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []))
         snapshot = covered["snapshot"]
         result.update(head=snapshot["head"], target=snapshot["target"], provisional=app.provisional(snapshot))
         current_identity = snapshot["identities"]["current"]
