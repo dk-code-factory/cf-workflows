@@ -30,6 +30,9 @@ ported example tests in `tests/dk_pr_fix/`) use disposable repositories, a fresh
 state namespace per test, a fail-closed fake engine transport and a fail-closed
 fake GitHub transport. They assert invocation counts and run the installed helpers
 from a relocated read-only copy against a separate checkout.
+`tests/test_dk_pr_fix_continuation.py` counts native dispatches while it replaces
+runs, deletes checkpoints and changes configuration, and checks the
+[retained budgets, occurrences and continuation](dk-pr-fix.md#budgets-occurrences-and-continuation).
 
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any

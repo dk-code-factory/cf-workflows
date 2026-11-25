@@ -192,7 +192,9 @@ def _validate_checkpoint(operation, root, provider, ledger, plan, inputs, ident,
     if valid and operation == "claim" and checkpoint["output"].get("invoke"):
         retained = app._claim(ledger, checkpoint["output"]["claim"])
         assignment = read_artifact(root, retained["assignment"])
-        if retained["state"] not in {"complete", "optional_failed"}:
+        # An explicit continuation retired this claim; its execution cannot resume.
+        valid = retained["state"] != "superseded"
+        if valid and retained["state"] not in {"complete", "optional_failed"}:
             current = app._snapshot(root, provider, plan)
             if assignment["task"]["writes"]:
                 from prfix.core import verify_writer_lease
@@ -211,7 +213,9 @@ def _validate_checkpoint(operation, root, provider, ledger, plan, inputs, ident,
                   (checkpoint["output"].get("retry") or checkpoint["output"].get("checklist")) or
                   operation == "accept" and not checkpoint["output"].get("complete")):
         retained = app._claim(ledger, inputs["claim"])
-        if retained["state"] not in {"complete", "optional_failed"}:
+        if retained["state"] == "superseded":
+            valid = False
+        elif retained["state"] not in {"complete", "optional_failed"}:
             assignment = read_artifact(root, retained["assignment"])
             valid = app.continuation_current(root, provider, ledger, plan, retained, assignment)
     if valid and inputs.get("publication") and operation in {"claim", "check_prepare", "turn_result"}:

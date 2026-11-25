@@ -361,8 +361,9 @@ class RelocatedReadOnlyRun(PreflightFixture):
         steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}},
                  {'name': 'prepare', 'operation': 'prepare', 'input': {'controls': controls},
                   'refs': {'snapshot': ['request', 'result', 'output', 'snapshot']}},
-                 {'name': 'claim', 'operation': 'claim', 'input': {'task': 'task_1', 'cycle': 1, 'publication': ''},
-                  'refs': {'plan': ['prepare', 'result', 'output', 'plan']}}]
+                 {'name': 'claim', 'operation': 'claim', 'input': {'cycle': 1, 'publication': ''},
+                  'refs': {'plan': ['prepare', 'result', 'output', 'plan'],
+                           'task': ['prepare', 'result', 'output', 'stages', 0, 'groups', 0, 'tasks', 0, 'id']}}]
         completed = self.run_driver(prepared, steps)
         self.assertEqual(completed.returncode, 0, completed.stderr.decode()[-4000:])
         output = json.loads(completed.stdout)

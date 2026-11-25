@@ -204,10 +204,18 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     ledger.close()
     adapters = controls.get("adapters", {})
     tasks, stages = [], []
-    serial = 0
+    occurrences = {}
 
-    def task_call(call, fallback=None):
-        nonlocal serial
+    def occurrence(phase, context, name, call):
+        # A stable identity survives reordering, unrelated insertions and new
+        # runs. Repeated identical selections are told apart by their ordinal.
+        key = digest([phase, context, TASK_ALIASES.get(name, name),
+                      call.get("instructions", ""), call.get("options", {})])
+        ordinal = occurrences.get(key, 0)
+        occurrences[key] = ordinal + 1
+        return "task_" + digest([key, ordinal])[:24]
+
+    def task_call(call, phase, context, fallback=None):
         if "stage" in call:
             raise ValueError("reviewer selection must use read-only review adapters")
         name = text(call.get("task"), "selected task")
@@ -224,8 +232,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         role = adapter.get("definition", "reviewer" if kind == "review" else "leaf")
         if role not in definitions:
             raise ValueError("adapter references undeclared native definition")
-        serial += 1
-        task = {"id": "task_" + str(serial), "skill": name, "kind": kind,
+        task = {"id": occurrence(phase, context, name, call), "skill": name, "kind": kind,
                 "definition": role, "definition_digest": hashlib.sha256(definitions[role]).hexdigest(),
                 "assignment": text(adapter.get("assignment"), "adapter assignment") + "\n" + call.get("instructions", ""),
                 "required": call.get("required", True), "writes": bool(adapter.get("writes", False)),
@@ -257,14 +264,14 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                     raise ValueError("selected reviewer stage requires explicit reviewers")
                 groups = []
                 for reviewer_group in _groups(reviewers):
-                    keys = [task_call(call, "review") for call in reviewer_group]
+                    keys = [task_call(call, phase, "reviews", "review") for call in reviewer_group]
                     if any(next(t for t in tasks if t["id"] == key)["kind"] != "review" for key in keys):
                         raise ValueError("reviewer selection must use read-only review adapters")
                     groups.append({"id": "group_" + str(len(groups) + 1),
                                    "tasks": [{"id": key} for key in keys], "concurrency": len(keys)})
                 stages.append({"kind": "reviews", "groups": groups, "review": True, "phase": phase})
                 continue
-            keys = [task_call(call) for call in group]
+            keys = [task_call(call, phase, "tasks") for call in group]
             if len(keys) > 1 and any(next(t for t in tasks if t["id"] == key)["writes"] for key in keys):
                 raise ValueError("parallel writing tasks share a Git index and are unsupported")
             stages.append({"kind": "tasks", "phase": phase,
@@ -290,7 +297,9 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "runtime": {"execution_fingerprint": execution_fingerprint}, "execution_fingerprint": execution_fingerprint, "turns": turns,
             "authorizations": authorizations, "limits": limits, "tasks": tasks, "stages": stages,
             "resources": {}, "definitions": {key: hashlib.sha256(value).hexdigest() for key, value in definitions.items()},
-            "review_contract": digest([task for task in tasks if task["kind"] in {"review", "verification"}])}
+            # Ordered by stable occurrence, so reordering reviewers keeps the round.
+            "review_contract": digest(sorted((task for task in tasks if task["kind"] in {"review", "verification"}),
+                                             key=lambda task: task["id"]))}
     source = Path(__file__).resolve().parent.parent
     plan["helper_manifest"] = _helper_manifest(source)
     for task in tasks:

@@ -124,9 +124,12 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(ledger.reserve("reviews", "original", 1), 1)
             with self.assertRaisesRegex(ValueError, "exhausted"):
                 ledger.reserve("reviews", "replacement", 1)
-            with self.assertRaises(ValueError):
-                ledger.reserve("reviews", "original", 2)
-            with self.assertRaises(ValueError):
+            # A replayed operation under a changed ceiling returns its retained
+            # count; a wider ceiling never replenishes the original allowance.
+            self.assertEqual(ledger.reserve("reviews", "original", 2), 1)
+            with self.assertRaisesRegex(ValueError, "conflict"):
+                ledger.reserve("reviews", "original", 1, amount=2)
+            with self.assertRaisesRegex(ValueError, "exhausted"):
                 ledger.reserve("reviews", "new-limit", 2)
 
     def test_concurrent_replayed_reservation_has_one_transactional_effect(self):
