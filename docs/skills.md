@@ -46,7 +46,8 @@ admission changes nothing. Each binding has:
 
 - `occurrence`: the installed workflow's stable occurrence ID, computed exactly
   as `prepare.py` does;
-- `skills`: `[]`, or the one admitted skill with its digest and files;
+- `skills`: `[]`, or the one admitted skill with its digest, files and
+  `namespace` (`cfw-skill-` plus the first 32 hex digits of its digest);
 - `controls`: whether the session gets the skill tool and the agent tool, and
   which agent types are permitted;
 - `evidence`: the required invocation, children and terminal outcome;
@@ -65,7 +66,12 @@ session (`finding_verification`, no skills) that must verify its findings.
 its sessions: the original one, then every `resume`, `retry` or `checklist`
 continuation. Each record (`kind: session_observation`, `source: engine`) carries
 the skills loaded into that session, the provider's events and the session's
-terminal outcome. These event sources are read:
+terminal outcome. Each loaded skill has a `name`, `sha256` and `locator`. The
+admitted skill must be registered under its namespace: as the Claude skill
+`<namespace>:<name>`, or as an absolute Codex path ending in `<namespace>/<name>`.
+An invocation counts only when its full locator equals that registration, so a
+same-named host, repository or other plugin skill never counts. These event
+sources are read:
 
 | Provider | Invocation | Children and their parents | Child outcome |
 | --- | --- | --- | --- |
@@ -76,8 +82,13 @@ terminal outcome. These event sources are read:
 | --- | --- |
 | `covered` | Every session loaded exactly the admitted skills. The skill was invoked, its latest invocation ran exactly the declared children to completion, and the last session completed. |
 | `incomplete` | Evidence is missing or does not match: no invocation, missing, duplicate or unfinished children, a failed last session, or only report material. |
-| `failed` | An unadmitted or same-named skill with another digest was loaded, another skill was invoked, an undeclared or nested child started, or the admitted skill was missing from a session. |
-| `reconcile` | The last session was interrupted, its outcome is unknown, or a writing occurrence failed. Its original effects must be reconciled first; `attempt_allowed` is false. |
+| `failed` | An unadmitted or same-named skill with another digest was loaded, the admitted skill was registered outside its namespace or was missing from a session, another locator was invoked, or an undeclared or nested child started. |
+| `reconcile` | The last session was interrupted, its outcome is unknown, or a writing occurrence failed. Its original effects must be reconciled first. |
+
+The result's `reconcile` flag is true whenever reconciliation is needed, even
+when a violation in the same session makes the status `failed`.
+`attempt_allowed` is false while that flag is set and once the occurrence is
+covered.
 
 Records from any other source are ignored, so a report that claims an invocation
 or children never establishes coverage. A resumed or checklist session must show

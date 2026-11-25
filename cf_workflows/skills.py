@@ -10,6 +10,8 @@ bytes, session-scoped plugin loading, discovery isolation and the event stream.
 Coverage is decided only from records whose source is the engine. A report from
 the session itself, however detailed, establishes nothing.
 """
+from pathlib import PurePosixPath
+
 from .admission import digest
 
 PROVIDERS = ('codex', 'claude')
@@ -18,6 +20,7 @@ OUTCOMES = ('completed', 'failed', 'interrupted', 'unknown')
 RECORD_FIELDS = {'schema_version', 'kind', 'source', 'provider', 'occurrence', 'binding', 'session', 'continuation',
                  'loaded', 'events', 'outcome'}
 VERIFICATION = 'finding_verification'
+NAMESPACE = 'cfw-skill-'  # Plugin namespace / asset directory the engine registers an admitted skill under.
 
 
 class EvidenceError(ValueError):
@@ -30,6 +33,22 @@ def occurrence_id(phase, context, adapter, instructions, ordinals):
     ordinal = ordinals.get(key, 0)
     ordinals[key] = ordinal + 1
     return 'task_' + digest([key, ordinal])[:24]
+
+
+def namespace(sha256):
+    """The digest-derived namespace an admitted skill is registered under; host plugins never match it."""
+    return NAMESPACE + sha256[:32]
+
+
+def locator_matches(provider, locator, name, sha256):
+    """Claude invokes `<namespace>:<name>`; Codex attaches an absolute path ending `<namespace>/<name>`."""
+    if not isinstance(locator, str):
+        return False
+    if provider == 'claude':
+        return locator == f'{namespace(sha256)}:{name}'
+    path = PurePosixPath(locator)
+    return (locator.startswith('/') and '..' not in path.parts and str(path) == locator
+            and path.parts[-2:] == (namespace(sha256), name))
 
 
 def session_plan(admitted):
@@ -49,7 +68,8 @@ def session_plan(admitted):
         context = 'reviews' if task['id'] in reviewers else 'tasks'
         ident = occurrence_id(task['phase'], context, task['adapter'], task['instructions'], ordinals)
         skill = admitted_skills[task['skill']] if task['skill'] is not None else None
-        loaded = [] if skill is None else [{key: skill[key] for key in ('id', 'name', 'entry', 'sha256', 'files')}]
+        loaded = [] if skill is None else [{**{key: skill[key] for key in ('id', 'name', 'entry', 'sha256', 'files')},
+                                            'namespace': namespace(skill['sha256'])}]
         children = [] if skill is None else skill['children']
         binding = {
             'occurrence': ident, 'task': task['id'], 'adapter': task['adapter'], 'phase': task['phase'],
@@ -90,8 +110,8 @@ def _record(raw, binding):
     if not isinstance(raw['loaded'], list) or not isinstance(raw['events'], list):
         raise EvidenceError('loaded skills and events must be arrays')
     for item in raw['loaded']:
-        if not isinstance(item, dict) or set(item) != {'name', 'sha256'}:
-            raise EvidenceError('loaded skills are {name, sha256} records')
+        if not isinstance(item, dict) or set(item) != {'name', 'sha256', 'locator'}:
+            raise EvidenceError('loaded skills are {name, sha256, locator} records')
     return raw
 
 
@@ -104,7 +124,7 @@ def _codex(record, add_invocation, add_child, child_event, fault):
         if method == 'turn/start':
             for item in params.get('input', []):
                 if isinstance(item, dict) and item.get('type') == 'skill':
-                    add_invocation(item.get('name'))
+                    add_invocation(item.get('name'), item.get('path'))
             continue
         item = params.get('item') or {}
         if method != 'item/completed' or not isinstance(item, dict):
@@ -132,8 +152,9 @@ def _claude(record, add_invocation, add_child, child_event, fault):
                 if block.get('name') == 'Skill':
                     if parent is not None:
                         fault('failed', 'a child agent invoked a skill')
-                    # The engine wraps the admitted bytes as plugin:<name>; only the skill name is policy.
-                    add_invocation(str((block.get('input') or {}).get('skill', '')).rpartition(':')[2])
+                    # The engine wraps the admitted bytes as <namespace>:<name>; the whole locator must match.
+                    locator = str((block.get('input') or {}).get('skill', ''))
+                    add_invocation(locator.rpartition(':')[2], locator)
                 elif block.get('name') in ('Agent', 'Task'):
                     add_child(block.get('id'), (block.get('input') or {}).get('subagent_type'), parent is not None)
         elif kind == 'system' and event.get('subtype') == 'task_started':
@@ -158,7 +179,8 @@ def coverage(binding, records):
       unavailable in a session; the occurrence never completes without it;
     - 'reconcile': the last session was interrupted, its outcome is unknown, or
       a writing occurrence failed; its original effects must be reconciled
-      before another attempt.
+      before another attempt. The separate `reconcile` flag stays true even
+      when a violation makes the status 'failed'.
 
     A session's own report is not an input: it can never establish coverage.
     """
@@ -194,6 +216,15 @@ def coverage(binding, records):
 
     for record in sessions:
         loaded = {(item['name'], item['sha256']) for item in record['loaded']}
+        locators = set()
+        for item in record['loaded']:
+            if (item['name'], item['sha256']) not in admitted:
+                continue
+            if locator_matches(record['provider'], item['locator'], item['name'], item['sha256']):
+                locators.add(item['locator'])
+            else:
+                fault('failed', f'admitted skill {item["name"]} registered outside its admitted namespace: '
+                                f'{item["locator"]}')
         for name, sha256 in sorted(loaded - admitted):
             if name in names:
                 fault('failed', f'skill {name} loaded with digest {sha256}, not the admitted digest')
@@ -206,11 +237,12 @@ def coverage(binding, records):
                 fault('failed', f'admitted skill {name} is unavailable in {record["continuation"]} '
                                 f'session {record["session"]}')
 
-        def add_invocation(name, record=record):
+        def add_invocation(name, locator, record=record, locators=locators):
             if not binding['controls']['skill_tool']:
                 fault('failed', 'skill invoked in a session without a supplied skill')
-            elif name != expected['invocation']:
-                fault('failed', f'invoked a skill other than the admitted one: {name}')
+            elif name != expected['invocation'] or locator not in locators:
+                # A same-named host, repository or other plugin skill is another skill.
+                fault('failed', f'invoked a skill other than the admitted one: {locator}')
             else:
                 invocations.append({'session': record['session'], 'name': name})
 
@@ -273,7 +305,8 @@ def coverage(binding, records):
                 elif seen > count:
                     fault('incomplete', f'duplicate {agent_type} children: {seen} of {count}')
     status = next((level for level in ('failed', 'reconcile', 'incomplete') if reasons[level]), 'covered')
-    return {'status': status, 'occurrence': binding['occurrence'], 'binding': binding['binding'],
+    return {'status': status, 'reconcile': bool(reasons['reconcile']),
+            'occurrence': binding['occurrence'], 'binding': binding['binding'],
             'reasons': reasons['failed'] + reasons['reconcile'] + reasons['incomplete'],
             'sessions': [item['session'] for item in sessions], 'invocations': len(invocations),
             'children': [{key: children[item][key] for key in ('session', 'id', 'agent_type', 'outcome')}
@@ -281,5 +314,9 @@ def coverage(binding, records):
 
 
 def attempt_allowed(binding, records):
-    """Whether another attempt may be dispatched: never while an earlier session is unreconciled."""
-    return coverage(binding, records)['status'] not in ('reconcile', 'covered')
+    """Whether another attempt may be dispatched: never while an earlier session is unreconciled.
+
+    A rule violation in the same session does not lift the reconciliation requirement.
+    """
+    result = coverage(binding, records)
+    return result['status'] != 'covered' and not result['reconcile']

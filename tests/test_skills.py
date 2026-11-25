@@ -46,19 +46,27 @@ class Gateway:
             raise AttributeError(name)
         raise AssertionError('unconfigured fixture operation: ' + name)
 
+    def locator(self, name, sha256, namespace=None):
+        """Where the engine registers a skill: a Claude plugin name or a Codex asset path."""
+        namespace = namespace or skills.namespace(sha256)
+        return f'{namespace}:{name}' if self.provider == 'claude' else f'/engine/assets/{namespace}/{name}'
+
     def session(self, continuation='new', loaded=None, invoke=True, children=(), outcome='completed',
-                invoked=None, nested=False):
+                invoked=None, nested=False, locator=None):
         self.calls['session'] += 1
         session = f'{self.provider}-session-{self.calls["session"]}'
         skill = self.binding['skills'][0] if self.binding['skills'] else None
         if loaded is None:
             loaded = [{'name': skill['name'], 'sha256': skill['sha256']}] if skill else []
+        loaded = [{'locator': self.locator(item['name'], item['sha256']), **item} for item in loaded]
         name = invoked or (skill['name'] if skill else 'lint')
+        if locator is None:
+            locator = self.locator(name, skill['sha256'] if skill else 'f' * 64)
         events = []
         if self.provider == 'codex':
             turn = [{'type': 'text', 'text': 'Perform the assignment.'}]
             if invoke:
-                turn.append({'type': 'skill', 'name': name, 'path': f'/engine/assets/{name}'})
+                turn.append({'type': 'skill', 'name': name, 'path': locator})
             events.append({'method': 'turn/start', 'params': {'input': turn}})
             for number, (agent_type, result) in enumerate(children, 1):
                 child = f'{session}-child-{number}'
@@ -77,7 +85,7 @@ class Gateway:
             if invoke:
                 events.append({'type': 'assistant', 'parent_tool_use_id': None, 'message': {'content': [
                     {'type': 'tool_use', 'id': f'{session}-skill', 'name': 'Skill',
-                     'input': {'skill': 'cfw-supplied:' + name}}]}})
+                     'input': {'skill': locator}}]}})
             for number, (agent_type, result) in enumerate(children, 1):
                 tool = f'{session}-agent-{number}'
                 events.append({'type': 'assistant', 'parent_tool_use_id': 'outer' if nested else None,
@@ -278,6 +286,25 @@ class Evidence(Fixture):
                 self.assertCoverage(self.single, [gateway.session(loaded=extra)], 'failed', 'unadmitted skill loaded')
                 self.assertCoverage(self.single, [gateway.session(loaded=[])], 'failed', 'was not loaded')
 
+    def test_same_named_skill_from_another_namespace_never_counts(self):
+        admitted = self.single['skills'][0]
+        for provider in skills.PROVIDERS:
+            with self.subTest(provider):
+                gateway = Gateway(provider, self.single)
+                host = {'claude': 'host-plugin:lint', 'codex': '/home/user/.codex/skills/lint'}[provider]
+                self.assertCoverage(self.single, [gateway.session(locator=host)], 'failed',
+                                    'other than the admitted one: ' + host)
+                other = gateway.locator('lint', admitted['sha256'], namespace='cfw-skill-' + '0' * 32)
+                self.assertCoverage(self.single, [gateway.session(locator=other)], 'failed', 'other than the admitted')
+                # The admitted digest registered under a foreign namespace is not the admitted registration.
+                moved = [{'name': 'lint', 'sha256': admitted['sha256'], 'locator': host}]
+                result = self.assertCoverage(self.single, [gateway.session(loaded=moved, locator=host)], 'failed',
+                                             'outside its admitted namespace')
+                self.assertEqual(result['invocations'], 0)
+        escape = Gateway('codex', self.single).locator('lint', admitted['sha256']).replace('/engine/', '/engine/../')
+        self.assertFalse(skills.locator_matches('codex', escape, 'lint', admitted['sha256']))
+        self.assertTrue(admitted['namespace'].startswith('cfw-skill-'))
+
     def test_declared_children_must_be_observed_exactly(self):
         for provider in skills.PROVIDERS:
             with self.subTest(provider):
@@ -330,6 +357,30 @@ class Evidence(Fixture):
                 self.assertTrue(skills.attempt_allowed(self.single, [failed]))
                 self.assertCoverage(writer, [{**failed, 'binding': writer['binding']}], 'reconcile')
                 self.assertFalse(skills.attempt_allowed(writer, [{**failed, 'binding': writer['binding']}]))
+
+    def test_violations_never_lift_reconciliation(self):
+        writer = {**self.single, 'writes': True}
+        admitted = self.single['skills'][0]
+        host = [{'name': 'lint', 'sha256': admitted['sha256']}, {'name': 'host', 'sha256': 'e' * 64}]
+        for provider in skills.PROVIDERS:
+            with self.subTest(provider):
+                gateway = Gateway(provider, self.single)
+                for binding, record in [
+                        (self.single, gateway.session(outcome='interrupted', loaded=host)),
+                        (self.single, gateway.session(outcome='unknown', loaded=[])),
+                        (writer, gateway.session(outcome='failed', loaded=host)),
+                        (self.parent, Gateway(provider, self.parent).session(
+                            outcome='interrupted', children=[('general-purpose', 'completed')]))]:
+                    record = {**record, 'binding': binding['binding']}
+                    result = self.assertCoverage(binding, [record], 'failed')
+                    self.assertTrue(result['reconcile'], result)
+                    self.assertFalse(skills.attempt_allowed(binding, [record]))
+                first = gateway.session(outcome='interrupted')
+                lost = gateway.session('resume', loaded=[], outcome='unknown')
+                self.assertFalse(skills.attempt_allowed(self.single, [first, lost]))
+                clean = gateway.session(outcome='failed', loaded=host)
+                self.assertFalse(skills.coverage(self.single, [clean])['reconcile'])
+                self.assertTrue(skills.attempt_allowed(self.single, [clean]))
 
 
 class InstalledOccurrences(Fixture):
