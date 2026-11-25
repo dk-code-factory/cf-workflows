@@ -149,6 +149,30 @@ ENTRY_ADAPTERS = {
             {'id': 'evidence', 'text': 'Account for every overlapping record and governing instruction.'},
             {'id': 'scope', 'text': 'Never pick a winner between contradictory instructions.'}]},
 }
+# Prose cleanup finalizers of cf-workflows:dk-plain-english and dk-asd-ste100 (docs/prose.md). They
+# write only through cf_workflows.prose, which bounds the edits and commits them.
+PROSE_ADAPTERS = ('plain-english', 'asd-ste100')
+_PROSE = ('Edit only prose that the PR introduced or changed (docstrings, comments and documentation) in the '
+          'candidate patch, with minimal adjacent edits for coherence. Decide which candidate text is prose. Preserve '
+          'technical meaning, requirements, conditions, exceptions, repository terminology, quoted user wording, code '
+          'blocks and executable examples, identifiers, commands, links, machine directives, markup and docstring '
+          'structure. Leave ambiguous wording unchanged and report it. Return changed locations, validation, '
+          'ambiguities, reference-verification limits and a commit message, or a sourced no-op. Do not commit, '
+          'publish or edit other files.')
+_PROSE_CHECKLIST = [
+    {'id': 'assignment', 'text': 'Edit only changed prose in the candidate patch, or report a sourced no-op.'},
+    {'id': 'evidence', 'text': 'Validate every edit against the source meaning and protected syntax.'},
+    {'id': 'scope', 'text': 'Report ambiguities and verification limits; claim no compliance or authority.'}]
+ENTRY_ADAPTERS.update({
+    'plain-english': {'kind': 'cleanup', 'writes': True, 'history': False, 'definition': 'leaf',
+                      'assignment': 'Rewrite in clear, direct technical English. ' + _PROSE,
+                      'checklist': _PROSE_CHECKLIST},
+    'asd-ste100': {'kind': 'cleanup', 'writes': True, 'history': False, 'definition': 'leaf',
+                   'assignment': 'Apply best-effort ASD-STE100 guidance, checking rules and dictionary entries only '
+                                 'against supplied authoritative references. ' + _PROSE + ' Never claim full '
+                                 'ASD-STE100 compliance or invent rule numbers.',
+                   'checklist': _PROSE_CHECKLIST},
+})
 BUNDLED_ADAPTERS = {**BASELINE_ADAPTERS, **ENTRY_ADAPTERS}
 DEFAULTS = {
     'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback', {'stage': 'publication'},
