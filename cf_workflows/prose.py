@@ -23,7 +23,7 @@ import copy
 import difflib
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import subprocess
@@ -78,7 +78,24 @@ DIRECTIVE = re.compile(r'(?:noqa|type:\s*ignore|pragma|pylint:|eslint-|NOLINT|no
                        r'isort:|mypy:|rubocop:|clang-format|SPDX-License-Identifier)[^\n]*', re.I)
 QUOTED = re.compile(r'"([^"\n]{2,200})"|“([^”\n]{2,200})”|`([^`\n]{2,200})`')
 CLAIM = re.compile(r'\b(?:complian\w*|complies|certif\w*|conform\w*)\b', re.I)
-NEGATION = re.compile(r"\b(?:not|no|never|cannot|without|n't)\b", re.I)
+# The only accepted mentions: fixed disclaimers. Any other compliance or certification wording rejects.
+_SUBJECT = r'(?:full\s+)?(?:ASD-STE100\s+|STE\s+)?(?:compliance|conformance|certification)'
+DISCLAIMER = re.compile(
+    rf'\b{_SUBJECT}\s+(?:is|was|has\s+been)\s+not\s+(?:claimed|certified|verified)'
+    r'(?:\s+(?:or|and|nor)\s+(?:claimed|certified|verified))?\b'
+    rf'|\b(?:does|do|did)\s+not\s+claim\s+{_SUBJECT}\b'
+    rf'|\bno\s+{_SUBJECT}\s+(?:is\s+)?claimed\b', re.I)
+
+# Where changed lines can be prose. Documentation files: every line outside code blocks.
+# Source files: whole comment lines only (and Python docstrings). Other files are never edited.
+DOCUMENTATION = ('.md', '.markdown', '.rst', '.txt', '.adoc', '.asciidoc')
+COMMENTS = {
+    '#': ('.py', '.sh', '.bash', '.zsh', '.rb', '.pl', '.pm', '.yaml', '.yml', '.toml', '.r', '.cmake', '.ps1'),
+    '//': ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.java', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.go',
+           '.rs', '.swift', '.kt', '.kts', '.scala', '.dart', '.php', '.proto'),
+    '--': ('.sql', '.lua', '.hs'),
+    ';': ('.clj', '.lisp', '.el'),
+}
 RULE_NUMBER = re.compile(r'\b(?:rule|R)\s?\d+(?:\.\d+)+', re.I)
 
 
@@ -242,6 +259,10 @@ def candidates(repository, base, head, units, contract, bindings):
             # Binary or non-UTF-8 content: a summary only, never treated as prose.
             skipped.append({'path': path, 'reason': 'binary or not UTF-8'})
             continue
+        prose = prose_lines(path, new)
+        if prose is None:
+            skipped.append({'path': path, 'reason': 'no recognized prose syntax for this file type'})
+            continue
         unit = units.get(path)
         current = (unit is not None and unit['contract'] == contract and unit['base_blob'] == base_oid
                    and unit['binding'] == bindings[path])
@@ -254,9 +275,9 @@ def candidates(repository, base, head, units, contract, bindings):
             old = _lines(_object(repository, start))
         except UnicodeDecodeError:
             old = []
-        changed = _ranges(old, new)
+        changed = _ranges(old, new) & prose
         if not changed:
-            # Only deletions since the accepted output: nothing new to clean up.
+            # No changed prose (only code, or only deletions since the accepted output).
             plan[path] = {'path': path, 'mode': 'reused' if current else 'unchanged', 'head_blob': head_oid,
                           'base_blob': base_oid, 'binding': bindings[path], 'claim': unit['claim'] if current else None}
             continue
@@ -296,6 +317,59 @@ def _tokens(chunk):
             'machine directives': Counter(match.group(0).strip() for match in DIRECTIVE.finditer(chunk))}
 
 
+def _docstrings(source):
+    """0-based lines of Python module, class and function docstrings."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return set()
+    lines = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                lines.update(range(first.lineno - 1, first.end_lineno))
+    return lines
+
+
+def prose_lines(path, lines):
+    """0-based lines of a file that may hold prose, or None when its type has no recognized prose syntax.
+
+    Documentation: every line except fenced and indented code blocks. Source: whole
+    comment lines (and Python docstrings); trailing comments on code lines stay protected.
+    """
+    suffix = PurePosixPath(path).suffix.lower()
+    result = set()
+    if suffix in DOCUMENTATION:
+        fence = None
+        for number, line in enumerate(lines):
+            match = re.match(r' {0,3}(`{3,}|~{3,})', line)
+            if fence:
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence):
+                    fence = None
+                continue
+            if match:
+                fence = match.group(1)
+            elif not re.match(r'(?: {4}|\t)', line):  # Indented lines are code blocks or literal blocks.
+                result.add(number)
+        return result
+    marker = next((marker for marker, suffixes in COMMENTS.items() if suffix in suffixes), None)
+    if marker is None:
+        return None
+    block = False
+    for number, line in enumerate(lines):
+        stripped = line.strip()
+        if marker == '//' and (block or stripped.startswith('/*')):
+            result.add(number)
+            block = '*/' not in stripped[2 if not block else 0:]
+        elif stripped.startswith(marker) and not (marker == '#' and stripped.startswith('#!')):
+            result.add(number)
+    if suffix == '.py':
+        result |= _docstrings(''.join(lines))
+    return result
+
+
 def check_edits(path, before, after, allowed, constraints):
     """Edits stay next to changed prose and keep protected syntax, terminology and exact wording."""
     try:
@@ -303,6 +377,8 @@ def check_edits(path, before, after, allowed, constraints):
     except UnicodeDecodeError:
         raise Blocked(path, 'edited file is not UTF-8') from None
     matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    allowed = allowed & (prose_lines(path, old) or set())
+    prose_after = prose_lines(path, new) or set()
     removed, added, touched = [], [], set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
@@ -311,6 +387,8 @@ def check_edits(path, before, after, allowed, constraints):
                   else i1 - 1 in allowed or i1 in allowed)  # An insertion sits next to changed prose.
         if not inside:
             raise Blocked(path, f'edit at line {i1 + 1} is outside the changed prose')
+        if not all(line in prose_after for line in range(j1, j2)):
+            raise Blocked(path, f'edit at line {j1 + 1} turns prose into code or code into prose')
         removed.append(''.join(old[i1:i2]))
         added.append(''.join(new[j1:j2]))
         touched.update(range(j1, j2))
@@ -445,13 +523,13 @@ def check_report(name, output, units, references, actual):
             require(item['reference'] in references, f'report.reference_checks[{number}].reference',
                     'cites a reference that was not supplied')
             text(item['subject'], f'report.reference_checks[{number}].subject')
-        for value in _texts({key: output.get(key) for key in ('validation', 'reference_verification_limits',
-                                                               'changed_locations', 'no_op')}):
-            for sentence in re.split(r'(?<=[.;!?])\s+', value):
-                require(not CLAIM.search(sentence) or NEGATION.search(sentence), 'report',
-                        'claims ASD-STE100 compliance or certification without evidence')
-                require(references or not RULE_NUMBER.search(sentence), 'report',
-                        'cites a rule number without a supplied reference')
+        for value in _texts({key: output.get(key) for key in (
+                'validation', 'reference_verification_limits', 'changed_locations', 'no_op',
+                'unresolved_ambiguities', 'commit_message')}):
+            require(not CLAIM.search(DISCLAIMER.sub(' ', value)), 'report',
+                    'claims ASD-STE100 compliance or certification without evidence')
+            require(references or not RULE_NUMBER.search(value), 'report',
+                    'cites a rule number without a supplied reference')
     return output
 
 

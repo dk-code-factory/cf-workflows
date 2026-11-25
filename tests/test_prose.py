@@ -379,6 +379,51 @@ class Direct(Fixture):
         self.calls(capabilities=1)
 
 
+class SourceAndCodeBlocks(Fixture):
+    """Outside documentation, only whole comment lines are prose; indented code blocks are code."""
+
+    def setUp(self):
+        super().setUp()
+        self.write('src/app.js', 'function ok(count, limit) {\n  // It is the case that we check the limit here.\n'
+                                 '  if (count > limit) { return false; }\n  return true;\n}\n')
+        self.write('docs/indented.md', 'Run the following command in order to greet.\n\n    echo hello world\n')
+        self.write('settings.json', '{"note": "It is the case that this is set."}\n')
+        git(self.repo, 'add', '-A')
+        git(self.repo, 'commit', '-q', '-m', 'more changes')
+        self.pr_head = git(self.repo, 'rev-parse', 'HEAD')
+
+    def test_only_comment_lines_and_documentation_prose_are_candidates(self):
+        result = self.clean_up('dk-plain-english', edit(
+            ('src/app.js', 'It is the case that we check the limit here.', 'Check the limit.'),
+            ('docs/indented.md', 'in order to greet.', 'to greet.')))
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertIn({'path': 'settings.json', 'reason': 'no recognized prose syntax for this file type'},
+                      result['skipped'])
+        units = {unit['path']: unit for unit in self.fake.tasks[0]['context']['units']}
+        self.assertEqual(units['src/app.js']['ranges'], [[2, 2]])  # The comment line, not the code.
+        self.assertEqual(units['docs/indented.md']['ranges'], [[1, 2]])  # Not the indented code block.
+        self.assertNotIn('settings.json', units)
+
+    def test_code_edits_in_non_python_sources_and_indented_blocks_are_rejected(self):
+        for label, replacement in {
+                'operator': ('src/app.js', 'count > limit', 'count < limit'),
+                'comment to code': ('src/app.js', '// It is the case that we check the limit here.',
+                                    'if (count === 0) { return true; }'),
+                'indented code block': ('docs/indented.md', 'echo hello world', 'echo hi world'),
+                'unknown file type': ('settings.json', 'It is the case that this', 'This')}.items():
+            with self.subTest(label):
+                git(self.repo, 'reset', '-q', '--hard', self.pr_head)
+                self.prose_ledger.db.execute('DELETE FROM passes')
+                self.engine.claims.clear()
+                result = self.clean_up('dk-plain-english', edit(replacement))
+                self.assertEqual(result['status'], 'blocked', result)
+                self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), self.pr_head)
+                self.clean()
+        self.assertEqual(prose.prose_lines('a.c', ['int a;\n', '/* one\n', ' * two */\n', '*p = 1;\n']), {1, 2})
+        self.assertEqual(prose.prose_lines('x.py', ['#!/bin/sh\n', 'x = 1  # trailing\n', '# whole\n']), {2})
+        self.assertIsNone(prose.prose_lines('data.csv', ['a,b\n']))
+
+
 # -- ASD-STE100 ------------------------------------------------------------------------------------
 
 class SimplifiedTechnicalEnglish(Fixture):
@@ -399,6 +444,13 @@ class SimplifiedTechnicalEnglish(Fixture):
                 'claim in validation': lambda body, task: {**body, 'validation': ['The text is ASD-STE100 compliant.']},
                 'certified': lambda body, task: {**body, 'validation': ['Certified STE output.']},
                 'rule number': lambda body, task: {**body, 'validation': ['Applied rule 3.1 throughout.']},
+                'negated elsewhere': lambda body, task: {**body, 'validation': [
+                    'The output is fully ASD-STE100 compliant with no exceptions.']},
+                'commit message': lambda body, task: {**body,
+                                                      'commit_message': 'Make docs ASD-STE100 compliant per rule 3.1'},
+                'commit message rule': lambda body, task: {**body, 'commit_message': 'Apply rule 2.4 to the guide'},
+                'ambiguity': lambda body, task: {**body, 'unresolved_ambiguities': [
+                    {'path': 'docs/guide.md', 'line': 9, 'text': 'Certified wording per R4.2 kept.'}]},
                 'unsupplied reference': lambda body, task: {**body, 'reference_checks': [
                     {'reference': 'spec', 'subject': 'dictionary'}]}}.items():
             with self.subTest(label):

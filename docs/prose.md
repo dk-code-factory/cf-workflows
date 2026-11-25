@@ -39,7 +39,15 @@ and any request authorization reject before the engine is contacted.
      review fix. Only lines changed since the accepted output are candidates.
    - `full`: no current unit. Lines changed since the PR base are candidates.
 
-   Binary and non-UTF-8 files are summarized, never edited.
+   Only changed lines that can hold prose are candidates:
+   - documentation (`.md`, `.markdown`, `.rst`, `.txt`, `.adoc`, `.asciidoc`):
+     every line outside fenced and indented code blocks;
+   - source files with a known comment syntax (`#`, `//` and `/* */`, `--`, `;`,
+     by extension): whole comment lines only, plus Python docstrings. A trailing
+     comment on a code line stays protected.
+
+   Other file types, and binary or non-UTF-8 files, are listed as skipped and
+   never edited.
 2. **Session.** One engine-managed native session gets the exact instructions,
    the role prompt, the bundled assignment and checklist, applicable prompts, the
    preferences selected for each file, the candidate patches, quoted wording and
@@ -50,7 +58,9 @@ and any request authorization reject before the engine is contacted.
    and agent, no loaded skill and only reads and writes of assigned files. Git
    history and the index must be unchanged, and no other file may change.
 4. **Edits.** The helper compares each edited file with the head:
-   - every changed line lies within two lines of a candidate line;
+   - every changed line lies within two lines of a candidate line, and both the
+     old and the new line are prose lines, so code is never edited and a
+     comment never becomes code;
    - fenced code blocks are byte-identical;
    - code spans, URLs, link targets, identifier-like terms, numbers, RFC 2119
      keywords and machine directives in the changed text are unchanged as a
@@ -80,9 +90,11 @@ head.
 ## ASD-STE100 limits
 
 The ASD-STE100 pass is best effort. Its report must state
-`compliance: "not_claimed"`. Any report sentence that mentions compliance,
-conformance or certification without a negation rejects the pass. Without a
-supplied reference, rule numbers and `reference_checks` reject, and the helper
+`compliance: "not_claimed"`. The report text, ambiguities and commit message
+may mention compliance, conformance or certification only in a fixed disclaimer
+(for example "compliance is not claimed" or "does not claim certification").
+Any other mention rejects the pass. Without a supplied reference, rule numbers
+anywhere in that text and `reference_checks` reject, and the helper
 adds an explicit limit naming the unchecked rules and dictionary and the
 official starting points. With references (`{id, path, sha256}`, read only when
 the bytes match), `reference_checks` must cite a supplied reference. The helper
@@ -129,12 +141,16 @@ session counts. Coverage:
   with only a capability query, and every expansion rejected.
 - **Direct.** Edits only in changed prose, with unrelated, protected and binary
   content unchanged and a local commit. Reuse without a session. Rejection and
-  restore for edits outside changed prose, code blocks, code spans, link
+  restore for edits outside changed prose, code in non-Python sources,
+  comments turned into code, indented code blocks, unrecognized file types,
+  code blocks, code spans, link
   targets, numbers, requirement keywords, Python code, unchanged files and
   quoted wording. Sourced no-ops, incomplete passes, observation violations, a
   lost response and an interrupted commit.
 - **ASD-STE100.** Explicit limits without references; rejected compliance and
-  certification claims, invented rule numbers and unsupplied references; a
+  certification claims (including a stray negation elsewhere in the sentence,
+  the commit message and ambiguities), invented rule numbers and unsupplied
+  references; a
   supplied reference that enables checks and refreshes the full pass.
 - **Refresh.** A later source change as a single-file delta; changed
   instructions as a full pass; a preference change that refreshes only the
