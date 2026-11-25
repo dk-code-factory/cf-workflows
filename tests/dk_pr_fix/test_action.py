@@ -175,6 +175,10 @@ class ActionTests(unittest.TestCase):
         assignment = read_artifact(self.root, output["task_input"]["assignment_reference"])
         self.assertEqual(assignment["instructions"], request["instructions"])
         self.assertEqual(output["task_input"]["original_failure"]["diagnostic"], "Original limit")
+        # The reference points into the state namespace, which the session cannot read.
+        self.assertFalse((self.root / output["task_input"]["assignment_reference"]).exists())
+        self.assertIn("earlier in this session", output["prompt"])
+        self.assertIn("held outside the workspace", output["prompt"])
 
     def test_lost_acknowledgement_returns_original_result_without_another_dispatch(self):
         original = action.dispatch

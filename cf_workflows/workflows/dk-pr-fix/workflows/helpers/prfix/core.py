@@ -137,6 +137,15 @@ def state_directory(root, create=False, missing_ok=False):
     return path
 
 
+def ledger_path(directory, logical_run):
+    """A logical run's ledger file, keyed by a collision-resistant digest.
+
+    User-supplied run text never forms a path, and runs that differ only by case
+    stay separate on case-insensitive file systems.
+    """
+    return Path(directory) / "runs" / (hashlib.sha256(text(logical_run, "logical run").encode()).hexdigest() + ".sqlite")
+
+
 def artifact(root, value):
     base = state_directory(root) / "artifacts"
     if base.is_symlink():
@@ -201,9 +210,11 @@ class Ledger:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", text(logical_run, "logical run")):
             raise ValueError("invalid logical run")
         directory = state_directory(root, create=not read_only)
-        path = directory / (logical_run + ".sqlite")
-        if path.is_symlink():
+        path = ledger_path(directory, logical_run)
+        if path.parent.is_symlink() or path.is_symlink():
             raise ValueError("ledger must not be a symlink")
+        if not read_only:
+            path.parent.mkdir(mode=0o700, exist_ok=True)
         self.read_only = read_only
         self.root = root
         self.logical_run = logical_run

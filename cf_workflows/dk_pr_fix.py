@@ -34,7 +34,6 @@ ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_RO
 # input stays false in this release: publication needs its guarded path (#17).
 PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
                      'resolve_threads', 'create_draft_prs', 'request_review')
-IGNORED = ('__pycache__',)
 
 
 class InstallationError(ValueError):
@@ -42,12 +41,19 @@ class InstallationError(ValueError):
 
 
 def _files(root):
-    """Every regular file below root; symlinks and special files reject."""
+    """Every regular file below root; symlinks, special files and bytecode caches reject.
+
+    Python would load a cached .pyc instead of its verified source, so a cache is
+    never part of a verified installation.
+    """
     result = {}
     for directory, names, files in os.walk(root):
-        names[:] = sorted(name for name in names if name not in IGNORED)
-        for name in sorted(names) + sorted(files):
+        names.sort()
+        for name in names + sorted(files):
             path = Path(directory) / name
+            if name == '__pycache__' or name.endswith(('.pyc', '.pyo')):
+                raise InstallationError('installed closure contains Python bytecode: '
+                                        + path.relative_to(root).as_posix())
             mode = os.lstat(path).st_mode
             if stat.S_ISLNK(mode):
                 raise InstallationError('installed closure contains a symlink: ' + path.relative_to(root).as_posix())
@@ -60,7 +66,7 @@ def _files(root):
 
 
 def closure_digests(root=INSTALL):
-    """{path: sha256} of the installed files, excluding the manifest itself."""
+    """{path: sha256} of the installed files, excluding the manifest itself; bytecode rejects."""
     files = _files(Path(root))
     files.pop(CLOSURE, None)
     return dict(sorted(files.items()))
@@ -141,9 +147,17 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     result = admission.admit(request=request, configuration=configuration, invocation=invocation,
                              deployment=deployment, roles=role_catalog(install),
                              roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport)
+    if result['preflight'] == 'semantic_required':
+        # The installed workflow does not consume semantically admitted prompts,
+        # instructions, adapters or policy text yet; never run without them.
+        return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
+                       'dk-pr-fix workflow yet; remove them or wait for their workflow inputs')
     if result['preflight'] != 'admitted':
         return result
     snapshot = result['snapshot']
+    if any(snapshot['custom'].values()):
+        return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
+                       'dk-pr-fix workflow yet')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', snapshot['request']['logical_run']):
         return _reject(result, 'request.logical_run', 'the workflow ledger accepts [A-Za-z0-9_-]{1,100} only')
     if snapshot['request']['authorizations']:

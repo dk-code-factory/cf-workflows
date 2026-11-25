@@ -22,9 +22,11 @@ installation root:
 - `closure.json` holds the SHA-256 of every installed file. `LICENSE` is the
   upstream MIT notice.
 
-The installation is never written. Python bytecode caches are ignored when
-checking the installed files, and the helpers run with `-B`. To regenerate the
-manifest after an intentional change, run `python3 -m cf_workflows.dk_pr_fix`.
+The installation is never written. Python would load a cached `.pyc` instead
+of its verified source, so any `__pycache__` directory or `.pyc`/`.pyo` file
+rejects the installation. The helpers also run with `-B`. To regenerate the
+manifest after an intentional change, remove the caches and run
+`python3 -B -m cf_workflows.dk_pr_fix`.
 
 ## Provenance
 
@@ -47,9 +49,10 @@ Adaptations to the example:
 - The private request is read from the state namespace, not from a
   workspace-relative path.
 - Reusable references point into the installation.
-- Retry and checklist prompts no longer tell the session to reread state files.
-  Those files are now outside the workspace, so the references are immutable
-  record IDs only.
+- The retry and checklist prompts say that the assignment and the prior report
+  are earlier in the same session. The references in `task_input` point into the
+  state namespace, which the session cannot read, so they are immutable record
+  IDs only.
 - The legacy `.pr-fix-state` directory gets no special treatment. In a checkout,
   it is ordinary untracked content.
 
@@ -70,8 +73,9 @@ starts no session and runs nothing.
    engine.
 2. It runs [structural admission](admission.md) with the installed role catalog.
    Custom prompts, per-task instructions, custom adapters and free-text policy
-   need semantic assessment (#12), and supplied skills need #16. All of them
-   reject at preflight.
+   reject at preflight. Admission reports them as `semantic_required`, but the
+   installed workflow has no inputs that carry them yet, so running without them
+   would silently drop them. Supplied skills reject until #16.
 3. Remote-write authorizations and effective permissions reject. Publication and
    merge stay disabled until the guarded path in #17 is available. Every
    permission input is `false`.
@@ -90,10 +94,15 @@ checkout. Helper containers receive it at `/cf-workflows-state` through
 `CF_WORKFLOWS_STATE`. Helpers reject a missing or relative path, a symlink, and
 a directory that overlaps the checkout.
 
-The namespace holds the example's SQLite ledger (`<logical_run>.sqlite`: claims,
-submissions, reservations, deadlines, operations, publication intents and local
-commits), the workspace writer lease, content-addressed `artifacts/`,
-`preparations/` and `requests/`. The marker `.owned-by-cf-workflows-dk-pr-fix`
+Each logical run has its own SQLite ledger, `runs/<sha256(logical_run)>.sqlite`,
+which holds claims, submissions, reservations, deadlines, operations, publication
+intents and local commits. Run text never forms a path, and runs that differ only
+by case stay separate. The repository namespace also holds the writer lease and
+the content-addressed `artifacts/`, `preparations/` and `requests/` stores. This
+is a deliberate refinement of the contract's per-run partitioning. The lease
+fences the shared Git index across runs, so it must be visible to every run.
+Content-addressed records are immutable and named by digest, so sharing them
+cannot mix two runs' state. The marker `.owned-by-cf-workflows-dk-pr-fix`
 (format `cf-workflows-dk-pr-fix-v1`) claims a directory only while it is empty.
 So dk-workflows settings, `.pr-fix-state` and other existing state are never
 adopted or imported. Back up the namespace together with the engine's recovery
@@ -144,6 +153,7 @@ provider or host capability.
 - [Agent Workflow #138](https://github.com/dk-code-factory/agent-workflow/issues/138)
   and #17: merge and publication.
 - #15: retained budgets, occurrence identity and continuation across runs.
-- #12 and #16: custom prompts and supplied skills.
+- Workflow inputs for semantically admitted custom inputs (#12), and #16 for
+  supplied skills.
 
 No local launcher, controller or second agent loop stands in for these.

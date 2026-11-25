@@ -561,7 +561,7 @@ def turn_result(root, provider, ledger, plan, inputs):
         ledger.reserve("native-retry:" + claim["id"], "original-session-retry", plan["limits"]["retries_per_task"])
         return {"claim": claim["id"], "complete": False, "retry": True,
                 "checklist": False,
-                "prompt": "Continue the original bounded assignment in this same session after the retained eligible provider failure. Preserve original analysis and finding identities.",
+                "prompt": "Continue the original bounded assignment in this same session after the retained eligible provider failure. Preserve original analysis and finding identities. The exact assignment is earlier in this session; task_input may name only its immutable state reference, which is held outside the workspace.",
                 "task_input": {"assignment": assignment, "original_failure": {"classification": classification, "diagnostic": diagnostic}}}
     if task["required"] or unsafe:
         raise ValueError("native task failed without eligible retained retry: " + classification)

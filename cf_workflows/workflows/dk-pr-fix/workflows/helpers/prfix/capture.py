@@ -17,7 +17,7 @@ import subprocess
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from .core import GENERATED, LEGACY_FORMAT, bounded_json, canonical, digest, state_directory
+from .core import GENERATED, LEGACY_FORMAT, bounded_json, canonical, digest, ledger_path, state_directory
 
 
 MAX_OUTPUT = 16 << 20
@@ -517,7 +517,7 @@ def capture(root, provider, plan, *, clean=False):
     discussion = {"title": metadata.get("title"), "body": metadata.get("body"),
                   **{k: observed[k] for k in ("comments", "reviews", "inline", "threads")}}
     state = state_directory(root, missing_ok=True)
-    if state is not None and (state / (plan["logical_run"] + ".sqlite")).is_file():
+    if state is not None and ledger_path(state, plan["logical_run"]).is_file():
         from .core import Ledger
         from .publication import original_discussion
         with Ledger(root, plan["logical_run"], pr["url"], read_only=True) as ledger:

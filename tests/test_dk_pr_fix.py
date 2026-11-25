@@ -23,12 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from cf_workflows import admission, dk_pr_fix  # noqa: E402
 
+sys.dont_write_bytecode = True  # Importing the helpers must not add caches to the installed closure.
+
 INSTALL = dk_pr_fix.INSTALL
 HELPERS = INSTALL / 'workflows' / 'helpers'
 DRIVER = ROOT / 'tests' / 'fixtures' / 'dk_pr_fix_driver.py'
 PROVENANCE = json.loads((ROOT / 'baselines' / 'dk-pr-fix-closure.json').read_text())
 PR = 'https://github.com/Owner/Repo/pull/7'
-CAPABILITIES = {'engine': {'version': 'fixture-engine'},
+CAPABILITIES = {'engine': {'version': 'fixture-engine', 'capabilities': ['durable_input']},
                 'providers': {'fixture-provider': ['admitted_roles', 'native_session']}}
 GIT_ENV = {'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_TEMPLATE_DIR': ''}
 
@@ -54,15 +56,39 @@ def git(root, *args):
                           capture_output=True, env={**os.environ, **GIT_ENV}).stdout.decode().strip()
 
 
+def clean_install(destination):
+    """A copy of the source installation without any developer bytecode caches."""
+    shutil.copytree(INSTALL, destination, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    return destination
+
+
 def workflow_files():
     return {path.name: path.read_text() for path in sorted((INSTALL / 'workflows').glob('*.yml'))}
 
 
 class InstalledClosure(unittest.TestCase):
     def test_installation_matches_its_manifest(self):
-        dk_pr_fix.verify_installation()
-        manifest = json.loads((INSTALL / dk_pr_fix.CLOSURE).read_text())
-        self.assertEqual(manifest['files'], dk_pr_fix.closure_digests())
+        with tempfile.TemporaryDirectory() as temp:
+            install = clean_install(Path(temp) / 'install')
+            dk_pr_fix.verify_installation(install)
+            manifest = json.loads((install / dk_pr_fix.CLOSURE).read_text())
+            self.assertEqual(manifest['files'], dk_pr_fix.closure_digests(install))
+
+    def test_bytecode_caches_are_never_part_of_a_verified_installation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            install = clean_install(Path(temp) / 'install')
+            prfix = install / 'workflows' / 'helpers' / 'prfix'
+            for planted in (prfix / '__pycache__' / 'ci.cpython-312.pyc', prfix / 'ci.pyc'):
+                with self.subTest(planted=planted.name):
+                    planted.parent.mkdir(exist_ok=True)
+                    planted.write_bytes(b'planted bytecode')
+                    with self.assertRaisesRegex(dk_pr_fix.InstallationError, 'bytecode'):
+                        dk_pr_fix.verify_installation(install)
+                    planted.unlink()
+            (prfix / '__pycache__').rmdir()
+            (prfix / '__pycache__').mkdir()
+            with self.assertRaisesRegex(dk_pr_fix.InstallationError, 'bytecode'):
+                dk_pr_fix.verify_installation(install)
 
     def test_reusable_references_resolve_inside_the_installation(self):
         files = workflow_files()
@@ -164,12 +190,14 @@ class PreflightFixture(unittest.TestCase):
         git(self.repo, 'add', '.')
         git(self.repo, 'commit', '-q', '-m', 'Guidance')
         self.home = self.base / 'state home'
+        self.clean = clean_install(self.base / 'clean install')
         self.request = {'pr': PR, 'instructions': '  Fix the flaky test exactly as discussed.\n'}
         self.deployment = {'controller': {'run-timeout': '2h'},
                            'execution': {'mode': 'container', 'image': 'ghcr.io/fixture/helper@sha256:' + 'a' * 64},
                            'agents': {'codex': {'provider': 'fixture-provider', 'sandbox': 'workspace-write'}}}
 
-    def preflight(self, install=INSTALL, transport=None, **changes):
+    def preflight(self, install=None, transport=None, **changes):
+        install = install or self.clean
         self.transport = transport or FakeTransport()
         arguments = {'request': self.request, 'configuration': None, 'invocation': None,
                      'deployment': self.deployment, 'repository': self.repo, 'home': self.home}
@@ -202,7 +230,7 @@ class Preflight(PreflightFixture):
         self.assertEqual(state['request_document']['pr'], 'https://github.com/owner/repo/pull/7')
         self.assertEqual(inputs['request'], state['request'])
         self.assertTrue(Path(state['namespace']).is_relative_to(self.home / 'cf-workflows' / 'repositories'))
-        self.assertEqual(result['installation']['closure_digest'], dk_pr_fix.verify_installation())
+        self.assertEqual(result['installation']['closure_digest'], dk_pr_fix.verify_installation(self.clean))
 
     def test_custom_prompts_and_supplied_skills_reject_at_preflight(self):
         skills = self.base / 'skills'
@@ -223,7 +251,9 @@ class Preflight(PreflightFixture):
                 result = self.preflight(invocation=invocation, transport=transport, roots={'skills': skills})
                 self.assertEqual((result['preflight'], result['structural'], result['semantic']),
                                  ('rejected', 'accepted', 'blocked'))
+                self.assertTrue(result['error']['path'].startswith('custom'), result['error'])
                 self.assertNotIn('inputs', result)
+                self.assertNotIn('state', result)
 
     def test_publication_and_merge_stay_disabled(self):
         grant = {'request_id': 'r1', 'instruction': 'Push the fix.', 'source': 'chat:1'}
@@ -236,8 +266,7 @@ class Preflight(PreflightFixture):
         self.assertFalse(any(result['inputs']['permissions'].values()))
 
     def test_tampered_or_overlapping_installation_rejects_before_the_engine(self):
-        copy_root = self.base / 'install copy'
-        shutil.copytree(INSTALL, copy_root, ignore=shutil.ignore_patterns('__pycache__'))
+        copy_root = clean_install(self.base / 'install copy')
         (copy_root / 'workflows' / 'agents' / 'leaf.yaml').write_text('name: "x"\ndescription: "y"\ninstructions: "z"\n')
         result = self.preflight(install=copy_root)
         self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'installation'))
@@ -253,7 +282,7 @@ class Preflight(PreflightFixture):
             with self.subTest(repository=repository):
                 result = self.preflight(install=copy_root, repository=repository)
                 self.assertEqual(result['error']['path'], 'repository')
-        result = self.preflight(roots={'cf-workflows': self.base})
+        result = self.preflight(install=copy_root, roots={'cf-workflows': self.base})
         self.assertEqual(result['error']['path'], 'roots')
         self.assertEqual(self.transport.calls['capabilities'], 0)
 
@@ -298,7 +327,7 @@ class RelocatedReadOnlyRun(PreflightFixture):
         git(self.repo, 'commit', '-q', '-am', 'Change')
         self.head = git(self.repo, 'rev-parse', 'HEAD')
         self.install = self.base / 'installed plugins' / 'cf workflows' / 'dk-pr-fix'
-        shutil.copytree(INSTALL, self.install, ignore=shutil.ignore_patterns('__pycache__'))
+        clean_install(self.install)
         for path in [self.install, *self.install.rglob('*')]:
             path.chmod(path.stat().st_mode & ~0o222)
         self.addCleanup(lambda: [path.chmod(path.stat().st_mode | 0o200)

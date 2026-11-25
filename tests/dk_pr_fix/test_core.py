@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -103,6 +104,18 @@ class CoreTests(unittest.TestCase):
             external.write_bytes(core.canonical(value))
             with self.assertRaises(ValueError):
                 core.read_artifact(self.root, "artifacts/" + external.name)
+
+    def test_ledgers_are_keyed_by_a_digest_of_the_logical_run(self):
+        for run in ("Fix", "fix"):
+            with core.Ledger(self.root, run, PR) as ledger:
+                ledger.reserve("reviews", "original-" + run, 1)
+        names = sorted(path.name for path in (self.state / "runs").iterdir() if path.suffix == ".sqlite")
+        self.assertEqual(len(names), 2)
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{64}\.sqlite", name) for name in names))
+        self.assertFalse(any(path.name.startswith(("Fix", "fix")) for path in self.state.rglob("*")))
+        with core.Ledger(self.root, "fix", PR) as ledger:
+            with self.assertRaisesRegex(ValueError, "exhausted"):
+                ledger.reserve("reviews", "replacement", 1)
 
     def test_reservation_response_loss_replays_after_restart_without_consuming_twice(self):
         with core.Ledger(self.root, "retained", PR) as ledger:
