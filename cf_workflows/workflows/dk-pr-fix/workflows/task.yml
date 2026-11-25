@@ -1,0 +1,113 @@
+# Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
+# Checked-in orchestration; helper calls retain separate operation boundaries.
+name: One declared task occurrence and its retained session
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      cycle:
+        type: number
+        required: true
+      publication:
+        type: string
+        default: ''
+      task:
+        type: string
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.status.outputs.result.complete }}
+      agent:
+        value: ${{ jobs.status.outputs.result.agent }}
+      report:
+        value: ${{ jobs.status.outputs.result.structured }}
+jobs:
+  prepare:
+    uses: workflows/helper.yml
+    with:
+      operation: claim
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+        cycle: ${{ inputs.cycle }}
+        publication: ${{ inputs.publication }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  native:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.result.invoke }}
+    uses: workflows/native.yml
+    with:
+      plan: ${{ inputs.plan }}
+      claim: ${{ needs.prepare.outputs.result.claim }}
+      publication: ${{ inputs.publication }}
+      definition: ${{ needs.prepare.outputs.result.definition }}
+      prompt: ${{ needs.prepare.outputs.result.prompt }}
+      task_input: ${{ needs.prepare.outputs.result.task_input }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  checklist:
+    needs:
+    - prepare
+    - native
+    - retry
+    if: ${{ needs.native.outputs.checklist or needs.retry.outputs.checklist }}
+    uses: workflows/native.yml
+    repeat:
+      max-attempts: 3
+      until: ${{ iteration.outputs.settled }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    with:
+      mode: checklist
+      plan: ${{ inputs.plan }}
+      claim: ${{ needs.prepare.outputs.result.claim }}
+      agent: ${{ needs.native.outputs.agent }}
+      round: ${{ iteration.number }}
+      publication: ${{ inputs.publication }}
+      turns: ${{ inputs.turns }}
+  status:
+    uses: workflows/helper.yml
+    with:
+      operation: task_status
+      payload:
+        plan: ${{ inputs.plan }}
+        claim: ${{ needs.prepare.outputs.result.claim }}
+        publication: ${{ inputs.publication }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - native
+    - checklist
+    - retry
+    if: ${{ needs.prepare.status == 'succeeded' and needs.native.status != 'failed' and
+      needs.native.status != 'needs_attention' and needs.checklist.status != 'failed' and
+      needs.checklist.status != 'needs_attention' and needs.retry.status != 'failed' and
+      needs.retry.status != 'needs_attention' }}
+  retry:
+    needs:
+    - prepare
+    - native
+    if: ${{ needs.native.outputs.retry }}
+    uses: workflows/native.yml
+    with:
+      mode: retry
+      plan: ${{ inputs.plan }}
+      claim: ${{ needs.prepare.outputs.result.claim }}
+      agent: ${{ needs.native.outputs.agent }}
+      prompt: ${{ needs.native.outputs.prompt }}
+      task_input: ${{ needs.native.outputs.task_input }}
+      publication: ${{ inputs.publication }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

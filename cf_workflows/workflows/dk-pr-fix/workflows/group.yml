@@ -1,0 +1,35 @@
+# Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
+# Checked-in orchestration; helpers validate data and retain evidence.
+name: One parallel task barrier
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      group:
+        type: object
+        required: true
+      cycle:
+        type: number
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+jobs:
+  tasks:
+    uses: workflows/task.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ${{ item.id }}
+      cycle: ${{ inputs.cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    for-each:
+      items: ${{ inputs.group.tasks }}
+      key: ${{ item.id }}
+      concurrency: ${{ inputs.group.concurrency }}

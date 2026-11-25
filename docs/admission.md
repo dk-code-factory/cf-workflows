@@ -3,8 +3,8 @@
 [`cf_workflows/admission.py`](../cf_workflows/admission.py) implements structural
 admission and complete input resolution for the
 [configuration contract](contracts/v1/configuration.md) on the portable PR-fix
-model. It is a library operation for the future preparation helper (#14); no
-installed workflow calls it yet.
+model. [dk-pr-fix preflight](dk-pr-fix.md) calls it with the installed role
+catalog before mapping options onto the workflow's declared inputs.
 
 ## Inputs
 
@@ -36,7 +36,10 @@ Admission reads and hashes these inputs:
   may use symlinks that stay inside the repository; each is recorded with its
   resolved path. A symlink that leaves the repository rejects.
 - The admitted role catalog: exactly `leaf`, `reviewer`, `verifier`, `fixer` and
-  `audience`, with each digest checked.
+  `audience`, with each digest checked. Roles use the engine's canonical YAML
+  agent form: `name`, `description` and `instructions`, plus optional `model` and
+  `reasoning-effort`, written one `key: "JSON string"` line per field. The bundled
+  validator definition below keeps its pinned TOML form.
 - Saved and invocation-local prompts and preferences, with their resource references.
 - Ordered task and stage selections, including parallel groups and nested
   reviewer groups.
@@ -106,7 +109,8 @@ after one level.
 
 - Running the validator, its verdicts and reconciliation: [semantic.md](semantic.md).
 - Reusing acceptance: #13.
-- Snapshot capture of PR metadata: #14.
+- Snapshot capture of PR metadata: the installed workflow's `prepare` helper
+  ([dk-pr-fix](dk-pr-fix.md)).
 - Supplied-skill sessions: #16, which needs Agent Workflow #139.
 
 No real engine reports these capabilities yet; the gating issues are Agent

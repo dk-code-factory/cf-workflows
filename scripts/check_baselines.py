@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Verify committed inventory against exact local Git objects; never fetch or execute them."""
+"""Verify committed inventory and extraction against exact local Git objects; never fetch or execute them."""
 import argparse
 import hashlib
 import json
 from pathlib import Path
 import re
 import subprocess
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {
@@ -77,6 +78,7 @@ def check(dk, engine):
                 git(repo, 'show', f'{source["commit"]}:LICENSE'), 'license differs from pin')
     git(engine, 'show', f'{portable["commit"]}:examples/pr-fix/workflows/main.yml')
     git(engine, 'show', f'{portable["commit"]}:docs/PR_FIX.md')
+    check_extraction(engine, portable['commit'])
     require((ROOT / 'licenses/architecture-designer-MIT.txt').read_bytes() ==
             git(dk, 'show', f'{sha}:docs/licenses/architecture-designer-MIT.txt'),
             'adapted third-party notice differs from pin')
@@ -91,7 +93,40 @@ def check(dk, engine):
             target.relative_to(ROOT)
             require(target.is_file(), f'{file.relative_to(ROOT)}: broken link {link}')
     print('Verified 29 distinct rows, both pinned host manifests/entries, direct resource hashes, '
-          'portable source paths, license notices and local Markdown file targets.')
+          'portable source paths, the dk-pr-fix extraction, license notices and local Markdown file targets.')
+
+
+def converted_agent(source):
+    """The engine's canonical YAML form of a Codex TOML agent definition."""
+    value = tomllib.loads(source.decode())
+    require(set(value) <= {'name', 'description', 'developer_instructions', 'model_reasoning_effort'},
+            'unexpected agent definition field')
+    pairs = [('name', value['name']), ('description', value['description']),
+             ('instructions', value['developer_instructions'])]
+    if 'model_reasoning_effort' in value:
+        pairs.append(('reasoning-effort', value['model_reasoning_effort']))
+    return ''.join(f'{key}: {json.dumps(text, ensure_ascii=False)}\n' for key, text in pairs).encode()
+
+
+def check_extraction(engine, commit):
+    """Every extracted file traces to the pinned example; the example is fully accounted for."""
+    provenance = json.loads((ROOT / 'baselines/dk-pr-fix-closure.json').read_text())
+    require(provenance['commit'] == commit, 'dk-pr-fix extraction pin differs from the portable source pin')
+    upstream = set(git(engine, 'ls-tree', '-r', '--name-only', commit, 'examples/pr-fix/').decode().splitlines())
+    copied = {entry['upstream'] for entry in provenance['files']}
+    excluded = {entry['upstream'] for entry in provenance['excluded']}
+    require(upstream == (copied | excluded) - {'LICENSE'}, 'dk-pr-fix extraction does not account for the example')
+    require(not copied & excluded, 'dk-pr-fix file both copied and excluded')
+    for entry in provenance['files']:
+        source = git(engine, 'show', f'{commit}:{entry["upstream"]}')
+        require(hashlib.sha256(source).hexdigest() == entry['upstream_sha256'], entry['upstream'] + ': digest differs')
+        local = (ROOT / entry['path']).read_bytes()
+        if entry['change'] == 'verbatim':
+            require(local == source, entry['path'] + ': not verbatim')
+        elif entry['change'] == 'converted':
+            require(local == converted_agent(source), entry['path'] + ': differs from canonical conversion')
+        else:
+            require(entry['change'] == 'adapted' and local != source, entry['path'] + ': wrong change kind')
 
 
 if __name__ == '__main__':

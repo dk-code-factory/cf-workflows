@@ -7,11 +7,17 @@ and Claude on [Agent Workflow](https://github.com/dk-code-factory/agent-workflow
 Version `0.1.0-dev` establishes the suite's contracts and complete 29-skill
 inventory and implements [structural configuration admission](docs/admission.md)
 and [semantic assessment of custom inputs](docs/semantic.md) against engine
-interfaces. There is no runnable plugin or verified host compatibility yet. Source pins are provenance, not a certified released engine.
+interfaces. It also extracts the portable PR-fix example into the
+[installed `cf-workflows:dk-pr-fix` workflow](docs/dk-pr-fix.md), with preflight
+and an external state namespace. There is no runnable plugin or verified host
+compatibility yet: running the installed workflow needs Agent Workflow #129, #130
+and the #139 discovery-isolation work. Source pins are provenance, not a
+certified released engine.
 
 - [Baselines and attribution](docs/baselines.md)
 - [All 29 skills and their delivery obligations](docs/inventory.md)
 - [Version 1 configuration, invocation, report and state contracts](docs/contracts/v1/README.md)
+- [Installed dk-pr-fix workflow, preflight and state namespace](docs/dk-pr-fix.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

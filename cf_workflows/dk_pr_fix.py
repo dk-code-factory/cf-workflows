@@ -1,0 +1,241 @@
+"""Installed-resource preflight for cf-workflows:dk-pr-fix.
+
+This module prepares one run of the installed YAML workflow. It verifies the
+immutable installed closure, admits the configuration structurally against the
+installed role catalog, rejects capabilities this release does not provide and
+maps the admitted options onto the workflow's declared inputs. It stages the
+private request in the suite's state namespace, outside the target checkout.
+
+It never starts a provider session, runs the workflow, schedules tasks or
+writes to the target checkout or the installation. Agent Workflow runs the
+workflow; until it can resolve an installed package and mount the state
+namespace (Agent Workflow #130), the result is a validated input set only.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import tempfile
+
+from . import admission
+
+WORKFLOW = 'cf-workflows:dk-pr-fix'
+INSTALL = Path(__file__).resolve().parent / 'workflows' / 'dk-pr-fix'
+CLOSURE = 'closure.json'
+ENTRY = 'workflows/main.yml'
+INSTALL_ROOT = 'cf-workflows'
+STATE_MOUNT = '/cf-workflows-state'
+STATE_MARKER = '.owned-by-cf-workflows-dk-pr-fix'
+STATE_FORMAT = 'cf-workflows-dk-pr-fix-v1'
+ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_ROLES}
+# Contract actions mapped to the portable workflow's permission inputs. Every
+# input stays false in this release: publication needs its guarded path (#17).
+PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
+                     'resolve_threads', 'create_draft_prs', 'request_review')
+IGNORED = ('__pycache__',)
+
+
+class InstallationError(ValueError):
+    """The installed closure differs from its manifest."""
+
+
+def _files(root):
+    """Every regular file below root; symlinks and special files reject."""
+    result = {}
+    for directory, names, files in os.walk(root):
+        names[:] = sorted(name for name in names if name not in IGNORED)
+        for name in sorted(names) + sorted(files):
+            path = Path(directory) / name
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode):
+                raise InstallationError('installed closure contains a symlink: ' + path.relative_to(root).as_posix())
+            if stat.S_ISDIR(mode):
+                continue
+            if not stat.S_ISREG(mode):
+                raise InstallationError('installed closure contains a special file: ' + path.relative_to(root).as_posix())
+            result[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
+
+
+def closure_digests(root=INSTALL):
+    """{path: sha256} of the installed files, excluding the manifest itself."""
+    files = _files(Path(root))
+    files.pop(CLOSURE, None)
+    return dict(sorted(files.items()))
+
+
+def verify_installation(root=INSTALL):
+    """Check the installation against closure.json; returns its closure digest."""
+    root = Path(root)
+    if root.is_symlink() or not root.is_dir():
+        raise InstallationError('installation root must be a directory')
+    manifest = admission.load_json((root / CLOSURE).read_bytes())
+    if (not isinstance(manifest, dict) or manifest.get('workflow') != WORKFLOW
+            or manifest.get('entry') != ENTRY or not isinstance(manifest.get('files'), dict)):
+        raise InstallationError('unsupported installation manifest')
+    actual = closure_digests(root)
+    if actual != manifest['files']:
+        changed = sorted(set(actual) ^ set(manifest['files']) |
+                         {path for path in actual if manifest['files'].get(path) not in (None, actual[path])})
+        raise InstallationError('installed closure differs from its manifest: ' + ', '.join(changed[:8]))
+    return admission.digest(manifest)
+
+
+def role_catalog(root=INSTALL):
+    """The admitted role catalog of an installation, for admission.admit()."""
+    files = admission.load_json((Path(root) / CLOSURE).read_bytes())['files']
+    return {role: {'root': INSTALL_ROOT, 'path': path, 'sha256': files[path]} for role, path in ROLES.items()}
+
+
+def state_home():
+    raw = os.environ.get('XDG_STATE_HOME', '')
+    return Path(raw) if os.path.isabs(raw) else Path.home() / '.local' / 'state'
+
+
+def state_namespace(home, repository):
+    """The suite's fresh state namespace for one canonical repository identity.
+
+    It sits under HOME/cf-workflows, never in a plugin install or target checkout,
+    and is keyed by a digest so user-supplied text never forms a path.
+    """
+    if not isinstance(repository, str) or not admission.REPOSITORY.fullmatch(repository):
+        raise ValueError('canonical repository identity required')
+    return Path(home) / 'cf-workflows' / 'repositories' / hashlib.sha256(repository.encode()).hexdigest()[:32]
+
+
+def _disjoint(first, second):
+    first, second = Path(first).resolve(), Path(second).resolve()
+    return not (first == second or first.is_relative_to(second) or second.is_relative_to(first))
+
+
+def _reject(result, path, message):
+    return {'preflight': 'rejected', 'structural': result.get('structural', 'rejected'),
+            'semantic': result.get('semantic'), 'error': {'path': path, 'message': message},
+            **{key: result[key] for key in ('admission', 'snapshot', 'snapshot_digest') if key in result}}
+
+
+def _adapter(record):
+    return {key: record[key] for key in ('kind', 'writes', 'assignment', 'definition', 'checklist', 'resources',
+                                         'history', 'head_sensitive', 'cacheable')}
+
+
+def preflight(*, request, configuration, invocation, deployment, repository, transport,
+              roots=None, home=None, install=INSTALL):
+    """Admit one run of the installed workflow and return its declared inputs.
+
+    Writes nothing. A rejected or blocked result carries the admission error.
+    """
+    failure = {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None}
+    try:
+        closure = verify_installation(install)
+    except (InstallationError, OSError, ValueError, KeyError) as error:
+        return _reject(failure, 'installation', str(error) or type(error).__name__)
+    roots = dict(roots or {})
+    if INSTALL_ROOT in roots or 'repository' in roots:
+        return _reject(failure, 'roots', f'{INSTALL_ROOT} and repository roots are supplied by preflight')
+    if not Path(repository).is_dir() or not _disjoint(repository, install):
+        return _reject(failure, 'repository', 'target checkout must be a directory separate from the installation')
+    home = Path(home) if home is not None else state_home()
+    result = admission.admit(request=request, configuration=configuration, invocation=invocation,
+                             deployment=deployment, roles=role_catalog(install),
+                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport)
+    if result['preflight'] != 'admitted':
+        return result
+    snapshot = result['snapshot']
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', snapshot['request']['logical_run']):
+        return _reject(result, 'request.logical_run', 'the workflow ledger accepts [A-Za-z0-9_-]{1,100} only')
+    if snapshot['request']['authorizations']:
+        return _reject(result, 'request.authorizations',
+                       'publication and merge are disabled until the guarded publication path (#17) is available')
+    effective = sorted(action for action, value in snapshot['permissions'].items() if value['effective'])
+    if effective:
+        return _reject(result, 'permissions.' + effective[0],
+                       'publication and merge are disabled until the guarded publication path (#17) is available')
+    namespace = state_namespace(home, snapshot['request']['pr']['repository'])
+    for other, name in ((repository, 'repository'), (install, 'installation')):
+        if not _disjoint(namespace, other):
+            return _reject(result, 'state', 'state namespace must be disjoint from the ' + name)
+    options = {key: value['value'] for key, value in snapshot['options'].items()}
+    selected = {task['adapter'] for task in snapshot['plan']['tasks']}
+    staged = {'pr': snapshot['request']['pr']['url'],
+              'instructions': snapshot['request']['original_instructions'],
+              'logical_run': snapshot['request']['logical_run'], 'authorizations': {}}
+    inputs = {
+        'tasks': options['tasks'], 'finalizers': options['finalizers'], 'reviewers': options['reviewers'],
+        'adapters': {name: _adapter(snapshot['adapters'][name]) for name in sorted(selected)},
+        'limits': snapshot['limits'],
+        'permissions': {name: False for name in PERMISSION_INPUTS},
+        'ci': {'timeout_seconds': options['ci'].get('timeout_seconds', 1800)},
+        'merge_method': options['merge_method'], 'accounts': options['accounts'],
+        'settings': options['settings'], 'resources': [], 'turns': options['turns'],
+    }
+    request_bytes = admission.canonical(staged)
+    reference = 'requests/' + hashlib.sha256(request_bytes).hexdigest() + '.json'
+    inputs['request'] = reference
+    return {**result, 'workflow': WORKFLOW, 'installation': {'root': str(Path(install).resolve()),
+                                                             'entry': ENTRY, 'closure_digest': closure},
+            'inputs': inputs,
+            'state': {'namespace': str(namespace), 'mount': STATE_MOUNT, 'request': reference,
+                      'request_document': staged}}
+
+
+def _atomic_write(path, data):
+    descriptor, name = tempfile.mkstemp(prefix='.staged-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'wb') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def stage_request(prepared):
+    """Write the admitted private request into its state namespace; idempotent.
+
+    Creates the namespace with this suite's ownership marker when absent. An
+    existing directory without the marker is adopted only while empty, so prior
+    dk-workflows or portable-example state is never imported.
+    """
+    namespace = Path(prepared['state']['namespace'])
+    reference = prepared['state']['request']
+    data = admission.canonical(prepared['state']['request_document'])
+    if PurePosixPath(reference) != PurePosixPath('requests') / (hashlib.sha256(data).hexdigest() + '.json'):
+        raise ValueError('staged request reference differs from its content')
+    namespace.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if namespace.is_symlink():
+        raise ValueError('state namespace must not be a symlink')
+    marker = namespace / STATE_MARKER
+    expected = admission.canonical({'format': STATE_FORMAT})
+    if not os.path.lexists(marker):
+        if any(namespace.iterdir()):
+            raise ValueError('refusing a nonempty state directory without this suite\'s marker')
+        _atomic_write(marker, expected)
+    if marker.is_symlink() or not marker.is_file() or marker.read_bytes() != expected:
+        raise ValueError('state namespace ownership marker differs')
+    requests = namespace / 'requests'
+    requests.mkdir(mode=0o700, exist_ok=True)
+    if requests.is_symlink():
+        raise ValueError('request directory must not be a symlink')
+    path = namespace / reference
+    if os.path.lexists(path):
+        if path.is_symlink() or path.read_bytes() != data:
+            raise ValueError('staged request conflict')
+    else:
+        _atomic_write(path, data)
+    return reference
+
+
+def write_closure(root=INSTALL):
+    """Regenerate closure.json after an intentional change to the installed files."""
+    manifest = {'schema_version': 1, 'kind': 'resource_closure', 'suite': admission.SUITE,
+                'workflow': WORKFLOW, 'entry': ENTRY, 'files': closure_digests(root)}
+    (Path(root) / CLOSURE).write_text(json.dumps(manifest, indent=2) + '\n')
+
+
+if __name__ == '__main__':
+    write_closure()

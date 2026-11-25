@@ -1,0 +1,384 @@
+# Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
+# One report contract for initial turns, eligible retries and checklist corrections.
+name: One native turn with retained report acceptance
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      claim:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: initial
+      definition:
+        type: string
+        default: ''
+      agent:
+        type: string
+        default: ''
+      prompt:
+        type: string
+        default: ''
+      task_input:
+        type: object
+        default: {}
+      round:
+        type: number
+        default: 0
+      publication:
+        type: string
+        default: ''
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      agent:
+        value: ${{ jobs.accept.outputs.result.agent }}
+      report:
+        value: ${{ jobs.accept.outputs.result.native_report }}
+      complete:
+        value: ${{ jobs.accept.outputs.result.complete }}
+      retry:
+        value: ${{ jobs.accept.outputs.result.retry }}
+      checklist:
+        value: ${{ jobs.accept.outputs.result.checklist }}
+      settled:
+        value: ${{ jobs.accept.outputs.result.settled }}
+      prompt:
+        value: ${{ jobs.accept.outputs.result.prompt }}
+      task_input:
+        value: ${{ jobs.accept.outputs.result.task_input }}
+schemas:
+  task-report:
+    type: object
+    required:
+    - complete
+    - checklist
+    - findings
+    - evidence
+    - blockers
+    - dispositions
+    - changes
+    - commit_message
+    - operations
+    - audience
+    - deliverables
+    properties:
+      complete:
+        type: boolean
+      checklist:
+        type: array
+        items:
+          type: object
+          required:
+          - id
+          - status
+          - evidence
+          properties:
+            id:
+              type: string
+              description: An exact checklist ID from the original assignment. Never add IDs for supplemental
+                checks or test commands; put those results in deliverables.
+            status:
+              type: string
+              enum:
+              - completed
+              - incomplete
+            evidence:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+      findings:
+        type: array
+        items:
+          type: object
+          required:
+          - id
+          - text
+          - sources
+          properties:
+            id:
+              type: string
+            text:
+              type: string
+            sources:
+              type: array
+              description: IDs from this report's evidence array only. Put original report/artifact references
+                and source IDs absent from this report in deliverables.
+              items:
+                type: string
+          additionalProperties: false
+      evidence:
+        type: array
+        items:
+          type: object
+          required:
+          - id
+          - path
+          - sha256
+          properties:
+            id:
+              type: string
+            path:
+              type: string
+              description: Workspace-relative current repository source file. Excludes .git, .agent-workflow
+                and generated workflow files. Captured artifacts are context and belong in deliverables.
+            sha256:
+              type: string
+          additionalProperties: false
+      blockers:
+        type: array
+        items:
+          type: string
+      dispositions:
+        type: array
+        items:
+          type: object
+          required:
+          - finding_id
+          - status
+          - reason
+          - sources
+          - authorization
+          properties:
+            finding_id:
+              type: string
+            status:
+              type: string
+              enum:
+              - confirmed
+              - rejected
+              - fixed
+              - accepted
+              - deferred
+            reason:
+              type: string
+            sources:
+              type: array
+              description: IDs from this report's evidence array only. Put original report/artifact references
+                and source IDs absent from this report in deliverables.
+              items:
+                type: string
+            authorization:
+              type:
+              - object
+              - 'null'
+              required:
+              - request_id
+              - instruction
+              - source
+              properties:
+                request_id:
+                  type: string
+                instruction:
+                  type: string
+                source:
+                  type: string
+              additionalProperties: false
+          additionalProperties: false
+      changes:
+        type: array
+        items:
+          type: object
+          required:
+          - path
+          - before
+          - after
+          properties:
+            path:
+              type: string
+            before:
+              type:
+              - string
+              - 'null'
+            after:
+              type:
+              - string
+              - 'null'
+          additionalProperties: false
+      commit_message:
+        type:
+        - string
+        - 'null'
+      operations:
+        type: array
+        items:
+          type: string
+          description: A JSON-encoded publication operation object with kind, payload, sources and original
+            authorization references. Return an empty array when none are proposed.
+      audience:
+        type:
+        - object
+        - 'null'
+        required:
+        - fingerprint
+        - suitable
+        - audience
+        - evidence
+        properties:
+          fingerprint:
+            type: string
+          suitable:
+            type: boolean
+          audience:
+            type: string
+          evidence:
+            type: array
+            items:
+              type: string
+        additionalProperties: false
+      deliverables:
+        type:
+        - string
+        - 'null'
+        description: A JSON-encoded object for task-specific deliverables, or null when absent.
+    additionalProperties: false
+step-definitions:
+  retained-helper:
+    parameters:
+      operation: {type: string, required: true}
+      payload: {type: object, required: true}
+    step:
+      argv: [python3, -B, /actions/helpers/action.py, '${{ parameters.operation }}']
+      protocol: action-v1
+      effect: external_mutation
+      input-schema: {type: object}
+      output-schema: {type: object}
+      input: ${{ parameters.payload }}
+      env:
+        GH_TOKEN: ${{ secrets.github_token }}
+        GH_ENTERPRISE_TOKEN: ${{ secrets.github_token }}
+        CF_WORKFLOWS_STATE: /cf-workflows-state
+jobs:
+  prepare:
+    if: ${{ inputs.mode == 'checklist' }}
+    container:
+      files:
+      - helpers/
+      - agents/
+    steps:
+    - id: check
+      use-definition: retained-helper
+      with:
+        operation: check_prepare
+        payload:
+          plan: ${{ inputs.plan }}
+          claim: ${{ inputs.claim }}
+          agent: ${{ inputs.agent }}
+          round: ${{ inputs.round }}
+          publication: ${{ inputs.publication }}
+    outputs:
+      input: ${{ steps.check.outputs.task_input }}
+      prompt: ${{ steps.check.outputs.prompt }}
+  initial:
+    if: ${{ inputs.mode == 'initial' }}
+    steps:
+    - id: task
+      uses: agent/run
+      with:
+        agent:
+          select: ${{ inputs.definition }}
+          definitions:
+            leaf: agents/leaf.yaml
+            reviewer: agents/reviewer.yaml
+            verifier: agents/verifier.yaml
+            fixer: agents/fixer.yaml
+            audience: agents/audience.yaml
+        turns: ${{ inputs.turns }}
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.task_input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: task-report
+      continue-on-error: true
+    outputs:
+      agent: ${{ steps.task.outputs.agent }}
+      report: ${{ steps.task.outputs.structured }}
+      status: ${{ steps.task.status }}
+      error: ${{ steps.task.error }}
+      failure_class: ${{ steps.task.failure_class }}
+      unsafe_failure_class: ${{ steps.task.unsafe_failure_class }}
+  retry:
+    if: ${{ inputs.mode == 'retry' }}
+    steps:
+    - id: task
+      uses: agent/run
+      with:
+        agent: ${{ inputs.agent }}
+        turns: ${{ inputs.turns }}
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.task_input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: task-report
+      continue-on-error: true
+    outputs:
+      agent: ${{ steps.task.outputs.agent }}
+      report: ${{ steps.task.outputs.structured }}
+      status: ${{ steps.task.status }}
+      error: ${{ steps.task.error }}
+      failure_class: ${{ steps.task.failure_class }}
+      unsafe_failure_class: ${{ steps.task.unsafe_failure_class }}
+  checklist:
+    if: ${{ inputs.mode == 'checklist' }}
+    needs: prepare
+    steps:
+    - id: task
+      uses: agent/run
+      with:
+        agent: ${{ inputs.agent }}
+        turns: ${{ inputs.turns }}
+        prompt: ${{ needs.prepare.outputs.prompt }}
+        input: ${{ needs.prepare.outputs.input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: task-report
+    outputs:
+      agent: ${{ steps.task.outputs.agent }}
+      report: ${{ steps.task.outputs.structured }}
+      status: ${{ steps.task.status }}
+      error: ${{ steps.task.error }}
+      failure_class: ${{ steps.task.failure_class }}
+      unsafe_failure_class: ${{ steps.task.unsafe_failure_class }}
+  accept:
+    needs: [initial, retry, checklist]
+    if: ${{ needs.initial.status != 'failed' and needs.initial.status != 'needs_attention' and
+      needs.retry.status != 'failed' and needs.retry.status != 'needs_attention' and
+      needs.checklist.status != 'failed' and needs.checklist.status != 'needs_attention' }}
+    container:
+      files:
+      - helpers/
+      - agents/
+    steps:
+    - id: accepted
+      use-definition: retained-helper
+      with:
+        operation: native_accept
+        payload:
+          plan: ${{ inputs.plan }}
+          claim: ${{ inputs.claim }}
+          mode: ${{ inputs.mode }}
+          round: ${{ inputs.round }}
+          publication: ${{ inputs.publication }}
+          results:
+            initial:
+              status: ${{ needs.initial.status }}
+              output: ${{ needs.initial.outputs }}
+            retry:
+              status: ${{ needs.retry.status }}
+              output: ${{ needs.retry.outputs }}
+            checklist:
+              status: ${{ needs.checklist.status }}
+              output: ${{ needs.checklist.outputs }}
+    outputs:
+      result: ${{ steps.accepted.outputs }}

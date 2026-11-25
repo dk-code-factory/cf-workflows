@@ -1,0 +1,52 @@
+# Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
+# Checked-in orchestration; helper calls retain separate operation boundaries.
+name: Selected tasks then finalizers in their declared order
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      stages:
+        type: array
+        required: true
+      cycle:
+        type: number
+        required: true
+      repairs:
+        type: number
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.coverage.outputs.result.complete }}
+jobs:
+  stages:
+    uses: workflows/stage.yml
+    with:
+      plan: ${{ inputs.plan }}
+      stage: ${{ item }}
+      cycle: ${{ inputs.cycle }}
+      repairs: ${{ inputs.repairs }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    for-each:
+      items: ${{ inputs.stages }}
+      key: ${{ item.id }}
+      concurrency: 1
+  coverage:
+    uses: workflows/helper.yml
+    with:
+      operation: coverage
+      payload:
+        plan: ${{ inputs.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - stages

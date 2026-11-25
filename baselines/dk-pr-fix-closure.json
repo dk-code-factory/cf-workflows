@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "kind": "extraction_provenance",
+  "workflow": "cf-workflows:dk-pr-fix",
+  "source": "agent-workflow",
+  "commit": "16ec5eecccd367dfdffcf1b529c51d181bbced49",
+  "entry": "examples/pr-fix/workflows/main.yml",
+  "license": "licenses/agent-workflow-MIT.txt",
+  "files": [
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/LICENSE",
+      "upstream": "LICENSE",
+      "upstream_sha256": "c9c1a0955ab365663dce7d5911c1d9e5aa13a1f497cebd5bbacc15bb353a1beb",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/agents.yml",
+      "upstream": "examples/pr-fix/agents.yml",
+      "upstream_sha256": "1b908fef92164ebc47556ebd12ee5490ccb46893c2363d402cf4456a46384929",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/request.example.json",
+      "upstream": "examples/pr-fix/request.example.json",
+      "upstream_sha256": "b37cc9b392acae54178afa4e51a1822f72294cd10b8eef1b5c2e6d158ccdfd3f",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/agents/audience.yaml",
+      "upstream": "examples/pr-fix/workflows/agents/audience.toml",
+      "upstream_sha256": "6296cda14a3fc13860cb4ebafeb46ff05c7ac8a5f5f29327cd9796dbb3aaf6aa",
+      "change": "converted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/agents/fixer.yaml",
+      "upstream": "examples/pr-fix/workflows/agents/fixer.toml",
+      "upstream_sha256": "0eb93f6da15534bb3a85aed976dd74f4d67eb442c880a7e7be1110868ad2d531",
+      "change": "converted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/agents/leaf.yaml",
+      "upstream": "examples/pr-fix/workflows/agents/leaf.toml",
+      "upstream_sha256": "219ae1582447cc727818fca10c9d997825ca39389aa3b0f26678b9dc51e4ff63",
+      "change": "converted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/agents/reviewer.yaml",
+      "upstream": "examples/pr-fix/workflows/agents/reviewer.toml",
+      "upstream_sha256": "32d7d001f9d9de7a50eb6a6cd0aa9f1863a14869a65e4d12f36435a61075a4b0",
+      "change": "converted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/agents/verifier.yaml",
+      "upstream": "examples/pr-fix/workflows/agents/verifier.toml",
+      "upstream_sha256": "c88b4da286b446407e1da258e464fdf5c42597d5d28b34a998ded1ad58b278d7",
+      "change": "converted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/batch.yml",
+      "upstream": "examples/pr-fix/workflows/batch.yml",
+      "upstream_sha256": "a2e6f14f278c140f7aaac50bed7bd94acc594c099e9bc420bd28d0e278e0807a",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/ci-pass.yml",
+      "upstream": "examples/pr-fix/workflows/ci-pass.yml",
+      "upstream_sha256": "f57de3a2f1880a6d2f718293989496c7ec18e53708fed7e2706099000b1ce898",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/ci-poll.yml",
+      "upstream": "examples/pr-fix/workflows/ci-poll.yml",
+      "upstream_sha256": "2b2403b0c385f6d6eeb83c821f3d90523123d893b7937d3cd5f605d2500ad48c",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/cycle.yml",
+      "upstream": "examples/pr-fix/workflows/cycle.yml",
+      "upstream_sha256": "691761bfecce0176251cd8919acf3232ad61e0b542a00d23028afdfb539f9a0c",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/group.yml",
+      "upstream": "examples/pr-fix/workflows/group.yml",
+      "upstream_sha256": "43f98d4d136ccbdc6a4c840bd486ee5ea675d2597ad6fc0b9572bb0c32b9044c",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helper.yml",
+      "upstream": "examples/pr-fix/workflows/helper.yml",
+      "upstream_sha256": "05bf98514de101554985e9d6586d93fbd4d16585c92e47ac56518fa153c688d7",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/action.py",
+      "upstream": "examples/pr-fix/workflows/helpers/action.py",
+      "upstream_sha256": "88dd26741296bcd9bb51e8ee902800b52de6ad24bf98210c90b6c138126d25ac",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/__init__.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/__init__.py",
+      "upstream_sha256": "4470dc49ae07e465658d0ce09c79b4edd02fb71a0fedaf078123b1cb2017e81f",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/app.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/app.py",
+      "upstream_sha256": "107c9291f2ab535c6754f8a079760c925f4262e071424f0567c09e7178b12c37",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/capture.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/capture.py",
+      "upstream_sha256": "f2d780e23989a0d4a6e5b06609fb9e7b4a545ad4433f371325b9a1c527864fab",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/ci.py",
+      "upstream_sha256": "2c97779f1525b61f58a60b2e57d62ced098fee9b2f38c4738441a5fca4b367c7",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/core.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/core.py",
+      "upstream_sha256": "79b781fcd164241a61be3e57ffe09cca6743810097b1db51ad2135af20d858e2",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/preparation.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/preparation.py",
+      "upstream_sha256": "57142d04d9572ef5815072bb7876a38cba15c2e941588433b13c0e6ff77f0937",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prepare.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/prepare.py",
+      "upstream_sha256": "40d1e2581a917f44246452110c24d944f41bd0e4f7ba116cab0a97baa6fb0d8b",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publication.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/publication.py",
+      "upstream_sha256": "55bfcac6a5e195fbb678d40dd5fb7e9180037ae91ff5f06cb8f0cc8751fce146",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publishing.py",
+      "upstream": "examples/pr-fix/workflows/helpers/prfix/publishing.py",
+      "upstream_sha256": "0f5ad8c3b8cae9ff3e0aa34b5db1b644402cde7529c30c71eae010760f462208",
+      "change": "verbatim"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/main.yml",
+      "upstream": "examples/pr-fix/workflows/main.yml",
+      "upstream_sha256": "0c3d393e16b8ef0aeed155dabd5891081a890edfe0eda3240300841e6b012a07",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/native.yml",
+      "upstream": "examples/pr-fix/workflows/native.yml",
+      "upstream_sha256": "9fbb737e8a3d9304943ac878e74df332945db086c6eab7973f75fcbe43d129aa",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/publication-barrier.yml",
+      "upstream": "examples/pr-fix/workflows/publication-barrier.yml",
+      "upstream_sha256": "a1929204b8cddf516f1b53de10b7cf2506f2368df3ccbc17a35e4ecd857c1645",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/publication.yml",
+      "upstream": "examples/pr-fix/workflows/publication.yml",
+      "upstream_sha256": "9bf443d940aab87f9130c185155d76e4976e0982e3473699dc4a52e4bf074b7a",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/stage.yml",
+      "upstream": "examples/pr-fix/workflows/stage.yml",
+      "upstream_sha256": "b6854a8b2605c34484288d1baffbf8de315f8911d589d92df61a39e734253508",
+      "change": "adapted"
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/task.yml",
+      "upstream": "examples/pr-fix/workflows/task.yml",
+      "upstream_sha256": "7d47614f97780a501f8be26299fec558e99f8ecd271352d99bd720b3dd68080d",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/git_fixture.py",
+      "upstream": "examples/pr-fix/tests/git_fixture.py",
+      "upstream_sha256": "c3dae201810fc4ca15faf76ff2e8f1614fe9202677684d708c6a8f6eaf2c271a",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/prepared_fixture.py",
+      "upstream": "examples/pr-fix/tests/prepared_fixture.py",
+      "upstream_sha256": "4c0453e6259af53887a606463a9589ee25dc9919d3c248639d178b426dd98842",
+      "change": "verbatim"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_action.py",
+      "upstream": "examples/pr-fix/tests/test_action.py",
+      "upstream_sha256": "95c8ebd68780e0abe7a85da8ac8a1e766ea5d7c9727d97e429b77a8cfc69e486",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_app.py",
+      "upstream": "examples/pr-fix/tests/test_app.py",
+      "upstream_sha256": "0c3a7483ac5c1bc0ca4c7bf00a1e23b4d3a5ea3f2304756bbd3615f1d130c04d",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_capture.py",
+      "upstream": "examples/pr-fix/tests/test_capture.py",
+      "upstream_sha256": "f73ec7617b2c6308b190fc00692204b2e8fddb54bb8a3c28445e15a595258f98",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_ci.py",
+      "upstream": "examples/pr-fix/tests/test_ci.py",
+      "upstream_sha256": "2836acdeabdc4306409c48db975f69bbffe683c26ad22403c0faa543270f888f",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_core.py",
+      "upstream": "examples/pr-fix/tests/test_core.py",
+      "upstream_sha256": "f017d2848904b42ccebe54b4795b3d1b3c3f540469ae6e7a4d867e014d871148",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_native_report.py",
+      "upstream": "examples/pr-fix/tests/test_native_report.py",
+      "upstream_sha256": "9c34528376e6ceabbf3049a1b43ca895c923607bb3083bcac53f5d0a40a41319",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_prepare.py",
+      "upstream": "examples/pr-fix/tests/test_prepare.py",
+      "upstream_sha256": "c7f5778cffcd27274d30f174554753b59d5a3ca235b6d8082ba9970e4dcb659c",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_publication.py",
+      "upstream": "examples/pr-fix/tests/test_publication.py",
+      "upstream_sha256": "022f9f7bcc01ff678253249c1fe1505cbbac720f78793cb886ae87786e0559b6",
+      "change": "adapted"
+    },
+    {
+      "path": "tests/dk_pr_fix/test_publishing.py",
+      "upstream": "examples/pr-fix/tests/test_publishing.py",
+      "upstream_sha256": "02916eefd133e527213125c04b45dabcc60f7f6d958eb4ce7f5579eecda4878a",
+      "change": "adapted"
+    }
+  ],
+  "excluded": [
+    {
+      "upstream": "examples/pr-fix/README.md",
+      "reason": "Copy-into-workspace guide; replaced by docs/dk-pr-fix.md."
+    },
+    {
+      "upstream": "examples/pr-fix/profiles/README.md",
+      "reason": "Optional review-profile generator; not in the main.yml closure."
+    },
+    {
+      "upstream": "examples/pr-fix/profiles/code_review_ad.py",
+      "reason": "Optional review-profile generator; writes workflow files into the workspace."
+    },
+    {
+      "upstream": "examples/pr-fix/tests/test_review_profile.py",
+      "reason": "Tests the excluded review-profile generator."
+    }
+  ]
+}

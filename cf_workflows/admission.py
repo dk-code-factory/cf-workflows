@@ -394,15 +394,46 @@ def skill_digest(files):
 
 # -- Roles and bootstrap ----------------------------------------------------------------------
 
+AGENT_LINE = re.compile(r'([a-z][a-z-]*): ("(?:[^"\\\x00-\x1f]|\\.)*")')
+AGENT_FIELDS = ('name', 'description', 'instructions', 'model', 'reasoning-effort')
+
+
 def role_definition(content, path):
+    """Admit a role in the engine's canonical YAML agent form: one `key: "JSON string"` line per field.
+
+    Fields follow the shared engine contract (required name, description and
+    instructions; optional model and reasoning-effort). Only the exact
+    serialization the engine's converter emits is accepted, so the standard
+    library reads it without a general YAML parser.
+    """
+    try:
+        body = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise AdmissionError(path, 'role definition is not valid UTF-8') from None
+    require(body.endswith('\n') and '\r' not in body, path, 'unsupported role definition')
+    value = {}
+    for line in body[:-1].split('\n'):
+        match = AGENT_LINE.fullmatch(line)
+        require(match and match[1] in AGENT_FIELDS and match[1] not in value, path, 'unsupported role definition')
+        try:
+            field = json.loads(match[2])
+        except ValueError:
+            raise AdmissionError(path, 'unsupported role definition') from None
+        require(json.dumps(field, ensure_ascii=False) == match[2], path, 'unsupported role definition')
+        value[match[1]] = field
+    require(all(isinstance(value.get(key), str) and value[key].strip() for key in ('name', 'description', 'instructions')),
+            path, 'unsupported role definition')
+
+
+def bootstrap_definition(content, path):
     try:
         value = tomllib.loads(content.decode('utf-8'))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError):
-        raise AdmissionError(path, 'role definition is not valid UTF-8 TOML') from None
+        raise AdmissionError(path, 'bootstrap definition is not valid UTF-8 TOML') from None
     allowed = {'name', 'description', 'developer_instructions', 'model', 'model_reasoning_effort'}
     require(not set(value) - allowed and all(isinstance(value.get(key), str) and value[key].strip()
                                              for key in ('name', 'description', 'developer_instructions')),
-            path, 'unsupported role definition')
+            path, 'unsupported bootstrap definition')
 
 
 def bootstrap():
@@ -415,7 +446,7 @@ def bootstrap():
     content = read_file(BOOTSTRAP_DEFINITION.parent, BOOTSTRAP_DEFINITION.name, 'bootstrap')
     actual = hashlib.sha256(content).hexdigest()
     require(actual == BOOTSTRAP_SHA256, 'bootstrap', 'bundled validator definition differs from its pin')
-    role_definition(content, 'bootstrap')
+    bootstrap_definition(content, 'bootstrap')
     return {'role': VALIDATOR_ROLE, 'sha256': actual, 'structural': 'accepted',
             'semantic': None, 'bootstrap': True, 'skills': [], 'prompts': []}
 

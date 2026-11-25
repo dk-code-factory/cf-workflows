@@ -1,0 +1,392 @@
+"""Installed dk-pr-fix: closure, provenance, preflight and a relocated read-only run.
+
+Disposable repositories, a fail-closed fake engine transport and a fail-closed
+fake GitHub transport. No provider, engine or network is used; these results do
+not certify any engine, provider or host.
+"""
+import ast
+from collections import Counter
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from cf_workflows import admission, dk_pr_fix  # noqa: E402
+
+INSTALL = dk_pr_fix.INSTALL
+HELPERS = INSTALL / 'workflows' / 'helpers'
+DRIVER = ROOT / 'tests' / 'fixtures' / 'dk_pr_fix_driver.py'
+PROVENANCE = json.loads((ROOT / 'baselines' / 'dk-pr-fix-closure.json').read_text())
+PR = 'https://github.com/Owner/Repo/pull/7'
+CAPABILITIES = {'engine': {'version': 'fixture-engine'},
+                'providers': {'fixture-provider': ['admitted_roles', 'native_session']}}
+GIT_ENV = {'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_TEMPLATE_DIR': ''}
+
+
+class FakeTransport:
+    """Records every operation; anything not configured fails without a live fallback."""
+
+    def __init__(self, capabilities=CAPABILITIES):
+        self.configured = {'capabilities': lambda: copy.deepcopy(capabilities)}
+        self.calls = Counter()
+
+    def __getattr__(self, name):
+        def operation(*args, **kwargs):
+            self.calls[name] += 1
+            if name not in self.configured:
+                raise AssertionError('unconfigured fixture operation: ' + name)
+            return self.configured[name](*args, **kwargs)
+        return operation
+
+
+def git(root, *args):
+    return subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, *args], cwd=root, check=True,
+                          capture_output=True, env={**os.environ, **GIT_ENV}).stdout.decode().strip()
+
+
+def workflow_files():
+    return {path.name: path.read_text() for path in sorted((INSTALL / 'workflows').glob('*.yml'))}
+
+
+class InstalledClosure(unittest.TestCase):
+    def test_installation_matches_its_manifest(self):
+        dk_pr_fix.verify_installation()
+        manifest = json.loads((INSTALL / dk_pr_fix.CLOSURE).read_text())
+        self.assertEqual(manifest['files'], dk_pr_fix.closure_digests())
+
+    def test_reusable_references_resolve_inside_the_installation(self):
+        files = workflow_files()
+        reachable, pending = set(), ['main.yml']
+        while pending:
+            name = pending.pop()
+            if name in reachable:
+                continue
+            reachable.add(name)
+            body = files[name]
+            self.assertNotRegex(body, r'uses:\s*examples/')
+            for target in re.findall(r'^\s*uses:\s*(\S+)\s*$', body, re.M):
+                if target == 'agent/run':
+                    continue
+                self.assertRegex(target, r'^workflows/[a-z-]+\.yml$')
+                self.assertTrue((INSTALL / target).is_file(), target)
+                pending.append(target.split('/', 1)[1])
+            for item in re.findall(r'^\s*- (helpers/|agents/)\s*$', body, re.M):
+                self.assertTrue((INSTALL / 'workflows' / item).is_dir(), item)
+        self.assertEqual(reachable, set(files), 'every installed workflow is reachable from main.yml')
+        native = files['native.yml']
+        for role in admission.ADMITTED_ROLES:
+            self.assertIn(f'{role}: agents/{role}.yaml', native)
+        self.assertNotIn('.toml', ''.join(files.values()))
+
+    def test_roles_are_canonical_yaml_for_admission_and_helpers(self):
+        sys.path.insert(0, str(HELPERS))
+        try:
+            from prfix.prepare import agent_definition
+        finally:
+            sys.path.remove(str(HELPERS))
+        catalog = dk_pr_fix.role_catalog()
+        self.assertEqual(set(catalog), set(admission.ADMITTED_ROLES))
+        for role, record in catalog.items():
+            data = (INSTALL / record['path']).read_bytes()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), record['sha256'])
+            admission.role_definition(data, role)
+            self.assertTrue(agent_definition(data)['instructions'].strip())
+        for invalid in (b'name = "toml"\n', b'name: "a"\ndescription: "b"\n', b'name: plain\n',
+                        b'name: "a"\ndescription: "b"\ninstructions: "c"\nname: "d"\n',
+                        b'name: "a"\ndescription: "b"\ninstructions: "c"\nhooks: "x"\n',
+                        b'name: "a"\ndescription: "b"\ninstructions: "\\u0063"\n',
+                        b'name: "a"\r\ndescription: "b"\r\ninstructions: "c"\r\n'):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(admission.AdmissionError):
+                    admission.role_definition(invalid, 'role')
+                with self.assertRaises(ValueError):
+                    agent_definition(invalid)
+
+    def test_provenance_covers_the_extracted_closure(self):
+        self.assertEqual(PROVENANCE['commit'], json.loads((ROOT / 'baselines/sources.json').read_text())
+                         ['sources'][1]['commit'])
+        local = {entry['path']: entry for entry in PROVENANCE['files']}
+        installed = {'cf_workflows/workflows/dk-pr-fix/' + path for path in dk_pr_fix.closure_digests()}
+        ported = {'tests/dk_pr_fix/' + path.name for path in (ROOT / 'tests/dk_pr_fix').glob('*.py')
+                  if path.name != '__init__.py'}
+        self.assertEqual(set(local), installed | ported)
+        for path, entry in local.items():
+            digest = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+            self.assertEqual(entry['change'] == 'verbatim', digest == entry['upstream_sha256'], path)
+            self.assertEqual(entry['change'] == 'converted', path.endswith('.yaml'), path)
+        self.assertEqual((INSTALL / 'LICENSE').read_bytes(), (ROOT / PROVENANCE['license']).read_bytes())
+
+    def test_helpers_launch_no_provider_or_controller(self):
+        banned = {'codex', 'claude', 'agent-workflow', 'docker', 'podman', 'npx', 'node'}
+        for path in sorted(HELPERS.rglob('*.py')):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    self.assertNotIn(node.value, banned, path)
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    names = [alias.name for alias in node.names] + [getattr(node, 'module', None) or '']
+                    self.assertFalse({'threading', 'multiprocessing', 'asyncio', 'socket'} & set(names), path)
+        for name, body in workflow_files().items():
+            # Only engine-owned agent/run steps start sessions; every helper step runs one action
+            # operation, apart from the bounded CI polling delay.
+            for argv in re.findall(r'argv:\s*\n((?:\s*- .*\n)+)', body):
+                argv = [line.strip()[2:] for line in argv.strip().splitlines()]
+                self.assertTrue(argv[:3] == ['python3', '-B', '/actions/helpers/action.py'] and len(argv) == 4
+                                or argv == ['sleep', "'10'"], name)
+            for argv in re.findall(r'argv: \[(.*)\]', body):
+                self.assertTrue(argv.startswith('python3, -B, /actions/helpers/action.py'), name)
+            # Every helper step sees the mounted state namespace.
+            self.assertEqual(body.count('CF_WORKFLOWS_STATE: /cf-workflows-state'), body.count('/actions/helpers/action.py'), name)
+
+
+class PreflightFixture(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix='cfw dk pr fix ')
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.repo = self.base / 'target repo'
+        self.repo.mkdir()
+        git(self.repo, 'init', '-q')
+        (self.repo / 'AGENTS.md').write_text('Run tests.\n')
+        git(self.repo, 'config', 'user.email', 'fixture@example.invalid')
+        git(self.repo, 'config', 'user.name', 'Fixture')
+        git(self.repo, 'config', 'commit.gpgsign', 'false')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Guidance')
+        self.home = self.base / 'state home'
+        self.request = {'pr': PR, 'instructions': '  Fix the flaky test exactly as discussed.\n'}
+        self.deployment = {'controller': {'run-timeout': '2h'},
+                           'execution': {'mode': 'container', 'image': 'ghcr.io/fixture/helper@sha256:' + 'a' * 64},
+                           'agents': {'codex': {'provider': 'fixture-provider', 'sandbox': 'workspace-write'}}}
+
+    def preflight(self, install=INSTALL, transport=None, **changes):
+        self.transport = transport or FakeTransport()
+        arguments = {'request': self.request, 'configuration': None, 'invocation': None,
+                     'deployment': self.deployment, 'repository': self.repo, 'home': self.home}
+        arguments.update(changes)
+        result = dk_pr_fix.preflight(transport=self.transport, install=install, **copy.deepcopy(arguments))
+        self.assertLessEqual(set(self.transport.calls), {'capabilities'})
+        self.assertFalse(self.home.exists(), 'preflight writes nothing')
+        self.assertEqual(git(self.repo, 'status', '--porcelain', '--ignored'), '')
+        return result
+
+
+class Preflight(PreflightFixture):
+    def test_default_plan_maps_admitted_options_to_declared_inputs(self):
+        result = self.preflight()
+        self.assertEqual((result['preflight'], result['structural'], result['semantic']), ('admitted', 'accepted', None))
+        self.assertEqual(self.transport.calls['capabilities'], 1)
+        inputs = result['inputs']
+        self.assertEqual(set(inputs), {'request', 'tasks', 'finalizers', 'reviewers', 'adapters', 'limits',
+                                       'permissions', 'ci', 'merge_method', 'accounts', 'settings', 'resources', 'turns'})
+        self.assertEqual(inputs['tasks'], admission.DEFAULTS['tasks'])
+        self.assertEqual(inputs['limits'], {'review_cycles': 5, 'retries_per_task': 1,
+                                            'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3})
+        self.assertEqual(inputs['ci'], {'timeout_seconds': 1800})
+        self.assertFalse(any(inputs['permissions'].values()))
+        self.assertEqual(set(inputs['adapters']), set(admission.BASELINE_ADAPTERS))
+        for name, adapter in inputs['adapters'].items():
+            self.assertEqual(adapter['assignment'], admission.BASELINE_ADAPTERS[name]['assignment'])
+        state = result['state']
+        self.assertEqual(state['request_document']['instructions'], self.request['instructions'])
+        self.assertEqual(state['request_document']['pr'], 'https://github.com/owner/repo/pull/7')
+        self.assertEqual(inputs['request'], state['request'])
+        self.assertTrue(Path(state['namespace']).is_relative_to(self.home / 'cf-workflows' / 'repositories'))
+        self.assertEqual(result['installation']['closure_digest'], dk_pr_fix.verify_installation())
+
+    def test_custom_prompts_and_supplied_skills_reject_at_preflight(self):
+        skills = self.base / 'skills'
+        (skills / 'lint').mkdir(parents=True)
+        (skills / 'lint' / 'SKILL.md').write_text('Lint.\n')
+        files = {'SKILL.md': hashlib.sha256(b'Lint.\n').hexdigest()}
+        skill = {'id': 'lint-skill', 'name': 'lint', 'root': 'skills', 'path': 'lint',
+                 'sha256': admission.skill_digest(files),
+                 'files': [{'path': 'SKILL.md', 'sha256': files['SKILL.md']}]}
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('session_scoped_skills')
+        for invocation, transport in (
+                ({'prompts': [{'id': 'local', 'slot': 'additional', 'text': '$lint Keep the diff small.'}]}, None),
+                ({'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}]}}, None),
+                ({'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
+                  'skills': [skill]}, FakeTransport(offered))):
+            with self.subTest(invocation=invocation):
+                result = self.preflight(invocation=invocation, transport=transport, roots={'skills': skills})
+                self.assertEqual((result['preflight'], result['structural'], result['semantic']),
+                                 ('rejected', 'accepted', 'blocked'))
+                self.assertNotIn('inputs', result)
+
+    def test_publication_and_merge_stay_disabled(self):
+        grant = {'request_id': 'r1', 'instruction': 'Push the fix.', 'source': 'chat:1'}
+        result = self.preflight(request={**self.request, 'authorizations': {'push': grant}})
+        self.assertEqual((result['preflight'], result['structural']), ('rejected', 'accepted'))
+        self.assertEqual(result['error']['path'], 'request.authorizations')
+        self.assertEqual(self.transport.calls['capabilities'], 1)
+        result = self.preflight(invocation={'permissions': {'push': True}})
+        self.assertEqual(result['preflight'], 'admitted')
+        self.assertFalse(any(result['inputs']['permissions'].values()))
+
+    def test_tampered_or_overlapping_installation_rejects_before_the_engine(self):
+        copy_root = self.base / 'install copy'
+        shutil.copytree(INSTALL, copy_root, ignore=shutil.ignore_patterns('__pycache__'))
+        (copy_root / 'workflows' / 'agents' / 'leaf.yaml').write_text('name: "x"\ndescription: "y"\ninstructions: "z"\n')
+        result = self.preflight(install=copy_root)
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'installation'))
+        self.assertEqual(self.transport.calls['capabilities'], 0)
+        shutil.copy2(INSTALL / 'workflows' / 'agents' / 'leaf.yaml', copy_root / 'workflows' / 'agents' / 'leaf.yaml')
+        (copy_root / 'workflows' / 'extra.yml').write_text('name: extra\n')
+        self.assertEqual(self.preflight(install=copy_root)['error']['path'], 'installation')
+        (copy_root / 'workflows' / 'extra.yml').unlink()
+        (copy_root / 'workflows' / 'link.yml').symlink_to(copy_root / 'workflows' / 'main.yml')
+        self.assertEqual(self.preflight(install=copy_root)['error']['path'], 'installation')
+        (copy_root / 'workflows' / 'link.yml').unlink()
+        for repository in (copy_root, copy_root / 'workflows'):
+            with self.subTest(repository=repository):
+                result = self.preflight(install=copy_root, repository=repository)
+                self.assertEqual(result['error']['path'], 'repository')
+        result = self.preflight(roots={'cf-workflows': self.base})
+        self.assertEqual(result['error']['path'], 'roots')
+        self.assertEqual(self.transport.calls['capabilities'], 0)
+
+    def test_engine_failure_blocks_without_staging(self):
+        transport = FakeTransport()
+        transport.configured['capabilities'] = lambda: (_ for _ in ()).throw(OSError('engine down'))
+        result = self.preflight(transport=transport)
+        self.assertEqual((result['preflight'], result['structural']), ('blocked', 'accepted'))
+
+    def test_staging_creates_a_fresh_owned_namespace_once(self):
+        prepared = self.preflight()
+        reference = dk_pr_fix.stage_request(prepared)
+        namespace = Path(prepared['state']['namespace'])
+        self.assertEqual(sorted(os.listdir(namespace)), [dk_pr_fix.STATE_MARKER, 'requests'])
+        data = (namespace / reference).read_bytes()
+        self.assertEqual(reference, 'requests/' + hashlib.sha256(data).hexdigest() + '.json')
+        self.assertEqual(json.loads(data)['instructions'], self.request['instructions'])
+        self.assertEqual(stat.S_IMODE((namespace / reference).stat().st_mode), 0o600)
+        self.assertEqual(dk_pr_fix.stage_request(prepared), reference)
+        (namespace / reference).write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'conflict'):
+            dk_pr_fix.stage_request(prepared)
+        shutil.rmtree(namespace)
+        namespace.mkdir()
+        (namespace / '.pr-fix-state').mkdir()
+        with self.assertRaisesRegex(ValueError, 'nonempty'):
+            dk_pr_fix.stage_request(prepared)
+        self.assertEqual(os.listdir(namespace), ['.pr-fix-state'])
+
+
+class RelocatedReadOnlyRun(PreflightFixture):
+    """Admit, stage and run preparation and a first claim from a relocated read-only install."""
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / 'code.py').write_text('value = 1\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Initial')
+        self.target = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'switch', '-q', '-c', 'fix')
+        (self.repo / 'code.py').write_text('value = 2\n')
+        git(self.repo, 'commit', '-q', '-am', 'Change')
+        self.head = git(self.repo, 'rev-parse', 'HEAD')
+        self.install = self.base / 'installed plugins' / 'cf workflows' / 'dk-pr-fix'
+        shutil.copytree(INSTALL, self.install, ignore=shutil.ignore_patterns('__pycache__'))
+        for path in [self.install, *self.install.rglob('*')]:
+            path.chmod(path.stat().st_mode & ~0o222)
+        self.addCleanup(lambda: [path.chmod(path.stat().st_mode | 0o200)
+                                 for path in [self.install, *self.install.rglob('*')]])
+
+    def evidence(self):
+        metadata = {'html_url': 'https://github.com/owner/repo/pull/7', 'number': 7, 'state': 'open',
+                    'merged': False, 'draft': False, 'title': 'Fix', 'body': 'Fix a problem', 'updated_at': 'now',
+                    'user': {'id': 1, 'login': 'owner'},
+                    'head': {'sha': self.head, 'ref': 'fix', 'repo': {'full_name': 'owner/repo'}},
+                    'base': {'sha': self.target, 'ref': 'main', 'repo': {'full_name': 'owner/repo'}}}
+        return {'metadata': metadata, 'viewer': {'id': 1, 'login': 'owner'},
+                'comments': [], 'reviews': [], 'inline': [], 'threads': []}
+
+    def run_driver(self, prepared, steps):
+        spec = {'helpers': str(self.install / 'workflows' / 'helpers'), 'root': str(self.repo),
+                'pr': prepared['state']['request_document']['pr'], 'evidence': self.evidence(),
+                'execution': 'fixture-admitted-execution', 'steps': steps}
+        environment = {'PATH': os.environ['PATH'], 'HOME': str(self.base), **GIT_ENV,
+                       'CF_WORKFLOWS_STATE': prepared['state']['namespace']}
+        completed = subprocess.run([sys.executable, '-I', '-B', str(DRIVER)], input=json.dumps(spec).encode(),
+                                   capture_output=True, env=environment, cwd=self.base, timeout=120)
+        return completed
+
+    def test_preparation_and_first_claim_from_installed_resources(self):
+        before = dk_pr_fix.verify_installation(self.install)
+        prepared = self.preflight(install=self.install)
+        self.assertEqual(prepared['preflight'], 'admitted', prepared)
+        dk_pr_fix.stage_request(prepared)
+        controls = {key: value for key, value in prepared['inputs'].items() if key != 'request'}
+        steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}},
+                 {'name': 'prepare', 'operation': 'prepare', 'input': {'controls': controls},
+                  'refs': {'snapshot': ['request', 'result', 'output', 'snapshot']}},
+                 {'name': 'claim', 'operation': 'claim', 'input': {'task': 'task_1', 'cycle': 1, 'publication': ''},
+                  'refs': {'plan': ['prepare', 'result', 'output', 'plan']}}]
+        completed = self.run_driver(prepared, steps)
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode()[-4000:])
+        output = json.loads(completed.stdout)
+        for module in output['modules']:
+            self.assertTrue(Path(module).is_relative_to(self.install), module)
+        self.assertEqual(output['calls'], {'capture': 2})
+        claim = output['results']['claim']['result']['output']
+        self.assertTrue(claim['invoke'])
+        assignment = claim['task_input']
+        self.assertEqual(assignment['instructions'], self.request['instructions'])
+        self.assertEqual((assignment['snapshot']['head'], assignment['snapshot']['target']), (self.head, self.target))
+        self.assertEqual(assignment['task']['skill'], 'read-feedback')
+        # Nothing reaches the target diff or the installation; state lives in its own namespace.
+        self.assertEqual(git(self.repo, 'status', '--porcelain', '--ignored'), '')
+        self.assertEqual(dk_pr_fix.verify_installation(self.install), before)
+        namespace = Path(prepared['state']['namespace'])
+        self.assertTrue({'artifacts', 'requests', 'preparations', dk_pr_fix.STATE_MARKER} <= set(os.listdir(namespace)))
+        plan_ref = output['results']['prepare']['result']['output']['plan']
+        plan = json.loads((namespace / plan_ref).read_text())
+        self.assertEqual(plan['instructions'], self.request['instructions'])
+        self.assertEqual(plan['definitions'], {role: record['sha256'] for role, record in
+                                               dk_pr_fix.role_catalog(self.install).items()})
+        tasks = {task['id']: task for task in plan['tasks']}
+        # Independent verification is its own required task on a separate admitted role.
+        self.assertEqual((tasks['finding_verification']['definition'], tasks['finding_verification']['required']),
+                         ('verifier', True))
+        self.assertEqual({task['definition'] for task in plan['tasks'] if task['kind'] == 'review'}, {'reviewer'})
+
+    def test_unconfigured_github_operation_fails_without_fallback(self):
+        prepared = self.preflight(install=self.install)
+        dk_pr_fix.stage_request(prepared)
+        controls = {key: value for key, value in prepared['inputs'].items() if key != 'request'}
+        steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}},
+                 {'name': 'prepare', 'operation': 'prepare', 'input': {'controls': controls},
+                  'refs': {'snapshot': ['request', 'result', 'output', 'snapshot']}},
+                 {'name': 'ci', 'operation': 'ci', 'input': {},
+                  'refs': {'plan': ['prepare', 'result', 'output', 'plan']}}]
+        completed = self.run_driver(prepared, steps)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn('unconfigured fixture operation', completed.stderr.decode())
+        self.assertEqual(git(self.repo, 'status', '--porcelain', '--ignored'), '')
+
+    def test_helpers_refuse_a_state_namespace_inside_the_checkout(self):
+        prepared = self.preflight(install=self.install)
+        dk_pr_fix.stage_request(prepared)
+        inside = copy.deepcopy(prepared)
+        inside['state']['namespace'] = str(self.repo / '.git' / 'cf state')
+        Path(inside['state']['namespace']).mkdir()
+        steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}}]
+        completed = self.run_driver(inside, steps)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn('disjoint from the target checkout', completed.stderr.decode())
+
+
+if __name__ == '__main__':
+    unittest.main()

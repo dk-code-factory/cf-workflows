@@ -28,9 +28,12 @@ launchers or controllers. See the [delivery tracker](https://github.com/dk-code-
 
 ## Notices
 
-This PR copies license texts and records paraphrased behavior/resource metadata;
-it copies no executable upstream skill/runtime resources. Preserve the following
-notices in distributions containing copied or adapted substantial portions:
+The contracts PR copied only license texts and paraphrased metadata. The
+[dk-pr-fix extraction](dk-pr-fix.md) copies and adapts the portable example's
+workflow closure and tests. Its per-file provenance is in
+[dk-pr-fix-closure.json](../baselines/dk-pr-fix-closure.json), and the installed
+closure carries the upstream MIT `LICENSE`. Preserve the following notices in
+distributions containing copied or adapted substantial portions:
 
 - [dk-workflows MIT notice](../licenses/dk-workflows-MIT.txt): Copyright 2026 Dmitry Kropachev.
 - [Agent Workflow MIT notice](../licenses/agent-workflow-MIT.txt): Copyright 2026 PicoClaw contributors.
