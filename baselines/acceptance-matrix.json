@@ -675,30 +675,39 @@
         28
       ],
       "behavior": [
-        "cf_workflows/decisions.py"
+        "cf_workflows/decisions.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/decisions.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/decisions.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/reconciliation.yml"
       ],
       "documentation": "docs/decisions.md",
       "composition": "shared_workflow",
       "direct": [
         "test_decisions.Reconcile.test_sourced_decisions_and_contradictions_stay_distinct_until_the_user_answers",
-        "test_decisions.Publish.test_authorized_update_changes_only_the_bounded_section"
+        "test_decisions.Publish.test_authorized_update_changes_only_the_bounded_section",
+        "test_dk_pr_fix_decisions.InstalledPreflight.test_direct_entry_maps_onto_the_installed_preset",
+        "test_dk_pr_fix_decisions.Reconcile.test_sourced_decisions_and_contradictions_stay_distinct_until_the_user_answers"
       ],
       "composed": [
-        "test_decisions.Composed.test_dk_pr_fix_occurrence_uses_the_same_procedure"
+        "test_decisions.Composed.test_dk_pr_fix_occurrence_uses_the_same_procedure",
+        "test_dk_pr_fix_decisions.Reconcile.test_a_dependent_occurrence_covers_the_reconciliation_it_was_handed",
+        "test_dk_pr_fix_decisions.Publish.test_a_description_body_edit_carries_the_section_in_one_intent"
       ],
       "recovery": [
         "test_decisions.Reconcile.test_lost_session_response_reconciles_to_the_original_claim",
         "test_decisions.Publish.test_uncertain_publication_is_reconciled_and_never_resent",
-        "test_recovery.DecisionRecovery.test_lost_session_response_recovers_its_original_claim_after_restore"
+        "test_recovery.DecisionRecovery.test_lost_session_response_recovers_its_original_claim_after_restore",
+        "test_dk_pr_fix_decisions.Publish.test_authorized_section_publishes_once_through_the_shared_stage",
+        "test_dk_pr_fix_decisions.Reconcile.test_unchanged_inputs_reuse_and_changed_sources_refresh_only_what_cites_them"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/decisions.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); linked-issue sources and advised alternatives (#27) are not collected by the installed helper; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-split",

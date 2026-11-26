@@ -90,7 +90,7 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | listed | 4 / 1 / 3 |
 | `cf-workflows:dk-pr-description` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
-| `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | not listed | 2 / 1 / 3 |
+| `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | listed | 4 / 3 / 5 |
 | `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |
@@ -101,12 +101,14 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 
 `dk-pr-fix`, `dk-pr-review`, the three feedback entries, `dk-pr-publish`,
-`dk-pr-review-post`, `dk-plain-english` and `dk-asd-ste100` are the rows in the
-plugin descriptor. The two prose entries are presets over the installed workflow
-([prose cleanup](prose.md)). Listing a row claims no runtime support: none of
-them has run through a released engine. The other 20 are library procedures or
-presets over the shared workflow. The installed workflow refuses those presets
-until each one runs as an engine-managed session.
+`dk-pr-review-post`, `dk-plain-english`, `dk-asd-ste100` and `dk-pr-decisions`
+are the rows in the plugin descriptor. The two prose entries are presets over
+the installed workflow ([prose cleanup](prose.md)) and `dk-pr-decisions` presets
+reconciliation and publication ([decisions](decisions.md#installed-workflow)).
+Listing a row claims no runtime support: none of them has run through a released
+engine. The other 19 are library procedures or presets over the shared workflow.
+The installed workflow refuses those presets until each one runs as an
+engine-managed session.
 
 ## Inherited defects
 

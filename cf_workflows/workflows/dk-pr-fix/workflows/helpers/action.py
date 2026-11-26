@@ -97,6 +97,11 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
             ledger.db.execute("INSERT INTO ci_observations VALUES(?,?,?,?)",
                               (inputs["_operation"], observed["head"], observed["status"], canonical(observed).decode()))
         return observed
+    if operation in {"decisions_gate", "decisions_answer", "decisions_status"}:
+        from prfix import decisions
+        handler = {"decisions_gate": decisions.gate, "decisions_answer": decisions.answer,
+                   "decisions_status": decisions.status}[operation]
+        return handler(root, provider, ledger, plan, inputs)
     if operation in {"responses_settle", "responses_status"}:
         from prfix import responses
         handler = responses.settle if operation == "responses_settle" else responses.status

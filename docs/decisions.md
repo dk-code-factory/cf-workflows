@@ -2,8 +2,11 @@
 
 `cf-workflows:dk-pr-decisions` is a thin entry over the shared workflow (#28).
 [`cf_workflows/decisions.py`](../cf_workflows/decisions.py) holds the preset and
-the adapter procedure. Like the other library operations, it is not wired into
-an installed workflow yet (see [What remains](#what-remains)).
+the adapter procedure. The installed workflow runs the same procedure through
+its helper side,
+[`prfix/decisions.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/decisions.py)
+(see [Installed workflow](#installed-workflow)). Neither has run through a
+released engine (see [What remains](#what-remains)).
 
 ## Entry
 
@@ -144,6 +147,42 @@ draft and nothing is written. The intent ID binds the logical run, the result
 and the heading. A pending intent is only reconciled from the service, never
 sent again; this also holds when the body already shows the effect.
 
+## Installed workflow
+
+The plugin descriptor lists `dk-pr-decisions` with the entry
+[`workflows/decisions.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/decisions.yml).
+It calls `main.yml` in fix mode with the preset: `reconcile-decisions` and the
+shared `publication` stage, empty `finalizers` and `reviewers`, the bundled
+adapter and only the `edit_pr` permission input. `decisions.installed(...)`
+admits a direct run through the shared `dk-pr-fix` preflight and returns those
+inputs. Non-default `language_review_passes` and `section_heading` go to
+`settings.decisions`. The installed workflow does not run the shared semantic
+validator, so it rejects a custom reconciliation prompt and invocation prompts;
+`preflight()` still admits them for the library procedure. `dk-pr-fix` selects
+the same adapter by default, so a composed run uses the same helpers.
+
+The occurrence is an ordinary task of kind `decisions` that runs as one native
+session per claim. The helper side does the procedure's work:
+
+| Step | Helper | What it does |
+| --- | --- | --- |
+| Claim | `app.prepare_claim`, `decisions.context` | Collects the sources as above: PR body outside the section, comments, reviews, inline comments, the exact request and recorded answers. This run's own exact effects are removed first. Assigns authority from `accounts` and association. Adds the retained, affected and changed decisions, the prompts and the result contract to the assignment. |
+| Binding | `decisions.binding` | The claim fingerprint binds the discussion, request and repository guidance, settings, accounts, the agent definition and recorded answers. It does not bind the diff or head, so a fix commit alone reuses the retained result in any later session. |
+| Accept | `app.accept`, `decisions.check`, `decisions.retain` | Applies the checks above to `deliverables.decisions`. A failed check is a contract error, corrected in the same session within the shared bound. A report that proposes operations is rejected. The merged result is recorded under the claim before the claim completes. |
+| Handoff | `decisions.handoff` | Fix and description occurrences get `assignment.decisions`: commitments, exceptions, proposals, contested decisions, unresolved contradictions, blocking questions and the result reference. Their fingerprints bind that reference, so a refreshed reconciliation reruns them. A writing occurrence does not start while dependent work is blocked. |
+| Clarify | `reconciliation.yml`: `decisions_gate`, `input/wait`, `decisions_answer`, `task.yml`, `decisions_status` | Runs after the stage that holds the occurrence. A blocked result opens one engine input gate whose evidence identity is its claim. The answer is recorded once and becomes the newest user source. A new claim then reconciles the contested subjects with it. `decisions_status` fails the stage while dependent work stays blocked. |
+| Publish | `publishing.publication_list`, `decisions.compose` | Only under an enabled and authorized `edit_pr`, and only from the current result. If another accepted report lists a body edit (such as `describe-pr`), that one intent carries the section. Otherwise one `edit_pr` intent changes only the section of the current body. The shared stage prepares it, gets the independent audience verdict and reconciles a lost response from the service. The run's own section edit is not new discussion, so it starts no session. |
+
+Prepare puts `decisions` on the tasks stage that holds the occurrence. It rejects
+a second occurrence, a fix or description occurrence in the same parallel group,
+and invalid `settings.decisions`. The record is a versioned SQLite file per
+logical run (`runs/<sha256(logical_run)>.reconciliation.sqlite`) with the
+results, the request baseline and the answers ([recovery](recovery.md)).
+
+The installed helper does not capture linked issues, so they are not sources
+there. Rejected results use the shared same-session correction rounds, not the
+library's fresh claims.
+
 ## Verification
 
 [`tests/test_decisions.py`](../tests/test_decisions.py) uses a disposable
@@ -174,18 +213,45 @@ gates or writes. It covers:
 - **Composition.** A `dk-pr-fix` occurrence with the same report and handoff,
   and a plan without the adapter.
 
+[`tests/test_dk_pr_fix_decisions.py`](../tests/test_dk_pr_fix_decisions.py)
+drives the installed helpers in-process, as task.yml, reconciliation.yml and
+the publication stage call them. It uses a disposable state namespace, the run
+ledger and reconciliation record, and a fail-closed fake GitHub transport that
+counts writes. It counts every claim that would dispatch a reconciliation
+session. It covers:
+
+- **Entry.** `decisions.installed` maps onto `workflows/decisions.yml`, accepts
+  only `edit_pr` and the baseline prompt, and passes the heading and passes as
+  settings. The YAML preset, descriptor row, stage and clarification jobs.
+- **Reconciliation.** Helper-assigned authority; a bot-only settled decision
+  corrected in the same session; distinct settled, proposed and contested
+  decisions; a blocked writer and a failing status; one answer, replayed and
+  conflicting deliveries; a refresh of only the contested subjects; an older
+  user comment that cannot outrank a later maintainer; and released handoff.
+- **Reuse and refresh.** A fix commit in a fresh session reuses the result; an
+  edited comment refreshes only the decision that cites it; an unaffected
+  change and an omitted subject reject; a later user comment governs the
+  request; an answer recorded during the turn rejects the report.
+- **Composition and publication.** A dependent description reruns after a
+  refresh; no write without `edit_pr` permission and authorization; one section
+  write that withholds the private request, reconciled after a lost response and
+  never relisted; a description body edit that carries the section in one
+  intent; and a stale result that lists nothing.
+- **Parity and prepare.** The installed checks and section draft give the
+  library's verdicts; the stage marker, one occurrence, no parallel dependent
+  and checked settings.
+
 ## What remains
 
-- The procedure runs as an engine-managed native session only once Agent
-  Workflow [#129](https://github.com/dk-code-factory/agent-workflow/issues/129)
-  and [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land.
-  The installed workflow does not yet hand decision reports to later tasks or
-  route the section intent through its publication stage. No local controller
-  or launcher stands in for either.
-- Plugin skill entries (`SKILL.md` and descriptor rows) wait for that installed
-  workflow ([packaging](packaging.md)). The inventory row stays
-  `not_implemented`.
-- Advised and selected alternatives (#27) are not yet a source kind.
+- The installed workflow runs the procedure as an engine-managed native session
+  only through a released engine that ships Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). The
+  `input/wait` gate needs the engine's durable external input. No release has
+  them (the latest is v0.2.1; the descriptor pins 0.2.2). No local controller
+  or launcher stands in. The inventory row stays `not_implemented`.
+- The installed helper does not capture linked issues. Advised and selected
+  alternatives (#27) are not yet a source kind.
 - The helper checks recency and authority, not meaning. Real native-session
   judgment, a user-supplied skill (#16, Agent Workflow
   [#139](https://github.com/dk-code-factory/agent-workflow/issues/139)) and

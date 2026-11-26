@@ -126,7 +126,9 @@ concurrent writers.
 dk-pr-decisions directly and from a dk-pr-fix plan with the same fake engine and
 the fail-closed fake GitHub transport. They count sessions, gates and writes across
 conflicting and later instructions, changed sources, clarification, unchanged
-reuse and uncertain section publication.
+reuse and uncertain section publication. `tests/test_dk_pr_fix_decisions.py`
+drives the same cases through the installed helpers with the fake GitHub
+transport and counts claims that would dispatch a session.
 [Prose cleanup](prose.md#verification) tests (`tests/test_prose.py`) drive
 dk-plain-english and dk-asd-ste100 with a disposable repository, the real
 acceptance and prose ledgers, and a fake engine whose claim-reconciled sessions

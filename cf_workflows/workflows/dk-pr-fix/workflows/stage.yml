@@ -35,6 +35,18 @@ jobs:
     secrets:
       github_token: ${{ secrets.github_token }}
     if: ${{ inputs.stage.kind == 'tasks' or inputs.stage.kind == 'reviews' }}
+  decisions:
+    # A tasks stage with the reconcile-decisions occurrence settles its decisions before the next stage.
+    uses: workflows/reconciliation.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ${{ inputs.stage.decisions }}
+      cycle: ${{ inputs.cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: tasks
+    if: ${{ inputs.stage.kind == 'tasks' and inputs.stage.decisions and needs.tasks.status == 'succeeded' }}
   publication:
     uses: workflows/publication-barrier.yml
     with:

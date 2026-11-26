@@ -13,6 +13,7 @@ import re
 
 from .core import (FORMAT, Ledger, artifact, auth, digest,
                    identity, state_directory, text)
+from .decisions import DEPENDENT, options as options_of
 
 CHECKLIST = [
     {"id": "assignment", "text": "Perform the exact assigned task against current source and retained original instructions."},
@@ -398,11 +399,22 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             keys = [task_call(call, phase, "tasks") for call in group]
             if len(keys) > 1 and any(next(t for t in tasks if t["id"] == key)["writes"] for key in keys):
                 raise ValueError("parallel writing tasks share a Git index and are unsupported")
-            stages.append({"kind": "tasks", "phase": phase,
-                           "groups": [{"id": "group_1", "tasks": [{"id": key} for key in keys], "concurrency": len(keys)}],
-                           "review": any(next(t for t in tasks if t["id"] == key)["kind"] == "review" for key in keys),
-                           "fix": mode == "fix"})
+            kinds = {next(t for t in tasks if t["id"] == key)["kind"] for key in keys}
+            if "decisions" in kinds and kinds & set(DEPENDENT):
+                raise ValueError("a fix or description occurrence needs the reconciled decisions; "
+                                 "do not run it in parallel with reconcile-decisions")
+            stage = {"kind": "tasks", "phase": phase,
+                     "groups": [{"id": "group_1", "tasks": [{"id": key} for key in keys], "concurrency": len(keys)}],
+                     "review": any(next(t for t in tasks if t["id"] == key)["kind"] == "review" for key in keys),
+                     "fix": mode == "fix"}
+            reconciled = [key for key in keys if next(t for t in tasks if t["id"] == key)["kind"] == "decisions"]
+            if reconciled:
+                # reconciliation.yml: clarify unresolved decisions before dependent work.
+                stage["decisions"] = reconciled[0]
+            stages.append(stage)
 
+    if sum(task["kind"] == "decisions" for task in tasks) > 1:
+        raise ValueError("a plan reconciles decisions in exactly one occurrence")
     if mode == "review" and not any(stage["kind"] == "reviews" for stage in stages):
         raise ValueError("incoming review requires a selected reviewer stage")
     if preset:
@@ -428,6 +440,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "assignment": "Repair only the exact evidenced failed CI head/run/job/attempt in this assignment. Inspect original logs and relevant tests. Return source evidence, complete changed-file manifest and native commit message. Do not publish or commit; do not reinterpret unknown failures as flakes.",
             "required": False, "writes": True, "checklist": CHECKLIST, "options": {}, "resources": [],
             "history": False, "head_sensitive": True, "cacheable": False})
+    options_of({"settings": controls.get("settings", {})})
     plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),
             # Only an address session receives them (app.prepare_claim); absent when none are configured.

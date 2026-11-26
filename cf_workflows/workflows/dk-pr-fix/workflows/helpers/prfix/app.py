@@ -243,12 +243,21 @@ def alignment(root, provider, ledger, plan, inputs):
 
 def _fingerprint(snapshot, task, ledger=None):
     from .capture import fingerprint
+    from . import decisions
+    if decisions.role(task):
+        # Discussion, request, guidance, settings and answers; never the diff (decisions.py).
+        return decisions.binding(snapshot, task, ledger)
     result = fingerprint(snapshot, task)
     if ledger is not None and task["kind"] in {"verification", "fix"} and task["id"] != "ci_repair":
         originals = candidates(ledger.root, ledger, None)
         verification = [dict(row) for row in ledger.db.execute(
             "SELECT reference,report FROM accepted_reports WHERE kind='verification' ORDER BY rowid")] if task["kind"] == "fix" else []
         result = digest([result, originals, verification])
+    if ledger is not None and task["kind"] in decisions.DEPENDENT:
+        # A dependent occurrence covers the reconciliation it was handed; a refreshed one runs it again.
+        handed = decisions.reference(ledger)
+        if handed is not None:
+            result = digest([result, {"decisions": handed}])
     return result
 
 
@@ -387,6 +396,16 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             "head revision, {kind:commit_message,commit} for a PR commit's message, or {kind:pr_title} / "
             "{kind:pr_description}. Use null for fields a kind does not use. Never name a nearby changed line "
             "instead of the real location, and keep local paths and workflow diagnostics out of finding text.")
+    from . import decisions
+    if decisions.role(task):
+        # Sources, retained and affected decisions, prompts and the result contract (decisions.py).
+        assignment["decisions"] = decisions.context(root, provider, ledger, plan, task)
+    elif task["kind"] in decisions.DEPENDENT and decisions.occurrence(plan) is not None:
+        handed = decisions.handoff(root, ledger, plan)
+        if handed is not None and handed["dependent_work"] == "blocked" and task["writes"]:
+            raise ValueError("dependent implementation is blocked by unresolved decisions; answer the open "
+                             "decision gate first")
+        assignment["decisions"] = handed
     from .responses import context as feedback_context, role as feedback_role
     if feedback_role(task):
         # Feedback occurrences receive the retained assessments, so standalone and composed
@@ -669,9 +688,10 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
+    from . import decisions
     from .feedback import FeedbackError
     from .responses import check_feedback, retain_feedback, role as feedback_role
-    validated = None
+    validated = decided = None
     claim = _active(_claim(ledger, inputs["claim"]))
     task = _task(plan, claim["task"])
     agent = text(inputs.get("agent"), "opaque native agent reference")
@@ -716,6 +736,12 @@ def accept(root, provider, ledger, plan, inputs):
                 retain_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
+        elif decisions.role(task) and complete:
+            # Sourced decisions, user-only resolution and refresh through changed sources only.
+            try:
+                decided = decisions.check(root, ledger, plan, report, assignment)
+            except decisions.DecisionError as error:
+                raise ReportContractError("decisions: " + str(error)) from error
         elif feedback_role(task) and complete:
             # Reading or addressing feedback must leave every current source assessed; its
             # assessments are retained only once the report's effects are committed below.
@@ -763,6 +789,9 @@ def accept(root, provider, ledger, plan, inputs):
         # before the claim completes: a source that appeared since waits for the next read,
         # and a lost response replays this acceptance (the commit is idempotent).
         retain_feedback(root, plan, *validated)
+    if decided is not None:
+        # Recorded under the claim before it completes; a lost response replays the same row.
+        decisions.retain(root, plan, claim["id"], assignment, decided, reference)
     coverage = _fingerprint(snapshot, task, ledger)
     with ledger.transaction():
         old = ledger.db.execute("SELECT agent,report FROM submissions WHERE claim_id=? AND round=?",

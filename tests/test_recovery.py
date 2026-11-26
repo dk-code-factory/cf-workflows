@@ -31,6 +31,7 @@ sys.dont_write_bytecode = True  # Never add caches to the installed closure.
 import dk_pr_fix as _helpers  # noqa: E402,F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture  # noqa: E402
 from prfix import app, core, feedback  # noqa: E402
+from prfix import decisions as installed_decisions  # noqa: E402
 from prfix.publication import Publication, UncertainEffect  # noqa: E402
 from cf_workflows import (acceptance, admission, alignment, decisions, dk_pr_fix, drafting, prose,  # noqa: E402
                           recovery, splitting, writes)
@@ -180,6 +181,7 @@ class Catalog(unittest.TestCase):
             'prose': lambda path: prose.Ledger(path).close(),
             'feedback': lambda path: feedback.Ledger(path, logical_run='r', pr=pr).close(),
             'decisions': lambda path: decisions.Ledger(path, logical_run='r', pr=PUBLISHED_PR).close(),
+            'reconciliation': lambda path: installed_decisions.Record(path, logical_run='r', pr=pr).close(),
             'alignment': lambda path: alignment.Ledger(path, logical_run='r', pr=pr).close(),
             'drafting': lambda path: drafting.Ledger(path, logical_run='r', target=PUBLISHED_PR).close(),
             'splitting': lambda path: splitting.Ledger(path, logical_run='r', target=PUBLISHED_PR).close(),
@@ -187,6 +189,7 @@ class Catalog(unittest.TestCase):
         paths = {'configuration': suite / 'configuration.sqlite3',
                  'prose': prose.ledger_path(self.home, 'github.com/o/r'),
                  'feedback': feedback.ledger_path(ns, 'r'), 'decisions': decisions.ledger_path(ns, 'r'),
+                 'reconciliation': installed_decisions.ledger_path(ns, 'r'),
                  'alignment': alignment.ledger_path(ns, 'r'), 'drafting': drafting.ledger_path(ns, 'r'),
                  'splitting': splitting.ledger_path(ns, 'r')}
         for name, path in paths.items():
@@ -219,8 +222,8 @@ class Catalog(unittest.TestCase):
         for row, stores in recovery.ROWS.items():
             self.assertTrue(set(stores) <= set(recovery.STORES), row)
         # Each store a delivered row retains is exercised by a recovery scenario below.
-        covered = {'run', 'feedback', 'writer', 'configuration', 'prose', 'decisions', 'alignment', 'drafting',
-                   'splitting'}
+        covered = {'run', 'feedback', 'writer', 'configuration', 'prose', 'decisions', 'reconciliation', 'alignment',
+                   'drafting', 'splitting'}
         self.assertEqual({store for stores in recovery.ROWS.values() for store in stores}, covered)
         self.assertEqual(covered, set(recovery.STORES))
 
