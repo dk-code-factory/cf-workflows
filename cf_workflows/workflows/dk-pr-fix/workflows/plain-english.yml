@@ -1,0 +1,110 @@
+# Authored for cf-workflows (#33); no upstream counterpart. See docs/prose.md.
+# dk-plain-english: a preset over the shared workflow. One plain-english finalizer edits only
+# changed PR prose (clear technical English) in an engine-managed session; the helpers bound
+# and check its edits and commit them locally. Nothing is pushed or published.
+name: cf-workflows:dk-plain-english
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default: []
+      finalizers:
+        type: array
+        default:
+        - plain-english
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          plain-english:
+            kind: cleanup
+            writes: true
+            history: false
+            definition: leaf
+            assignment: "Rewrite in clear, direct technical English. Edit only prose that the PR introduced or changed (docstrings, comments and documentation) in the candidate patch, with minimal adjacent edits for coherence. Decide which candidate text is prose. Preserve technical meaning, requirements, conditions, exceptions, repository terminology, quoted user wording, code blocks and executable examples, identifiers, commands, links, machine directives, markup and docstring structure. Leave ambiguous wording unchanged and report it. Return changed locations, validation, ambiguities, reference-verification limits and a commit message, or a sourced no-op. Do not commit, publish or edit other files."
+            checklist:
+            - id: assignment
+              text: "Edit only changed prose in the candidate patch, or report a sourced no-op."
+            - id: evidence
+              text: "Validate every edit against the source meaning and protected syntax."
+            - id: scope
+              text: "Report ambiguities and verification limits; claim no compliance or authority."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          push_commits: false
+          rewrite_commits: false
+          edit_pr: false
+          reply_to_feedback: false
+          resolve_threads: false
+          create_draft_prs: false
+          request_review: false
+          post_findings: false
+          rerun_ci: false
+          approve_pr: false
+          approve_fork_ci: false
+          merge: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.cleanup.outputs.complete }}
+      ready:
+        value: ${{ jobs.cleanup.outputs.ready }}
+      provisional:
+        value: ${{ jobs.cleanup.outputs.provisional }}
+jobs:
+  cleanup:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+    secrets:
+      github_token: ${{ secrets.github_token }}

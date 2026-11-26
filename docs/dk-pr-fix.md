@@ -111,8 +111,9 @@ starts no session and runs nothing.
    ([skills.md](skills.md)). A repository-only request and the configuration
    adapters of `dk-config` and `dk-preferences` reject; the read-only
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
-   Prose adapters reject until the workflow calls their bounded procedure
-   ([prose cleanup](prose.md)).
+   Prose finalizers (`plain-english`, `asd-ste100`) run as ordinary task
+   occurrences whose sessions the installed helpers bound and check
+   ([prose cleanup](prose.md#installed-workflow)).
    The staged alternatives adapters reject ([alternatives](alternatives.md)).
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only

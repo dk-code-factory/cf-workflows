@@ -28,6 +28,12 @@ skills:
   - name: dk-pr-review-post
     path: skills/dk-pr-review-post/SKILL.md
     workflow: workflows/review-post.yml
+  - name: dk-plain-english
+    path: skills/dk-plain-english/SKILL.md
+    workflow: workflows/plain-english.yml
+  - name: dk-asd-ste100
+    path: skills/dk-asd-ste100/SKILL.md
+    workflow: workflows/asd-ste100.yml
 resources:
   - LICENSE
   - agents.yml

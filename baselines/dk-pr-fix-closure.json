@@ -344,6 +344,26 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/review-post.yml",
       "reason": "Review-posting preset over main.yml in review mode (#31); no upstream counterpart (docs/publication-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prose.py",
+      "reason": "Bounded prose finalizer procedure (#33), installed so helper containers bound and check prose sessions; no upstream counterpart (docs/prose.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/plain-english.yml",
+      "reason": "dk-plain-english preset over main.yml (#33); no upstream counterpart (docs/prose.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/asd-ste100.yml",
+      "reason": "dk-asd-ste100 preset over main.yml (#33); no upstream counterpart (docs/prose.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-plain-english/SKILL.md",
+      "reason": "Prose cleanup skill entry point (#33); no upstream counterpart (docs/prose.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-asd-ste100/SKILL.md",
+      "reason": "Prose cleanup skill entry point (#33); no upstream counterpart (docs/prose.md)."
     }
   ],
   "corrections": [

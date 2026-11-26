@@ -29,9 +29,11 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   (`workflows/main.yml`), `dk-pr-review` (its [review-mode preset](review.md)
   `workflows/review.yml`), the three [feedback entries](feedback-skills.md)
   (`workflows/feedback-read.yml`, `feedback-address.yml` and
-  `feedback-reply.yml`, which fix their task selection over `main.yml`) and the
+  `feedback-reply.yml`, which fix their task selection over `main.yml`), the
   [publication entries](publication-skills.md) `dk-pr-publish` and
-  `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`).
+  `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`)
+  and the [prose presets](prose.md#installed-workflow) `dk-plain-english` and
+  `dk-asd-ste100` (`workflows/plain-english.yml` and `workflows/asd-ste100.yml`).
   Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not

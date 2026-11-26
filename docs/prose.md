@@ -3,8 +3,10 @@
 `cf-workflows:dk-plain-english` and `cf-workflows:dk-asd-ste100` are thin
 entries over the shared workflow (#33).
 [`cf_workflows/prose.py`](../cf_workflows/prose.py) holds their presets and their
-adapter procedure. Like the other library operations, they are not wired into an
-installed workflow yet (see [What remains](#what-remains)).
+adapter procedure. The installed `dk-pr-fix` workflow runs the same finalizers
+through its ordinary task path, with the same edit checks in its helpers (see
+[Installed workflow](#installed-workflow)). Neither has run through a released
+engine (see [What remains](#what-remains)).
 
 ## Entries
 
@@ -132,9 +134,60 @@ the same `run()`. In dk-workflows plain English is the default fix finalizer.
 Here the default plan follows the portable PR-fix example and has no prose
 pass, so select it explicitly.
 
-The installed `dk-pr-fix` workflow would run a prose adapter as a generic
-writer without these checks. Its preflight therefore rejects prose adapters
-until the workflow calls this procedure.
+The installed `dk-pr-fix` workflow runs selected prose finalizers in the same
+order, each as its own occurrence ([Installed workflow](#installed-workflow)).
+
+## Installed workflow
+
+The plugin lists both entries. Each entry workflow,
+[`workflows/plain-english.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/plain-english.yml)
+or [`workflows/asd-ste100.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/asd-ste100.yml),
+calls `workflows/main.yml` in fix mode with `tasks: []`, its one finalizer,
+`reviewers: []` and the bundled adapter. `prose.installed_preflight(name, ...)`
+admits a run through the shared [dk-pr-fix preflight](dk-pr-fix.md) with the
+preset as the invocation layer, so a saved scope cannot replace the finalizer.
+It rejects request authorizations and invocation changes other than prompts,
+and, like every installed run, custom prompts and preferences. A composed
+`dk-pr-fix` plan may also select either finalizer.
+
+A prose occurrence is an ordinary task occurrence (`task.yml`, `native.yml`):
+one engine-managed session with the admitted `leaf` role. On Agent Workflow's
+unreleased main branch, managed sessions exclude installed, repository and
+bundled skills. The helpers in
+[`helpers/prfix/prose.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prose.py)
+add the procedure at two points:
+
+1. **Claim.** The candidate plan above runs from the PR base (the merge base of
+   the target and the checkout head) to the checkout head. The assignment gets
+   the units, patches, quoted wording, the role prompt, `skills: []`, no commit
+   or publication, the reference limits and the report contract. With no changed
+   prose, the occurrence completes without a session. Its coverage then holds
+   only while a fresh plan is identical.
+2. **Acceptance.** Before the controlled commit, the session may have changed
+   only candidate files, and every edit must pass the edit checks above. The
+   report returns its prose report in `deliverables.prose`, with
+   `changed_locations` matching the actual edits, and its `changes` manifest
+   must list exactly the edited files. For `asd-ste100`, the compliance and
+   rule-number checks also cover the commit message and finding texts. A failed
+   check is a report-contract error: the same session gets the bounded
+   correction rounds with its edits still in the checkout, and nothing is
+   committed. Unlike the library procedure, the helpers do not restore the
+   checkout: after the last round the run stops for attention with the edits
+   uncommitted, like any other writer.
+
+The edit checks are a verbatim copy of this module's, because helper containers
+cannot import the library; a test keeps them identical. An accepted pass commits
+through the workflow's controlled Git helper and ledgered local commit, and is
+never pushed. Units live in the run ledger: each completed claim of the
+occurrence records its plan, and its output is the file at its controlled
+commit. A later source change is a delta, and a change to the instructions,
+the adapter text or repository guidance is a full pass. The installed workflow
+supplies no ASD-STE100 references, so every `asd-ste100` pass records that rule
+and dictionary checks did not run.
+
+A selected writing finalizer reruns when a later commit changes the tree it
+covered. So with two prose finalizers, the earlier one reruns on the later
+one's edits only, and a sourced no-op settles the cycle.
 
 ## Verification
 
@@ -167,18 +220,36 @@ session counts. Coverage:
   files it selects, with the validator and acceptance reuse.
 - **Composition.** Ordered finalizers, scoped replacement and explicit empty
   lists. Two composed passes in order, then a replacement run with reuse and a
-  delta. `dk-pr-fix` preflight rejecting a prose finalizer.
+  delta. `dk-pr-fix` preflight admitting prose finalizers in plan order.
+- **Installed entries.** Each entry maps onto its entry workflow with only its
+  finalizer and no permissions. A saved scope cannot replace the finalizer.
+  Authorizations, option and permission changes, a repository target and
+  custom prompts reject.
+
+[`tests/test_prose_finalizer.py`](../tests/test_prose_finalizer.py)
+drives the installed helpers with a disposable repository, the real run ledger
+and the controlled Git helper. Sessions are scripted edits and reports. It
+covers the bounded assignment, symlink and binary skips, a controlled commit
+with a replayed acceptance, reuse and completion without a session, rejected
+edits outside changed prose, in code blocks, link targets, numbers, unlisted
+files and quoted wording, unreported edits, sourced no-ops, deltas, full passes
+on changed instructions, ASD-STE100 claims, rule numbers and unsupplied
+references, two composed finalizers, and the verbatim copy of the edit checks.
 
 ## What remains
 
-- These procedures run as engine-managed native sessions only once Agent Workflow
-  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land. No
-  local controller or launcher stands in for them.
-- The installed `dk-pr-fix` graph does not call this procedure yet, so its
-  preflight rejects prose finalizers. Plugin `SKILL.md` and descriptor rows wait
-  for an installed workflow that runs these entries ([packaging](packaging.md)).
+- Agent Workflow [#129](https://github.com/dk-code-factory/agent-workflow/issues/129)
+  and [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) are
+  merged on its main branch, but no engine release contains them (the plugin
+  pins the unreleased 0.2.2). Until one does, neither entry runs, and nothing
+  here claims supported runtime behavior. No local controller or launcher
+  stands in. The entry workflows pass `agent-workflow validate` and
+  `plugin check` from that unreleased main source only.
 - A user-supplied prose skill, such as an external replacement finalizer, needs
-  [#139](https://github.com/dk-code-factory/agent-workflow/issues/139) and #16.
+  a released [#139](https://github.com/dk-code-factory/agent-workflow/issues/139)
+  and #16.
+- The installed workflow has no input for ASD-STE100 references or custom
+  prompts and preferences, so it runs `asd-ste100` without references and
+  rejects custom inputs; the library procedure covers both.
 - The edit checks are deterministic proxies. Real session adherence and
   meaning preservation need separately authorized live evidence.
