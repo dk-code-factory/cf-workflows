@@ -20,8 +20,7 @@
         "test_routing.Routing.test_missing_or_inconsistent_identity_never_guesses_a_route"
       ],
       "composed": [
-        "test_routing.RoutedPreflight.test_routed_requests_admit_on_their_entry_points",
-        "test_alternatives.Composition.test_coordinators_compose_only_their_scope"
+        "test_routing.RoutedPreflight.test_routed_requests_admit_on_their_entry_points"
       ],
       "recovery": [
         "test_routing.RoutedPreflight.test_analysis_only_routing_disables_every_enabled_write",

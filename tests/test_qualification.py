@@ -44,7 +44,7 @@ def row(matrix, name):
     return next(item for item in matrix['rows'] if item['skill'] == name)
 
 
-def record(procedure='live_provider', skills=('dk-pr-fix',)):
+def record(procedure='live_provider', skill='dk-pr-fix'):
     return {
         'schema_version': 1, 'kind': 'acceptance_evidence', 'suite': 'cf-workflows', 'procedure': procedure,
         'authorization': {'granted_by': 'owner', 'granted_at': '2027-01-01T00:00:00Z',
@@ -55,20 +55,21 @@ def record(procedure='live_provider', skills=('dk-pr-fix',)):
         'host': {'name': 'codex', 'version': '1.0.0'},
         'provider': {'name': 'provider', 'model': 'model', 'service_tier': 'default'},
         'target': {'repository': 'example/disposable', 'disposable': True},
-        'recorded_at': '2027-01-01T01:00:00Z', 'skills': list(skills),
-        'scenarios': [{'id': name, 'result': 'passed', 'evidence_refs': ['session:1']}
+        'recorded_at': '2027-01-01T01:00:00Z', 'skill': skill,
+        'scenarios': [{'id': name, 'result': 'passed', 'evidence_refs': [f'session:{skill}-{procedure}-{name}']}
                       for name in qualification.PROCEDURES[procedure]],
         'cost': {'complete': True, 'usd': 1.25},
     }
 
 
-def with_live_provider(matrix, document):
+def with_live_provider(matrix, documents):
+    """List each {path: record} as live-provider evidence with its combination and verified row."""
     matrix = copy.deepcopy(matrix)
-    matrix['live_acceptance']['live_provider'] = {'status': 'recorded', 'records': [RECORD_PATH]}
+    matrix['live_acceptance']['live_provider'] = {'status': 'recorded', 'records': list(documents)}
     matrix['verified_combinations'] = [{'host': 'codex', 'provider': 'provider', 'engine_version': ENGINE,
-                                        'record': RECORD_PATH}]
-    for name in document['skills']:
-        row(matrix, name)['status']['native_execution'] = 'verified'
+                                        'record': path} for path in documents]
+    for document in documents.values():
+        row(matrix, document['skill'])['status']['native_execution'] = 'verified'
     return matrix
 
 
@@ -285,7 +286,7 @@ class LiveEvidence(unittest.TestCase):
 
     def test_an_accepted_record_verifies_only_its_rows_and_never_releases(self):
         document = record()
-        matrix = with_live_provider(MATRIX, document)
+        matrix = with_live_provider(MATRIX, {RECORD_PATH: document})
         accepted = validate(matrix, records={RECORD_PATH: document})
         self.assertEqual((accepted['combinations'], accepted['native_rows']), (1, {'dk-pr-fix'}))
         self.assertEqual(row(matrix, 'dk-pr-fix')['status']['live_acceptance'], 'pending')
@@ -330,7 +331,13 @@ class LiveEvidence(unittest.TestCase):
             (lambda r: r['scenarios'][0].update(result='failed'), 'needs a passing result'),
             (lambda r: r['scenarios'][0].update(evidence_refs=[]), 'needs a passing result'),
             (lambda r: r['cost'].update(complete=False, usd=None), 'complete measured dollar cost'),
-            (lambda r: r.update(skills=['dk-everything']), 'skills must be inventory rows'),
+            (lambda r: r.update(skill='dk-everything'), 'exactly one inventory row'),
+            (lambda r: r.update(skill=['dk-pr-fix', 'dk-pr-review']), 'exactly one inventory row'),
+            (lambda r: r['scenarios'][0].update(evidence_refs=['']), 'evidence references must be distinct'),
+            (lambda r: r['scenarios'][0].update(evidence_refs=['   ']), 'evidence references must be distinct'),
+            (lambda r: r['scenarios'][0].update(evidence_refs=['looked fine']), 'evidence references must be distinct'),
+            (lambda r: r['scenarios'][0].update(evidence_refs=['session:1', 'session:1']),
+             'evidence references must be distinct'),
             (lambda r: r.update(procedure='github_publication'), 'procedure mismatch'),
             (lambda r: r.update(transcript='...'), 'unexpected field'),
         )
@@ -344,6 +351,23 @@ class LiveEvidence(unittest.TestCase):
         with self.assertRaisesRegex(qualification.MatrixError, 'different plugin closure'):
             qualification.validate_record(record(), 'live_provider', inventory=INVENTORY, closure_digest=None,
                                           engine_version=ENGINE)
+
+    def test_one_shared_run_cannot_verify_every_row(self):
+        everything = [item['name'] for item in INVENTORY['skills']]
+        aggregate = record()
+        aggregate.pop('skill')
+        aggregate['skills'] = everything
+        with self.assertRaisesRegex(qualification.MatrixError, 'missing field|unexpected field'):
+            validate(with_live_provider(MATRIX, {RECORD_PATH: {**aggregate, 'skill': 'dk-pr-fix'}}),
+                     records={RECORD_PATH: {**aggregate, 'skill': 'dk-pr-fix'}})
+        # One record per row that reuses the same observations is still one shared run.
+        shared = {f'baselines/evidence/{name}.json': {**record(), 'skill': name} for name in ('dk-pr-fix', 'dk-ci')}
+        with self.assertRaisesRegex(qualification.MatrixError, 'each row needs its own observations'):
+            validate(with_live_provider(MATRIX, shared), records=shared)
+        # Distinct observations per row verify exactly those rows and no other.
+        own = {f'baselines/evidence/{name}.json': record(skill=name) for name in ('dk-pr-fix', 'dk-ci')}
+        accepted = validate(with_live_provider(MATRIX, own), records=own)
+        self.assertEqual(accepted['native_rows'], {'dk-pr-fix', 'dk-ci'})
 
     def test_each_procedure_has_its_own_scenarios(self):
         for procedure in qualification.PROCEDURES:

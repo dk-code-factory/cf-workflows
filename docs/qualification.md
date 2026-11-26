@@ -70,7 +70,7 @@ native execution and live acceptance are `pending` and every parity status is
 
 | Skill | Composition | Native execution | Delivery | Plugin descriptor | Direct / composed / recovery |
 | --- | --- | --- | --- | --- | --- |
-| `cf-workflows:dk-pr-iter` | shared_workflow | pending | #24, #25 | not listed | 3 / 2 / 2 |
+| `cf-workflows:dk-pr-iter` | shared_workflow | pending | #24, #25 | not listed | 3 / 1 / 2 |
 | `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16 | listed | 4 / 2 / 4 |
 | `cf-workflows:dk-pr-review` | shared_workflow | pending | #24, #25 | listed | 3 / 2 / 2 |
 | `cf-workflows:dk-repo-onboard` | shared_workflow | pending | #26 | not listed | 2 / 1 / 2 |
@@ -229,8 +229,9 @@ matrix; it is never ignored.
   "provider": {"name": "", "model": "", "service_tier": ""},
   "target": {"repository": "", "disposable": true},
   "recorded_at": "",
-  "skills": ["dk-pr-fix"],
-  "scenarios": [{"id": "engine_managed_native_sessions", "result": "passed", "evidence_refs": [""]}],
+  "skill": "dk-pr-fix",
+  "scenarios": [{"id": "engine_managed_native_sessions", "result": "passed",
+                 "evidence_refs": ["session:…", "claim:…"]}],
   "cost": {"complete": true, "usd": 0.0}
 }
 ```
@@ -242,16 +243,22 @@ A record is accepted only when:
 - `engine.version` equals the pinned engine version, and `engine.release` is
   that version's Agent Workflow release URL;
 - the target is disposable;
-- every required scenario passed with evidence references;
+- it covers exactly one row (`skill`), so one shared run never verifies every
+  row it touched;
+- every required scenario passed with distinct evidence references of the form
+  `session:`, `claim:`, `receipt:`, `intent:`, `run:`, `gate:` or `usage:`
+  followed by the original ID (empty or free-text references reject);
 - a `live_provider` record has complete measured dollar cost.
 
 Evidence references point to the engine's original session and claim
-references and to GitHub receipts. They are not transcripts. A change to the
+references and to GitHub receipts. They are not transcripts. An evidence
+reference cited for one row cannot be cited for another row, so a separate
+record per row must rest on its own observations. A change to the
 plugin closure or the engine pin makes earlier records stale. A
 `verified_combinations` entry must match an accepted `live_provider` record. A
-row's `native_execution` is `verified` only when such a record lists the row.
-A row's `live_acceptance` is `recorded` only when all three procedures have
-accepted records that list it.
+row's `native_execution` is `verified` only when such a record is for that
+row. A row's `live_acceptance` is `recorded` only when all three procedures have
+accepted records for it.
 
 ## Release readiness
 

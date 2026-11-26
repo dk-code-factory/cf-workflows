@@ -84,6 +84,8 @@ COMPOSITIONS = ('shared_workflow', 'delegate', 'boundary')
 DEFECT_KEYS = {'upstream', 'required_behavior', 'delivery', 'provenance', 'tests', 'live_acceptance'}
 TEST_ID = re.compile(r'(?:[a-z_][a-z0-9_]*\.)*test_[a-z0-9_]+\.[A-Z][A-Za-z0-9_]*\.test_[A-Za-z0-9_]+')
 SHA = re.compile(r'[0-9a-f]{40}')
+# An evidence reference names one original engine or GitHub observation, never free text.
+EVIDENCE_REF = re.compile(r'(?:session|claim|receipt|intent|run|gate|usage):[A-Za-z0-9][A-Za-z0-9._:/#-]*')
 RELEASE_URL = re.compile(r'https://github\.com/dk-code-factory/agent-workflow/releases/tag/v?([0-9][^/\s]*)')
 
 
@@ -330,7 +332,7 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
     """A live acceptance record that is complete, authorized and bound to this exact release input."""
     where = f'{procedure} record'
     _keys(record, {'schema_version', 'kind', 'suite', 'procedure', 'authorization', 'plugin', 'engine', 'host',
-                   'provider', 'target', 'recorded_at', 'skills', 'scenarios', 'cost'}, where)
+                   'provider', 'target', 'recorded_at', 'skill', 'scenarios', 'cost'}, where)
     require((record['schema_version'], record['kind'], record['suite']) == (1, 'acceptance_evidence', SUITE),
             f'{where}: not a version 1 cf-workflows acceptance evidence record')
     require(record['procedure'] == procedure, f'{where}: procedure mismatch')
@@ -353,8 +355,9 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
     _keys(record['target'], {'repository', 'disposable'}, f'{where}.target')
     require(record['target']['disposable'] is True, f'{where}: live acceptance runs only on a disposable target')
     names = {row['name'] for row in inventory['skills']}
-    require(isinstance(record['skills'], list) and record['skills'] and set(record['skills']) <= names,
-            f'{where}: skills must be inventory rows')
+    # One record covers one row: a shared run cannot verify every row it touched at once.
+    require(isinstance(record['skill'], str) and record['skill'] in names,
+            f'{where}: skill must be exactly one inventory row')
     scenarios = record['scenarios']
     require(isinstance(scenarios, list), f'{where}: scenarios must be a list')
     ids = [item.get('id') for item in scenarios if isinstance(item, dict)]
@@ -362,8 +365,13 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
             f'{where}: must record exactly the scenarios {list(PROCEDURES[procedure])}')
     for item in scenarios:
         _keys(item, {'id', 'result', 'evidence_refs'}, f'{where}.scenarios[{item["id"]}]')
-        require(item['result'] == 'passed' and isinstance(item['evidence_refs'], list) and item['evidence_refs'],
+        refs = item['evidence_refs']
+        require(item['result'] == 'passed' and isinstance(refs, list) and refs,
                 f'{where}: scenario {item["id"]} needs a passing result with evidence references')
+        require(all(isinstance(ref, str) and EVIDENCE_REF.fullmatch(ref) for ref in refs)
+                and len(set(refs)) == len(refs),
+                f'{where}: scenario {item["id"]} evidence references must be distinct session, claim, '
+                'receipt, intent, run, gate or usage IDs')
     _keys(record['cost'], {'complete', 'usd'}, f'{where}.cost')
     if procedure == 'live_provider':
         require(record['cost']['complete'] is True and isinstance(record['cost']['usd'], (int, float)),
@@ -381,6 +389,7 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
     _keys(live, set(PROCEDURES), 'matrix.live_acceptance')
     procedures = {name: set() for name in PROCEDURES}
     valid = {}
+    cited = {}
     for name in PROCEDURES:
         entry = live[name]
         _keys(entry, {'status', 'records'}, f'live_acceptance.{name}')
@@ -392,7 +401,13 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
             record = validate_record(records[path], name, inventory=inventory,
                                      closure_digest=closure_digest, engine_version=engine_version)
             valid[path] = record
-            procedures[name].update(record['skills'])
+            procedures[name].add(record['skill'])
+            for item in record['scenarios']:
+                for ref in item['evidence_refs']:
+                    owner = cited.setdefault(ref, record['skill'])
+                    require(owner == record['skill'],
+                            f'live_acceptance.{name}: evidence {ref} is cited for both {owner} and '
+                            f'{record["skill"]}; each row needs its own observations')
     combinations = matrix['verified_combinations']
     require(isinstance(combinations, list), 'matrix.verified_combinations: must be a list')
     native_rows = set()
@@ -405,7 +420,7 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
         require((combination['host'], combination['provider'], combination['engine_version'])
                 == (record['host']['name'], record['provider']['name'], record['engine']['version']),
                 f'{where}: differs from its record')
-        native_rows.update(record['skills'])
+        native_rows.add(record['skill'])
     return {'procedures': procedures, 'combinations': len(combinations), 'native_rows': native_rows}
 
 
