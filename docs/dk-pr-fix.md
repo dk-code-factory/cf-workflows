@@ -83,8 +83,8 @@ Adaptations to the example:
   [publication entries](publication-skills.md) `workflows/publish.yml`,
   `workflows/review-post.yml` and their `SKILL.md` files. A `validation_commands`
   input carries `dk-pr-feedback-address`'s `additional_validation_commands` to the
-  address session, and an `entry` input names a publication entry whose preset
-  `prepare` enforces. `accounts` are `{host, id}`
+  address session, and an `entry` input names a publication or drafting entry
+  whose preset `prepare` enforces. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
 - A tasks stage that holds the `reconcile-decisions` occurrence is followed by
@@ -93,6 +93,14 @@ Adaptations to the example:
   Decisions section under `edit_pr`. See [decisions](decisions.md#installed-workflow).
   `reconciliation.yml`, `prfix/decisions.py`, the preset `workflows/decisions.yml`
   and `skills/dk-pr-decisions/SKILL.md` are `authored`.
+- `describe-pr` and `draft-issue` occurrences, and `draft-commit-message` under its
+  own entry, run the drafting procedure: their claim carries the evidence, the
+  accepted report returns a checked draft and proposes no operations, and the
+  publication stage lists the draft's one exact `edit_pr`, `create_issue` or
+  `edit_issue` intent under its enabled and authorized permission. See
+  [drafting](drafting.md#installed-workflow). `prfix/drafting.py`, the presets
+  `workflows/description.yml`, `commit-message.yml` and `issue.yml` and their
+  `SKILL.md` files are `authored`.
 
 ## Configuration split
 

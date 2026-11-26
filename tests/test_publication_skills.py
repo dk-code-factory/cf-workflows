@@ -268,16 +268,20 @@ class Publish(Helpers):
         ledger = self.ledger(plan)
         self.execute(plan, ledger, "prepare-publication", AGENTS[0], self.report(operations=self.operations()[:1]))
         direct = self.publish(plan, ledger, self.ordinary(plan, ledger)[0])
-        # The composed run of the same logical run: describe-pr proposes the same edit.
+        # The composed run of the same logical run: describe-pr drafts the same title (drafting.py).
+        settings = {"drafting": {"dk-pr-description": {"update_body": False}}}
         _, composed = self.plan(["describe-pr", {"stage": "publication"}], [], {"edit_pr": grant("edit_pr")},
-                                {"edit_pr": True}, "fix", "pr_fixture", instructions="Fix and describe this PR.")
+                                {"edit_pr": True}, "fix", "pr_fixture", settings,
+                                instructions="Fix and describe this PR.")
         ledger = self.ledger(composed)
-        self.execute(composed, ledger, "describe-pr", AGENTS[2], self.report(operations=self.operations()[:1]))
-        [item] = self.ordinary(composed, ledger)
-        receipt = self.publish(composed, ledger, item)
-        self.assertEqual(self.writes(), 1, "the exact existing effect settles the composed intent without a write")
-        self.assertEqual(set(receipt["receipt"]), set(direct["receipt"]))
-        self.assertEqual(receipt["receipt"]["result"], direct["receipt"]["result"])
+        drafted = {"title": "Clearer title", "body": None, "template": None, "omitted": [],
+                   "claims": [{"text": "The value changes.", "sources": ["diff"]}], "questions": [],
+                   "summary": "Drafted from the diff."}
+        self.execute(composed, ledger, "describe-pr", AGENTS[2], self.report(deliverables={"draft": drafted}))
+        # The title already holds the draft, so the shared journal lists nothing and nothing is written.
+        self.assertEqual(self.ordinary(composed, ledger), [])
+        self.assertEqual(self.writes(), 1)
+        self.assertEqual(self.github.evidence["metadata"]["title"], direct["receipt"]["result"]["title"])
 
 
 class ReviewPost(Helpers):

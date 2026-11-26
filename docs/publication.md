@@ -31,12 +31,13 @@ Preflight enables a permission input only when the action is enabled by
 accepted configuration and explicitly authorized. An authorization without the
 enabled permission rejects instead of being dropped. The installed workflow keeps
 `rewrite_commits` false. Only [dk-commit-split](splitting.md#publication) enables
-it, for its own verified series, with a `push` grant and permission. These actions reject
-at preflight, and their kinds deny at preparation:
+it, for its own verified series, with a `push` grant and permission. These actions
+belong to one entry. The installed workflow declares their permission inputs, but
+preflight and `prepare` reject them in every other plan:
 
 | Action | Owner |
 | --- | --- |
-| `create_issue`, `edit_issue` | `cf-workflows:dk-issue` (#32); the installed workflow declares no issue input |
+| `create_issue`, `edit_issue` | `cf-workflows:dk-issue` (#32, `workflows/issue.yml`) |
 
 **Extension contract.** A new kind needs all of the following before it is
 supported: its contract action and permission input, an exact payload schema,

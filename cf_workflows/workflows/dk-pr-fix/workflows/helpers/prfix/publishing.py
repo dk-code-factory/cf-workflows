@@ -214,6 +214,9 @@ def publication_list(root, provider, ledger, plan, inputs):
                 seen[proposal["id"]] = digest(proposal)
                 selected.append(proposal)
     if selector != "merge":
+        # The exact intent of each current authorized draft (describe-pr, draft-issue; drafting.py).
+        from . import drafting
+        selected = drafting.compose(root, provider, ledger, plan, snapshot, selected)
         # The bounded Decisions section of the current reconciliation, under its own edit_pr authority.
         from . import decisions
         selected = decisions.compose(root, provider, ledger, plan, snapshot, selected)

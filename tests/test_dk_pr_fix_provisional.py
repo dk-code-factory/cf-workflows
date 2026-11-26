@@ -35,7 +35,10 @@ READER = {"kind": "inspection", "definition": "leaf", "writes": False,
 HEADED = {**READER, "head_sensitive": True}
 RULED = {**READER, "resources": ["rules"]}
 WRITER = {"kind": "fix", "definition": "leaf", "writes": True, "assignment": "Fix the code."}
-TASKS = ["inspect", "headed", "ruled", "describe-pr"]
+# A plain title proposer: describe-pr itself runs the drafting procedure (drafting.py, #32).
+RETITLE = {"kind": "description", "definition": "leaf", "writes": False,
+           "assignment": "Propose the exact clearer title for this PR."}
+TASKS = ["inspect", "headed", "ruled", "retitle"]
 WAIT = "identity-reconciliation:"
 
 
@@ -136,7 +139,7 @@ class Provisional(unittest.TestCase):
     def prepare(self, tasks=TASKS, execution="exec-1", authorizations=None, permissions=None):
         controls = {"tasks": list(tasks), "finalizers": [], "settings": {}, "resources": ["rules"], "turns": 8,
                     "adapters": {**DEFAULT_ADAPTERS, "inspect": READER, "headed": HEADED, "ruled": RULED,
-                                 "write": WRITER},
+                                 "write": WRITER, "retitle": RETITLE},
                     "permissions": permissions or {"edit_pr": True, "push_commits": True}}
         request = {"pr": PR_URL, "instructions": "Fix the selected issue.",
                    "authorizations": {"edit_pr": AUTH, "push": PUSH} if authorizations is None else authorizations}
@@ -167,7 +170,7 @@ class Provisional(unittest.TestCase):
             claimed = app.prepare_claim(self.root, self.transport, ledger, plan, {"task": task["id"]})
             if claimed["invoke"]:
                 self.native += 1
-                operations = [self.proposal(head)] if task["skill"] == "describe-pr" else []
+                operations = [self.proposal(head)] if task["skill"] == "retitle" else []
                 app.accept(self.root, self.transport, ledger, plan, {
                     "claim": claimed["claim"], "agent": AGENTS[0], "round": 0,
                     "report": self.report(head, operations=operations)})

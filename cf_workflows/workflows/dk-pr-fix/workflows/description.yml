@@ -1,0 +1,94 @@
+# Authored for cf-workflows (#32); no upstream counterpart. See docs/drafting.md.
+# PR descriptions: a preset over the shared workflow. One describe-pr occurrence
+# drafts the title and body in a read-only session; the helpers check the draft and
+# publish it only through the shared publication stage under edit_pr.
+name: cf-workflows:dk-pr-description
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - describe-pr
+        - stage: publication
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          describe-pr:
+            kind: description
+            writes: false
+            definition: leaf
+            assignment: "Prepare a repository-native PR title and description from the actual final diff and accepted issue; propose exact authorized publication operations only."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          edit_pr: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        # settings.drafting.dk-pr-description: the entry options.
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.drafting.outputs.complete }}
+      ready:
+        value: ${{ jobs.drafting.outputs.ready }}
+      provisional:
+        value: ${{ jobs.drafting.outputs.provisional }}
+jobs:
+  drafting:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+      entry: dk-pr-description
+    secrets:
+      github_token: ${{ secrets.github_token }}

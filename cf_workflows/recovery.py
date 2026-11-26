@@ -160,7 +160,7 @@ ROWS = {
     'dk-ci-approve': ('run',),
     'dk-ci': ('run',),
     'dk-ci-flakes': (),
-    'dk-commit-message': ('drafting',),
+    'dk-commit-message': ('drafting', 'run'),
     'dk-issue': ('drafting', 'run'),
 }
 UNSETTLED_CLAIMS = ('claimed', 'incomplete')

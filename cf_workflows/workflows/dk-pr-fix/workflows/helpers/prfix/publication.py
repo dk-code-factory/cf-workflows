@@ -233,8 +233,8 @@ SUPPORTED = {
 EXTENSIONS = {}
 # Issue kinds (#32): repository writes of cf-workflows:dk-issue, each its own
 # contract action and permission. They bind the numeric repository, actor and
-# issue rather than a PR head. The installed PR workflow declares no input for
-# them, so its plans never authorize them.
+# issue rather than a PR head. The installed workflow declares their inputs, and
+# prepare enables them only for the cf-workflows:dk-issue entry.
 ISSUE_KINDS = {"create_issue": ("create_issue", "create_issue"), "edit_issue": ("edit_issue", "edit_issue")}
 ISSUE_FIELDS = ("title", "body", "labels", "assignees")
 # Run states after a fork approval took effect: the same attempt executes jobs.
@@ -244,7 +244,7 @@ REVIEW_KINDS = {"submit_review", "approve_pr"}
 KINDS = set(SUPPORTED)
 SCOPES = {**SUPPORTED, **ISSUE_KINDS}
 PERMISSIONS = {kind: setting for kind, (_, setting) in SCOPES.items()}
-PERMISSION_INPUTS = sorted({setting for _, setting in SUPPORTED.values()})
+PERMISSION_INPUTS = sorted({setting for _, setting in SCOPES.values()})
 STATES = ("prepared", "pending", "applied", "not_applied", "blocked")
 TERMINAL = {"not_applied", "blocked"}
 FRESH_ATTEMPTS = 3

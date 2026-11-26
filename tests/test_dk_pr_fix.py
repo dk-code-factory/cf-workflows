@@ -98,12 +98,14 @@ class InstalledClosure(unittest.TestCase):
         # (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
         # review-post.yml (docs/publication-skills.md), plain-english.yml and
         # asd-ste100.yml (docs/prose.md), decisions.yml (docs/decisions.md), reviewers-run.yml,
-        # code-simplify.yml and approvers.yml (docs/reviewer-skills.md).
+        # code-simplify.yml and approvers.yml (docs/reviewer-skills.md), and description.yml,
+        # commit-message.yml and issue.yml (docs/drafting.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
         self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
-                                   'code-simplify.yml', 'approvers.yml'])
+                                   'code-simplify.yml', 'approvers.yml', 'description.yml',
+                                   'commit-message.yml', 'issue.yml'])
         # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
         reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:
@@ -348,7 +350,8 @@ class Preflight(PreflightFixture):
             sys.path.remove(str(HELPERS))
         self.assertEqual(sorted(declared), PERMISSION_INPUTS)
         self.assertLessEqual(set(dk_pr_fix.PUBLICATION_ACTIONS), set(admission.ACTIONS))
-        self.assertEqual(set(dk_pr_fix.PUBLICATION_ACTIONS) | set(dk_pr_fix.UNAVAILABLE_ACTIONS), set(admission.ACTIONS))
+        self.assertEqual(set(dk_pr_fix.PUBLICATION_ACTIONS), set(admission.ACTIONS))
+        self.assertLessEqual(set(dk_pr_fix.OWNED_ACTIONS), set(dk_pr_fix.PUBLICATION_ACTIONS))
 
     def test_tampered_or_overlapping_installation_rejects_before_the_engine(self):
         copy_root = clean_install(self.base / 'install copy')

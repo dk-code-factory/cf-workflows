@@ -110,7 +110,7 @@ ENTRIES = {
                        'publication_recover', 'fork_ci'),
     },
 }
-OWNERS = {action: dk_pr_fix.UNAVAILABLE_ACTIONS[action] for action in dk_pr_fix.UNAVAILABLE_ACTIONS}
+OWNERS = {action: message for action, (_, message) in dk_pr_fix.OWNED_ACTIONS.items()}
 # The standalone-to-merge bridge: actions of another entry an entry may carry beside a
 # required action of its own, each with its own explicit grant and permission (#35).
 BRIDGES = {'dk-pr-publish': {'approve_fork_ci': 'merge'}}

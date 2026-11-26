@@ -234,6 +234,76 @@ def preflight(name, *, request, configuration, deployment, repository, transport
     return result
 
 
+# The installed entry workflows: presets over workflows/main.yml (docs/drafting.md#installed-workflow).
+ENTRY_WORKFLOWS = {'dk-pr-description': 'workflows/description.yml',
+                   'dk-commit-message': 'workflows/commit-message.yml', 'dk-issue': 'workflows/issue.yml'}
+
+
+def installed(name, *, request, configuration, deployment, repository, transport, invocation=None, options=None,
+              metadata=None, issue=None, roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of the installed entry workflow and return its declared inputs; writes nothing.
+
+    The installed preset runs main.yml with the same tasks, finalizers and
+    reviewers as preset(name) and only the entry's own permission inputs, which an
+    invocation may enable for the requested actions. Entry
+    options set by the invocation, and for dk-issue the requested labels and
+    assignees (metadata) and an issue number to update, are passed as
+    settings.drafting[name], which the installed helper validates again. The
+    installed workflow drafts for one pull request and runs no invocation prompts;
+    a repository target and prompts use preflight() and draft() instead.
+    """
+    entry = ENTRIES.get(name)
+    if entry is None:
+        return _rejected('entry', 'unknown drafting entry')
+    try:
+        entry_options = check_options(name, options)
+        require(isinstance(request, dict), 'request', 'must be an object')
+        require('repository' not in request, 'request.repository',
+                'the installed entry drafts for one pull request; a repository target runs only through the '
+                'library procedure')
+        authorizations = request.get('authorizations') or {}
+        require(isinstance(authorizations, dict) and set(authorizations) <= set(entry['actions']),
+                'request.authorizations', entry['skill'] + ' ' + WRITES[name])
+        invocation = {} if invocation is None else invocation
+        require(isinstance(invocation, dict) and set(invocation) <= {'permissions'}, 'invocation',
+                'the installed entry fixes its preset and runs no prompts yet; only permissions may be added')
+        permissions = invocation.get('permissions', {})
+        require(isinstance(permissions, dict), 'invocation.permissions', 'must be an object')
+        for action in sorted(permissions):
+            require(action in entry['actions'], 'invocation.permissions.' + str(action),
+                    'only the entry\'s own actions may be enabled')
+        require(name == 'dk-issue' or (metadata is None and issue is None), 'metadata',
+                'only dk-issue takes requested labels, assignees or an issue number')
+        if metadata is not None:
+            require(isinstance(metadata, dict) and set(metadata) <= {'labels', 'assignees'}, 'metadata',
+                    'only labels and assignees may be requested')
+            for key, value in metadata.items():
+                _names(value, 'metadata.' + key)
+        require(issue is None or (type(issue) is int and issue > 0), 'issue', 'must be an issue number')
+    except AdmissionError as error:
+        return {**_rejected(error.path, error.message), 'entry': {'name': name, 'skill': entry['skill']}}
+    result = dk_pr_fix.preflight(request=request, configuration=configuration,
+                                 invocation=copy.deepcopy(invocation) or None, deployment=deployment,
+                                 repository=repository, transport=transport, roots=roots,
+                                 home=home, install=install, defaults=preset(name), workflow=entry['skill'],
+                                 entry=ENTRY_WORKFLOWS[name])
+    result['entry'] = {'name': name, 'skill': entry['skill'], 'options': entry_options}
+    if result['preflight'] != 'admitted':
+        return result
+    chosen = {key: copy.deepcopy(value['value']) for key, value in entry_options.items()
+              if value['source'] == 'invocation'}
+    if metadata is not None:
+        chosen['metadata'] = copy.deepcopy(metadata)
+    if issue is not None:
+        chosen['issue'] = issue
+    if chosen:
+        result['inputs']['settings'] = {**result['inputs']['settings'], 'drafting': {name: chosen}}
+    result['inputs']['permissions'] = {action: result['inputs']['permissions'][action] for action in entry['actions']}
+    result['entry'].update(adapter=entry['adapter'], publication={
+        action: result['inputs']['permissions'][action] for action in entry['actions']})
+    return result
+
+
 def occurrence(name, admitted):
     """The entry's adapter occurrence in an admitted plan: its own preset or a composed shared plan."""
     tasks = [task for task in admitted['snapshot']['plan']['tasks'] if task['adapter'] == ENTRIES[name]['adapter']]

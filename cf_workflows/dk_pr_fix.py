@@ -37,7 +37,7 @@ ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_RO
 # The workflow's permission inputs; each defaults to false.
 PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
                      'resolve_threads', 'create_draft_prs', 'request_review', 'post_findings',
-                     'rerun_ci', 'approve_pr', 'approve_fork_ci', 'merge')
+                     'rerun_ci', 'approve_pr', 'approve_fork_ci', 'merge', 'create_issue', 'edit_issue')
 # Contract actions the exact-intent publication path supports, mapped to the
 # inputs they enable. History rewrites have no contract action yet, so
 # rewrite_commits stays false.
@@ -45,18 +45,20 @@ PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'r
                        'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
                        'request_review': 'request_review', 'post_findings': 'post_findings',
                        'rerun_ci': 'rerun_ci', 'approve_pr': 'approve_pr', 'approve_fork_ci': 'approve_fork_ci',
-                       'merge': 'merge'}
-# Actions this release denies, with the work that owns them.
-UNAVAILABLE_ACTIONS = {
-    # The shared publisher supports them for cf-workflows:dk-issue (#32); the installed
-    # workflow declares no issue input, so a dk-pr-fix plan cannot authorize them.
-    'create_issue': 'issue creation belongs to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
-    'edit_issue': 'issue edits belong to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
+                       'merge': 'merge', 'create_issue': 'create_issue', 'edit_issue': 'edit_issue'}
+# Actions that only one entry's preset may authorize, with that entry. The installed
+# workflow declares their inputs; prepare enables them only under that entry.
+OWNED_ACTIONS = {
+    'create_issue': ('cf-workflows:dk-issue', 'issue creation belongs to cf-workflows:dk-issue (#32)'),
+    'edit_issue': ('cf-workflows:dk-issue', 'issue edits belong to cf-workflows:dk-issue (#32)'),
 }
 
 
 # Bundled adapters whose procedure is an entry's helper side, never a plain workflow task.
-ENTRY_ONLY = ('discover-approvers', 'draft-commit-message', 'draft-issue', 'inspect-flakes')
+# draft-commit-message runs through the installed drafting procedure only under its own
+# entry, whose plan alone may start from a checkout with uncommitted changes.
+ENTRY_ONLY = {'discover-approvers': None, 'draft-commit-message': 'cf-workflows:dk-commit-message',
+              'inspect-flakes': None}
 # Incoming review publishes only its verified findings, a separately authorized
 # approval of a clean review and separately authorized fork workflow approvals
 # (#35); merge keeps its own grant and readiness.
@@ -169,7 +171,7 @@ def _adapter(record):
                                          'history', 'head_sensitive', 'cacheable')}
 
 
-def _constraints(result, mode):
+def _constraints(result, mode, workflow):
     """(path, message) when an admitted proposal cannot run in the installed workflow, else None.
 
     It applies to the structural result before any semantic session and again
@@ -188,7 +190,8 @@ def _constraints(result, mode):
         # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
         return 'options.tasks', ('alternatives adapters run only through their staged procedure; '
                                  'the installed workflow does not run alternatives stages yet')
-    entry_only = [task['adapter'] for task in snapshot['plan']['tasks'] if task['adapter'] in ENTRY_ONLY]
+    entry_only = [task['adapter'] for task in snapshot['plan']['tasks']
+                  if task['adapter'] in ENTRY_ONLY and ENTRY_ONLY[task['adapter']] != workflow]
     if entry_only:
         # Its result is meaningful only with the entry's evidence collection and checks
         # (cf_workflows.approvers, cf_workflows.drafting, cf_workflows.ci_flakes).
@@ -221,8 +224,8 @@ def _constraints(result, mode):
         if rejected:
             return rejected
     for action in sorted(snapshot['request']['authorizations']):
-        if action in UNAVAILABLE_ACTIONS:
-            return 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action]
+        if action in OWNED_ACTIONS and OWNED_ACTIONS[action][0] != workflow:
+            return 'request.authorizations.' + action, OWNED_ACTIONS[action][1]
         if mode != 'review' and action == 'approve_pr':
             return ('request.authorizations.' + action,
                     'approval belongs to incoming review (dk-pr-review, dk-pr-review-post); '
@@ -294,13 +297,13 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
                             deployment=deployment, roles=role_catalog(install),
                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport,
                             defaults=defaults,
-                            check=lambda admitted: _constraints(admitted, mode) if custom else (
+                            check=lambda admitted: _constraints(admitted, mode, workflow) if custom else (
                                 'custom', 'custom configuration inputs are not supported by the installed ' + workflow
                                 + ' entry; run them through cf-workflows:dk-pr-fix or cf-workflows:dk-pr-review'))
     if result['preflight'] != 'admitted':
         # Rejected, blocked, or waiting on a durable clarification gate: nothing is mapped or staged.
         return result
-    rejected = _constraints(result, mode)
+    rejected = _constraints(result, mode, workflow)
     if rejected:
         return _reject(result, *rejected)
     snapshot = result['snapshot']

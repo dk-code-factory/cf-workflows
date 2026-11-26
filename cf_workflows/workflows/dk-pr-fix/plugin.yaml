@@ -46,6 +46,15 @@ skills:
   - name: dk-pr-approvers
     path: skills/dk-pr-approvers/SKILL.md
     workflow: workflows/approvers.yml
+  - name: dk-pr-description
+    path: skills/dk-pr-description/SKILL.md
+    workflow: workflows/description.yml
+  - name: dk-commit-message
+    path: skills/dk-commit-message/SKILL.md
+    workflow: workflows/commit-message.yml
+  - name: dk-issue
+    path: skills/dk-issue/SKILL.md
+    workflow: workflows/issue.yml
 resources:
   - LICENSE
   - agents.yml

@@ -256,7 +256,9 @@ class Preset(Fixture):
         self.assertIn('describe-pr', admission.BASELINE_ADAPTERS)
         for adapter in ('draft-commit-message', 'draft-issue'):
             self.assertFalse(admission.ENTRY_ADAPTERS[adapter]['writes'])
-            self.assertIn(adapter, dk_pr_fix.ENTRY_ONLY)
+        # draft-issue runs as a composed occurrence; draft-commit-message only under its own entry.
+        self.assertNotIn('draft-issue', dk_pr_fix.ENTRY_ONLY)
+        self.assertEqual(dk_pr_fix.ENTRY_ONLY['draft-commit-message'], 'cf-workflows:dk-commit-message')
 
     def test_default_runs_need_no_validator_and_load_no_skill(self):
         for name, target in (('dk-pr-description', {'pr': PR}), ('dk-commit-message', {'repository': REPOSITORY}),
@@ -307,13 +309,18 @@ class Preset(Fixture):
         self.assertEqual(drafting.publication_plan('dk-issue', admitted)['options'],
                          {'permissions': {'create_issue': True, 'edit_issue': False}})
 
-    def test_installed_dk_pr_fix_never_runs_drafting_adapters_or_issue_writes(self):
-        for tasks in (['draft-issue'], ['draft-commit-message']):
+    def test_installed_dk_pr_fix_runs_draft_issue_but_never_commit_messages_or_issue_writes(self):
+        # draft-issue runs through the installed drafting procedure (tests/test_dk_pr_fix_drafting.py);
+        # draft-commit-message runs only under its own entry.
+        for tasks, admitted in ((['draft-issue'], True), (['draft-commit-message'], False)):
             result = dk_pr_fix.preflight(request={'pr': PR, 'instructions': 'Fix.'},
                                          configuration=self.configuration(), transport=self.transport(),
                                          invocation={'options': {'tasks': tasks, 'finalizers': []}},
                                          deployment=self.deployment, repository=self.repo, home=self.base / 'home')
-            self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'options.tasks'))
+            if admitted:
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+            else:
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'options.tasks'))
         result = dk_pr_fix.preflight(
             request={'pr': PR, 'instructions': 'Fix.', 'authorizations': {'create_issue': GRANTS['create_issue']}},
             configuration=self.configuration('create_issue'), transport=self.transport(), invocation=None,

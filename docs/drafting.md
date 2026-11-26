@@ -3,8 +3,10 @@
 `cf-workflows:dk-pr-description`, `cf-workflows:dk-commit-message` and
 `cf-workflows:dk-issue` (#32) are thin entries over the shared workflow.
 [`cf_workflows/drafting.py`](../cf_workflows/drafting.py) holds their presets
-and adapter procedure. Like the other library operations, it is not wired into
-an installed workflow yet (see [What remains](#what-remains)).
+and adapter procedure. The installed dk-pr-fix workflow runs the same procedure
+for a pull request, and the plugin descriptor lists the three entries (see
+[Installed workflow](#installed-workflow)). Nothing has run through a released
+engine (see [What remains](#what-remains)).
 
 ## Entries
 
@@ -36,9 +38,10 @@ finalizers, reviewers, permissions, unknown options, other authorizations and a
 repository target for a description reject before the engine is contacted. An
 accepted authorization also needs the configured permission.
 
-The installed dk-pr-fix rejects `draft-commit-message` and `draft-issue` tasks,
-because its graph would run them as generic tasks without these checks. It also
-rejects issue authorizations, because it declares no issue input.
+The installed dk-pr-fix runs `describe-pr` and `draft-issue` occurrences
+through the [installed drafting procedure](#installed-workflow). It runs
+`draft-commit-message` only under the `dk-commit-message` entry, and it rejects
+issue authorizations in every plan except the `dk-issue` entry.
 
 ## Evidence
 
@@ -146,6 +149,66 @@ dk-pr-fix plan already selects `describe-pr`. A composed caller may pass the
 entry options, checked against the same schema. A plan without the adapter
 rejects.
 
+## Installed workflow
+
+The plugin descriptor lists the three entries. Each is a preset over
+`workflows/main.yml` that passes its name as the `entry` input:
+
+| Entry | Workflow | Tasks | Permission inputs |
+| --- | --- | --- | --- |
+| `dk-pr-description` | `workflows/description.yml` | `describe-pr`, then `{stage: publication}` | `edit_pr` |
+| `dk-commit-message` | `workflows/commit-message.yml` | `draft-commit-message` | none |
+| `dk-issue` | `workflows/issue.yml` | `draft-issue`, then `{stage: publication}` | `create_issue`, `edit_issue` |
+
+`drafting.installed(name, ...)` admits a direct run through the shared dk-pr-fix
+preflight with the preset at invocation precedence. It returns the entry
+workflow's inputs with only the entry's own permission inputs. An invocation may
+enable only those permissions. Entry options set by the invocation, and for
+dk-issue the requested labels and assignees (`metadata`) and an issue number to
+update (`issue`), are passed as `settings.drafting.<entry>`. A repository
+target, invocation prompts and other authorizations reject before the engine is
+contacted. `prepare` rejects a different stage shape, task or mode under an
+`entry`, issue permissions or authorizations outside `dk-issue`, and
+`draft-commit-message` outside `dk-commit-message`. Only the `dk-commit-message`
+plan may start from a checkout with uncommitted changes, because those changes
+are what it describes.
+
+The helper side is
+[`prfix/drafting.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/drafting.py).
+A drafting occurrence is an ordinary task occurrence (`task.yml`, `native.yml`):
+one engine-managed session with the admitted `leaf` role and no skills.
+
+- **Claim.** The assignment gets `drafting`: the evidence that
+  [`collect`](#evidence) gathers for a PR target, the role prompt, the options,
+  the quoted wording and the result contract. For a description the diff runs
+  from the PR base to the checkout head, so unpublished controlled commits are
+  described. The guidance is every `AGENTS.md` the capture binds. A missing
+  requested label or assignee, a configured template that does not exist or an
+  empty change set fails the claim before any session.
+- **Accept.** The report returns its draft in `deliverables.draft` and proposes
+  no operations. `check` applies the library's result checks to it. A failure is
+  a same-session report-contract correction, within the shared correction
+  rounds. The result checks are a verbatim copy of the library's, and a test
+  keeps the two identical.
+- **Reuse.** The claim's coverage binds the diff, the PR title and body without
+  this run's own effects, the instructions, `AGENTS.md` and the settings. An
+  unchanged occurrence reuses the accepted draft without a session, also after
+  its own publication. A changed title or body, such as an author's edit, drafts
+  again from the new text.
+- **Publish.** The publication stage's listing (`publication_list`) adds the
+  intent of each current accepted draft under an enabled and explicitly
+  authorized permission: `edit_pr` with only the enabled fields that differ,
+  `create_issue` with the verified labels and assignees, or `edit_issue`. A field
+  changed since the draft lists nothing. The intent ID binds the logical run and
+  the accepted report, so a retained intent is only reconciled. The intents use
+  the shared journal, audience and receipts. A `dk-pr-decisions` section is then
+  composed into a description body edit, so one intent writes the body.
+  dk-commit-message lists nothing.
+
+In a composed dk-pr-fix plan, `describe-pr` now returns a checked draft instead of
+its own `edit_pr` operations, and `draft-issue` drafts privately because
+dk-pr-fix accepts no issue authorization.
+
 ## Verification
 
 [`tests/test_drafting.py`](../tests/test_drafting.py) uses disposable
@@ -181,17 +244,35 @@ writes. It covers:
   journal for a composed PR run. At unit level it covers issue payloads,
   permissions, repository plans and duplicate receipts.
 
+[`tests/test_dk_pr_fix_drafting.py`](../tests/test_dk_pr_fix_drafting.py) drives
+the installed helpers in-process, as `task.yml` and the publication stage call
+them, on a disposable repository with a fresh state namespace and the
+fail-closed fake GitHub of the publication-entry tests with issue, label and
+assignee routes. It counts sessions and writes. It covers the claim evidence,
+private drafts, reuse, unsupported claims and same-session corrections, a
+repository template and quoted wording, an authorized description edit with
+response loss before and after the effect, an author's edit after the draft, a
+disabled title, a composed run with the Decisions section in one intent, a
+commit message that changes no Git state, issue creation with verified metadata
+and a lost response, a missing requested label, an issue update, the entry
+presets and ownership rules, the installed preflight and the verbatim result
+checks. Nothing starts an engine, provider or host or runs the YAML graph.
+
 ## What remains
 
-- The procedure runs as an engine-managed native session only once Agent
-  Workflow [#129](https://github.com/dk-code-factory/agent-workflow/issues/129)
-  and [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land.
-  The installed workflow does not yet run these procedures or route their
-  intents through its publication stage. No local controller or launcher
-  stands in.
-- Plugin skill entries (`SKILL.md` and descriptor rows) wait for that installed
-  workflow ([packaging](packaging.md)). All three inventory rows stay
-  `not_implemented`.
+- **Released engine.** The installed entries need native agent tasks and
+  packaged execution (Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130)). Both are
+  on its `main` (checked with `agent-workflow validate` and `plugin check` built
+  from 8758775) but in no release, so the `engine-version: 0.2.2` pin has no
+  download and nothing has run. All three inventory rows stay `not_implemented`,
+  and `native_execution` stays `pending`. `plugin test` cannot run these entries
+  because its fixture runner rejects container jobs ([packaging](packaging.md)).
+- **Installed scope.** The installed entries draft for one pull request the
+  actor maintains. A repository target, invocation prompts, caller-verified
+  facts, linked issues and commit-policy text run only through the library
+  procedure.
 - dk-commit-message drafts only. The baseline's "commit only when requested"
   is [`splitting.commit`](splitting.md#commit-on-request) (#34). It commits a
   draft only while `current_report` shows the draft is still current.
