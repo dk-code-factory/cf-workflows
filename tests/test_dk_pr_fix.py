@@ -516,7 +516,7 @@ class SemanticPreflight(PreflightFixture):
             ({'request': {'repository': 'github.com/owner/repo', 'instructions': 'Fix it.'}}, 'request.pr'),
             ({'invocation': {**self.CUSTOM, 'prompts': [{'id': 'all', 'slot': 'behavior_replacement',
                                                           'text': 'Do something else.'}]}}, 'prompts'),
-            ({'invocation': {**self.CUSTOM, 'options': {**self.CUSTOM['options'], 'tasks': ['draft-issue']}}},
+            ({'invocation': {**self.CUSTOM, 'options': {**self.CUSTOM['options'], 'tasks': ['draft-commit-message']}}},
              'options.tasks'),
         ]
         for changes, path in cases:
