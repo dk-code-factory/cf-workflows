@@ -82,9 +82,9 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-review-alternatives` | boundary | pending | #27 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-plain-english` | shared_workflow | pending | #33 | listed | 5 / 4 / 4 |
 | `cf-workflows:dk-asd-ste100` | shared_workflow | pending | #33 | listed | 4 / 2 / 3 |
-| `cf-workflows:dk-code-simplify` | shared_workflow | pending | #29 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-reviewers-run` | shared_workflow | pending | #29 | not listed | 3 / 2 / 2 |
-| `cf-workflows:dk-pr-approvers` | boundary | pending | #29 | not listed | 3 / 1 / 2 |
+| `cf-workflows:dk-code-simplify` | shared_workflow | pending | #29 | listed | 3 / 2 / 3 |
+| `cf-workflows:dk-pr-reviewers-run` | shared_workflow | pending | #29 | listed | 4 / 3 / 3 |
+| `cf-workflows:dk-pr-approvers` | boundary | pending | #29 | listed | 6 / 2 / 5 |
 | `cf-workflows:dk-pr-feedback-read` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-feedback-address` | shared_workflow | pending | #30 | listed | 3 / 1 / 2 |
 | `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |

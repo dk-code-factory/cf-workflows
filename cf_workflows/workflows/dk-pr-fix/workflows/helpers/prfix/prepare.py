@@ -142,6 +142,11 @@ ENTRY_ACTIONS = {
 ENTRY_PRESETS = {"changes": ("fix", ["tasks", "publication"], ["prepare-publication"]),
                  "merge": ("review", ["tasks", "reviews"], ["read-feedback"]),
                  "review-post": ("review", ["tasks", "reviews"], ["read-feedback"])}
+# Read-only reviewer entries (#29; docs/reviewer-skills.md): one reviewer stage in review
+# mode, no finalizers, no authorization and no enabled permission. dk-code-simplify runs
+# exactly one bundled simplification reviewer (app.SIMPLIFIERS). The plan and its
+# occurrence identities are incoming review's, so the shape is checked, never changed.
+REVIEW_ENTRIES = ("dk-pr-reviewers-run", "dk-code-simplify")
 # Actions that other entries own; no publication entry dispatches them.
 ENTRY_OWNERS = {
     "approve_fork_ci": "fork workflow approval belongs to cf-workflows:dk-ci-approve",
@@ -314,7 +319,13 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         raise ValueError("unsupported plan mode")
     entry = controls.get("entry", "")
     preset = None
-    if entry:
+    if entry in REVIEW_ENTRIES:
+        if mode != "review":
+            raise ValueError("cf-workflows:" + entry + " runs in review mode only")
+        if request.get("authorizations") or request.get("maintain_other"):
+            raise ValueError("cf-workflows:" + entry + " is read-only review; it has no publication, approval "
+                             "or merge authority")
+    elif entry:
         # A direct publication entry runs exactly its preset (publish.yml, review-post.yml).
         preset = entry_preset(entry, request.get("authorizations", {}))
         if ENTRY_PRESETS[preset][0] != mode:
@@ -488,6 +499,15 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         raise ValueError("a plan reconciles decisions in exactly one occurrence")
     if mode == "review" and not any(stage["kind"] == "reviews" for stage in stages):
         raise ValueError("incoming review requires a selected reviewer stage")
+    if entry in REVIEW_ENTRIES:
+        reviewed = [task for task in tasks if task["kind"] == "review"]
+        if ([(stage["kind"], stage["phase"]) for stage in stages] != [("reviews", "tasks")]
+                or len(reviewed) != len(tasks) or any(permissions.values())):
+            raise ValueError("cf-workflows:" + entry + " runs exactly one reviewer stage with no other task, "
+                             "finalizer or permission")
+        from .app import SIMPLIFIERS
+        if entry == "dk-code-simplify" and (len(reviewed) != 1 or reviewed[0]["skill"] not in SIMPLIFIERS):
+            raise ValueError("cf-workflows:dk-code-simplify runs exactly one bundled simplification reviewer")
     if preset:
         _, kinds, leading = ENTRY_PRESETS[preset]
         first = [item["id"] for group in stages[0].get("groups", []) for item in group["tasks"]] if stages else []

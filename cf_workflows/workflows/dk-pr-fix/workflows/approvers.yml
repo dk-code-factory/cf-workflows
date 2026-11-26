@@ -1,0 +1,141 @@
+# Authored for cf-workflows (#29); no upstream counterpart. See docs/reviewer-skills.md.
+# dk-pr-approvers: review recipients for one PR head, never a request. A retained helper
+# returns the exact override with no read or session, or collects read-only evidence; one
+# engine-managed session on the admitted leaf role (no skills) chooses among the eligible
+# candidates; a second helper accepts only evidenced eligible choices, requires an unchanged
+# checkout and reads the head again. Nothing here requests a review, approves or merges.
+name: cf-workflows:dk-pr-approvers
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      head:
+        # The exact published head SHA the recipients are for.
+        type: string
+        required: true
+      override:
+        # {} discovers; {reviewers, team_reviewers} is the exact override (two empty lists disable requests).
+        type: object
+        default: {}
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.check.outputs.result.complete }}
+      selection:
+        value: ${{ jobs.check.outputs.result }}
+schemas:
+  approver-selection:
+    type: object
+    required:
+    - reviewers
+    - team_reviewers
+    - summary
+    properties:
+      reviewers:
+        type: array
+        items:
+          type: object
+          required:
+          - login
+          - reason
+          - sources
+          properties:
+            login:
+              type: string
+            reason:
+              type: string
+            sources:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+      team_reviewers:
+        type: array
+        items:
+          type: object
+          required:
+          - slug
+          - reason
+          - sources
+          properties:
+            slug:
+              type: string
+            reason:
+              type: string
+            sources:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+      summary:
+        type: string
+    additionalProperties: false
+jobs:
+  request:
+    uses: workflows/helper.yml
+    with:
+      operation: snapshot_request
+      payload:
+        request: ${{ inputs.request }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  collect:
+    uses: workflows/helper.yml
+    with:
+      operation: approvers_collect
+      payload:
+        snapshot: ${{ needs.request.outputs.result.snapshot }}
+        head: ${{ inputs.head }}
+        override: ${{ inputs.override }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - request
+  select:
+    needs: collect
+    if: ${{ needs.collect.outputs.result.session }}
+    steps:
+    - id: task
+      uses: agent/run
+      with:
+        agent:
+          select: leaf
+          definitions:
+            leaf: agents/leaf.yaml
+        turns: ${{ inputs.turns }}
+        prompt: ${{ needs.collect.outputs.result.prompt }}
+        input: ${{ needs.collect.outputs.result.task_input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: approver-selection
+      continue-on-error: true
+    outputs:
+      agent: ${{ steps.task.outputs.agent }}
+      selection: ${{ steps.task.outputs.structured }}
+      status: ${{ steps.task.status }}
+  check:
+    needs:
+    - collect
+    - select
+    if: ${{ needs.collect.status == 'succeeded' and needs.select.status != 'needs_attention' and needs.select.status
+      != 'canceled' }}
+    uses: workflows/helper.yml
+    with:
+      operation: approvers_check
+      payload:
+        collected: ${{ needs.collect.outputs.result }}
+        session:
+          status: ${{ needs.select.outputs.status }}
+          agent: ${{ needs.select.outputs.agent }}
+          output: ${{ needs.select.outputs.selection }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

@@ -392,6 +392,34 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/validator/configuration-validator.yaml",
       "reason": "Canonical YAML conversion of the bundled cf_workflows/bootstrap/configuration-validator.toml (#12); no upstream counterpart (docs/semantic.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/approvers.py",
+      "reason": "Installed approver evidence collection and selection checks (#29), so helper containers run dk-pr-approvers; no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/reviewers-run.yml",
+      "reason": "dk-pr-reviewers-run preset over main.yml in review mode (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/code-simplify.yml",
+      "reason": "dk-code-simplify preset over main.yml in review mode (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/approvers.yml",
+      "reason": "dk-pr-approvers workflow: helper evidence, one native selection session and helper checks (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-reviewers-run/SKILL.md",
+      "reason": "Reviewer coordination skill entry point (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-code-simplify/SKILL.md",
+      "reason": "Simplification review skill entry point (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-approvers/SKILL.md",
+      "reason": "Approver discovery skill entry point (#29); no upstream counterpart (docs/reviewer-skills.md)."
     }
   ],
   "corrections": [

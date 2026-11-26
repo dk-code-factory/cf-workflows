@@ -97,11 +97,13 @@ class InstalledClosure(unittest.TestCase):
         # Every descriptor skill row names an entry: main.yml (dk-pr-fix), review.yml
         # (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
         # review-post.yml (docs/publication-skills.md), plain-english.yml and
-        # asd-ste100.yml (docs/prose.md) and decisions.yml (docs/decisions.md).
+        # asd-ste100.yml (docs/prose.md), decisions.yml (docs/decisions.md), reviewers-run.yml,
+        # code-simplify.yml and approvers.yml (docs/reviewer-skills.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
         self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
-                                   'plain-english.yml', 'asd-ste100.yml', 'decisions.yml'])
+                                   'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
+                                   'code-simplify.yml', 'approvers.yml'])
         # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
         reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:

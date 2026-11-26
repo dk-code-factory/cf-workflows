@@ -13,13 +13,21 @@ every choice against that evidence. The head is read again afterwards.
 The result never requests a review, approves or merges. `request_payload()`
 turns a complete selection into the exact `request_review` intent payload a
 separately authorized publisher may use; an empty selection yields none.
+
+`installed_preflight()` admits the same entry for the installed workflow
+(workflows/approvers.yml). There the helpers (helpers/prfix/approvers.py, whose
+evidence and selection checks are a verbatim copy of the ones below) collect the
+evidence and check the choice, and the engine runs the selection session as an
+`agent/run` step.
 """
 import copy
 import fnmatch
+import hashlib
+from pathlib import Path
 import re
 import subprocess
 
-from . import admission, configuration, entries, semantic
+from . import admission, configuration, dk_pr_fix, entries, semantic
 from .admission import AdmissionError, digest, fields, require, text
 
 NAME = 'dk-pr-approvers'
@@ -344,3 +352,50 @@ def request_payload(selection, *, pr, head):
         raise ValueError('only a complete selection for the same PR and head can be requested')
     payload = {key: list(selection[key]) for key in ('reviewers', 'team_reviewers') if selection[key]}
     return copy.deepcopy(payload) or None
+
+
+WORKFLOW = 'workflows/approvers.yml'
+
+
+def installed_preflight(*, request, head, deployment, repository, transport, override=None, invocation=None,
+                        roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of the installed approvers workflow and return its declared inputs; writes nothing.
+
+    The admission is select()'s. Custom prompts reject, since the installed
+    session does not consume semantically admitted text yet. `override` None
+    becomes the workflow's `{}` (discovery); an exact override, two empty lists
+    included, is passed unchanged and the workflow reads nothing for it.
+    """
+    try:
+        checked = check_override(override)
+        require(isinstance(head, str) and SHA.fullmatch(head), 'head', 'the exact published head SHA')
+        require(invocation is None or isinstance(invocation, dict) and not invocation.get('prompts'),
+                'invocation.prompts', 'the installed approver session takes no custom prompts yet')
+    except AdmissionError as error:
+        return {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None,
+                'error': {'path': error.path, 'message': error.message}}
+    admitted = entries.preflight(NAME, request=request, deployment=deployment, repository=repository,
+                                 transport=transport, invocation=invocation, roots=roots, install=install)
+    if admitted['preflight'] != 'admitted':
+        return admitted
+    snapshot = admitted['snapshot']
+    pr = snapshot['request']['pr']
+    if pr is None:
+        return {**admitted, 'preflight': 'rejected',
+                'error': {'path': 'request.pr', 'message': 'approvers need a pull request'}}
+    home = Path(home) if home is not None else dk_pr_fix.state_home()
+    namespace = dk_pr_fix.state_namespace(home, pr['repository'])
+    for other, name in ((repository, 'repository'), (install, 'installation')):
+        if not dk_pr_fix._disjoint(namespace, other):
+            return {**admitted, 'preflight': 'rejected',
+                    'error': {'path': 'state', 'message': 'state namespace must be disjoint from the ' + name}}
+    staged = {'pr': pr['url'], 'instructions': snapshot['request']['original_instructions'],
+              'logical_run': snapshot['request']['logical_run']}
+    reference = 'requests/' + hashlib.sha256(admission.canonical(staged)).hexdigest() + '.json'
+    return {**admitted, 'workflow': entries.ENTRIES[NAME]['skill'],
+            'installation': {'root': str(Path(install).resolve()), 'entry': WORKFLOW,
+                             'closure_digest': dk_pr_fix.verify_installation(install)},
+            'inputs': {'request': reference, 'head': head, 'override': {} if checked is None else checked,
+                       'turns': snapshot['options']['turns']['value']},
+            'state': {'namespace': str(namespace), 'mount': dk_pr_fix.STATE_MOUNT, 'request': reference,
+                      'request_document': staged}}

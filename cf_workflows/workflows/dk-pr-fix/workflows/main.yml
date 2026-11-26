@@ -159,8 +159,9 @@ name: cf-workflows:dk-pr-fix
         type: array
         default: []
       entry:
-        # A direct publication entry (workflows/publish.yml, review-post.yml) whose
-        # preset prepare enforces; empty for dk-pr-fix and dk-pr-review.
+        # A direct publication entry (workflows/publish.yml, review-post.yml) or reviewer
+        # entry (reviewers-run.yml, code-simplify.yml) whose preset prepare enforces; empty
+        # for dk-pr-fix and dk-pr-review.
         type: string
         default: ''
     secrets:

@@ -2,9 +2,11 @@
 
 cf-workflows:dk-pr-reviewers-run and cf-workflows:dk-code-simplify add no
 orchestration. Each is a preset over the installed workflow in review mode
-(workflows/review.yml calling main.yml): one reviewer stage, no finalizers, the
-admitted `reviewer` role for every selected reviewer and the separate
-`verifier` session the plan always adds. The entry's own options are the
+(workflows/reviewers-run.yml and workflows/code-simplify.yml, each calling
+main.yml with its fixed stage): one reviewer stage, no finalizers, the admitted
+`reviewer` role for every selected reviewer and the separate `verifier` session
+the plan always adds. The installed `prepare` helper rejects any other shape for
+either entry. The entry's own options are the
 baseline options, checked here with provenance and mapped onto that preset:
 
 - dk-pr-reviewers-run: `reviewers` (ordered selections with explicit parallel
@@ -29,14 +31,14 @@ from .admission import AdmissionError, require
 
 ENTRIES = {
     'dk-pr-reviewers-run': {
-        'skill': 'cf-workflows:dk-pr-reviewers-run',
+        'skill': 'cf-workflows:dk-pr-reviewers-run', 'entry': 'workflows/reviewers-run.yml',
         'role_prompt': 'Run selected PR reviewers on pinned inputs and reuse complete results when inputs are '
                        'unchanged.\n',
         'baseline_prompt': 'claude/skills/dk-pr-reviewers-run/prompts/default.md',
         'options': {'reviewers': [], 'execution': 'parallel', 'max_parallel': None},
     },
     'dk-code-simplify': {
-        'skill': 'cf-workflows:dk-code-simplify',
+        'skill': 'cf-workflows:dk-code-simplify', 'entry': 'workflows/code-simplify.yml',
         'role_prompt': 'Look for avoidable nesting, redundant conditions or data transformations, confusing names, '
                        'duplicated reasoning and abstractions that add more indirection than they remove. Explain the '
                        'concrete reading, debugging or maintenance burden reduced. Retain useful abstractions, explicit '
@@ -46,6 +48,10 @@ ENTRIES = {
         'options': {'priority': 'change-first', 'allow_untouched_code': False},
     },
 }
+# The installed workflow's own inputs; its stage, finalizers and reviewer list are fixed in its job.
+SHARED_INPUTS = ('request', 'adapters', 'limits', 'permissions', 'ci', 'merge_method', 'accounts', 'settings',
+                 'resources', 'turns')
+INPUTS = {'dk-pr-reviewers-run': SHARED_INPUTS + ('reviewers',), 'dk-code-simplify': SHARED_INPUTS + ('simplifier',)}
 # The helper operations each reviewer occurrence and the verifier run through (prfix.app).
 OPERATIONS = ('prepare', 'claim', 'accept', 'turn_result', 'coverage')
 # Selection keys with no supported meaning here. Per-occurrence provider options and native model
@@ -130,9 +136,10 @@ def preflight(name, *, request, configuration=None, invocation=None, deployment,
 
     invocation is the caller's invocation scope; it may not select tasks,
     finalizers or reviewers (the preset and the entry options do) or enable a
-    permission. Returns dk_pr_fix.preflight's result for the review entry plus
-    `entry`: the skill, its options with provenance, its role prompt and the
-    adapter procedure that runs.
+    permission. Returns dk_pr_fix.preflight's result for the entry's installed
+    workflow, whose `inputs` are that workflow's declared inputs, plus `entry`:
+    the skill, its options with provenance, its role prompt and the adapter
+    procedure that runs.
     """
     try:
         entry_options = check_options(name, options)
@@ -173,7 +180,7 @@ def preflight(name, *, request, configuration=None, invocation=None, deployment,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
                                  home=home, install=install, mode='review',
                                  defaults={'tasks': [{'stage': 'reviews'}], 'finalizers': [], 'reviewers': []},
-                                 workflow=ENTRIES[name]['skill'], entry=dk_pr_review.ENTRY, custom=False)
+                                 workflow=ENTRIES[name]['skill'], entry=ENTRIES[name]['entry'], custom=False)
     entry = {'name': name, 'skill': ENTRIES[name]['skill'], 'options': entry_options,
              'role_prompt': ENTRIES[name]['role_prompt']}
     result['entry'] = entry
@@ -184,6 +191,13 @@ def preflight(name, *, request, configuration=None, invocation=None, deployment,
     assert all(task['kind'] == 'review' for task in snapshot['plan']['tasks'])
     assert not any(value['effective'] for value in snapshot['permissions'].values())
     [stage] = snapshot['plan']['stages']
+    inputs = result['inputs']
+    if name == 'dk-code-simplify':
+        assert inputs['tasks'] == selected['tasks'] and inputs['finalizers'] == []
+        inputs['simplifier'] = selected['tasks'][0]['reviewers'][0]
+    else:
+        assert inputs['tasks'] == [{'stage': 'reviews'}] and inputs['finalizers'] == []
+    result['inputs'] = {key: inputs[key] for key in INPUTS[name]}
     entry.update({
         'reviewers': [[next(task['adapter'] for task in snapshot['plan']['tasks'] if task['id'] == key)
                        for key in group] for group in stage['groups']],

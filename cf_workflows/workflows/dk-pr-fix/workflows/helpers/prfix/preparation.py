@@ -92,6 +92,18 @@ def handle(operation, request, root, provider):
         from .prepare import prepare
         snapshot = validate_request(read_artifact(root, inputs["snapshot"]))
         output = prepare(root, snapshot, inputs["controls"], execution, provider)
+    elif operation == "approvers_collect":
+        # cf-workflows:dk-pr-approvers (approvers.yml): read-only evidence, no request or approval.
+        if set(inputs) != {"snapshot", "head", "override"}:
+            raise ValueError("approver collection requires snapshot, head and override")
+        from .approvers import collect_operation, evidence_provider
+        request = validate_request(read_artifact(root, inputs["snapshot"]))
+        output = collect_operation(root, evidence_provider(root, provider), request, inputs)
+    elif operation == "approvers_check":
+        if set(inputs) != {"collected", "session"}:
+            raise ValueError("approver check requires collected evidence and the session result")
+        from .approvers import check_operation, evidence_provider
+        output = check_operation(root, evidence_provider(root, provider), inputs)
     else:
         raise ValueError("unknown preparation operation")
     result = {"output": output, "evidence": {"preparation": ident, "input": fingerprint}}

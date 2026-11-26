@@ -4,7 +4,9 @@
 `cf-workflows:dk-pr-approvers` are thin entries over the shared workflow (#29).
 [`cf_workflows/reviewers.py`](../cf_workflows/reviewers.py) holds the two review
 entries and [`cf_workflows/approvers.py`](../cf_workflows/approvers.py) the
-approver procedure. None of them is runnable yet (see [What remains](#what-remains)).
+approver procedure. Each has its own [installed workflow](#installed-workflows)
+listed in the plugin descriptor. None of them is runnable yet (see
+[What remains](#what-remains)).
 
 Each entry is a preset selection plus its own adapter procedure. No entry adds
 orchestration or loads a skill, and none accepts an authorization. The role
@@ -21,7 +23,8 @@ digests match [the inventory](../baselines/inventory.json).
 
 `reviewers.preflight('dk-pr-reviewers-run', ...)` admits the preset through the
 shared `dk_pr_fix.preflight` in review mode and returns the inputs of
-`workflows/review.yml`. These rules apply:
+`workflows/reviewers-run.yml` ([installed workflows](#installed-workflows)).
+These rules apply:
 
 - **Selection.** `reviewers` keeps its order, explicit parallel groups, repeated
   occurrences and `required: false` selections exactly. Without an invocation
@@ -144,6 +147,49 @@ returns `None`, so nothing is requested. The payload grants nothing:
 current-head checks. The `discover-approvers` adapter is rejected in `dk-pr-fix`
 plans, because its result depends on this procedure.
 
+## Installed workflows
+
+[`plugin.yaml`](../cf_workflows/workflows/dk-pr-fix/plugin.yaml) binds each entry
+to its own workflow in the installed `dk-pr-fix` root, with a `SKILL.md` that
+states the plugin is not runnable. Preflight returns exactly the inputs each
+workflow declares.
+
+| Entry | Workflow | Declared inputs | Fixed in the workflow |
+| --- | --- | --- | --- |
+| `dk-pr-reviewers-run` | [`reviewers-run.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/reviewers-run.yml) | `request`, `reviewers` (required), `adapters`, `limits`, `permissions`, `ci`, `merge_method`, `accounts`, `settings`, `resources`, `turns` | `tasks: [{stage: reviews}]`, `finalizers: []`, `mode: review`, `entry: dk-pr-reviewers-run` |
+| `dk-code-simplify` | [`code-simplify.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/code-simplify.yml) | `request`, `simplifier` (default `simplify`), and the same shared inputs | one reviewer stage with `[simplifier]`, `finalizers: []`, `reviewers: []`, `mode: review`, `entry: dk-code-simplify` |
+| `dk-pr-approvers` | [`approvers.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/approvers.yml) | `request`, `head`, `override` (`{}` discovers), `turns` | the three jobs below |
+
+Both reviewer workflows call `main.yml`. Its installed `prepare` helper
+([`prepare.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prepare.py))
+repeats the preset: review mode, exactly one reviewer stage with only review
+tasks, no finalizer, no authorization and no enabled permission, and for
+`dk-code-simplify` exactly one bundled simplifier. Any other shape rejects
+before a session. The check never changes the plan, so occurrence identities,
+the review contract and coverage stay incoming review's.
+
+`approvers.yml` runs the approver procedure without a library controller:
+
+1. `approvers_collect`, a retained helper operation
+   ([`approvers.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/approvers.py)),
+   returns the exact override with no GitHub read and no session, an explicit
+   empty override included. Otherwise it collects the same evidence as
+   `approvers.select()` through read-only `gh api` routes and records it with
+   the checkout state. A staged authorization rejects.
+2. Only with an eligible candidate, one `agent/run` step on the admitted `leaf`
+   definition with no skills chooses recipients under a fixed output schema.
+3. `approvers_check` accepts only eligible candidates that cite their own
+   evidence, requires the checkout unchanged and reads the head again. A failed
+   session, a rejected choice, a changed checkout or a moved head returns
+   `complete: false` with blockers and no recipients.
+
+The evidence and selection checks in the installed helper are a verbatim copy of
+`cf_workflows/approvers.py`, and a test keeps them identical. The installed
+maintainer search reads recent commits for at most 20 changed paths; more paths,
+or a path that needs URL escaping, is an incomplete search and blocks.
+`approvers.installed_preflight()` admits the entry as `select()` does and also
+rejects custom prompts, which the installed session does not consume yet.
+
 ## Authority
 
 Neither simplification nor approver discovery can authorize publication,
@@ -179,22 +225,36 @@ cases.
   exclusions; out-of-evidence choices; the maintainer search; pagination;
   failed, unconfigured and changed-head reads; unsupported CODEOWNERS syntax;
   and rejected authorizations.
+- **Installed bindings.** The descriptor rows and `SKILL.md` files; each entry
+  workflow declares exactly the inputs its preflight returns and fixes its
+  preset over `main.yml`; the installed `prepare` helper keeps the plan of each
+  reviewer preset identical to incoming review's and rejects other stages,
+  finalizers, permissions, authorizations, modes and non-simplifier reviewers.
+- **Installed approvers.** Through the action-v1 entry point on the same
+  disposable repository and fake GitHub: the verbatim copy; overrides with zero
+  reads and no session; accepted, foreign and failed selections; a session that
+  writes the checkout and a moved head; an empty result without a session;
+  replay, checkpoint validation and reconciliation with no new read; a staged
+  authorization; the read-only `gh api` routes and the search bound; and
+  `installed_preflight()` inputs and rejections.
 
 ## What remains
 
-- These entries run through the installed workflow as engine-managed sessions
-  only once Agent Workflow
-  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land. The
-  approver session is a library procedure until then. No local controller or
-  launcher stands in for either, so the three inventory rows stay
-  `not_implemented`.
-- Reviewer skills supplied by the user need #16's runtime path, which waits for
-  Agent Workflow [#139](https://github.com/dk-code-factory/agent-workflow/issues/139).
-  Per-occurrence provider options and native model controls reject until the
-  engine offers them.
+- Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129),
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) and
+  [#139](https://github.com/dk-code-factory/agent-workflow/issues/139) are on
+  its `main`, and `agent-workflow plugin check` and `validate` built from that
+  source accept the three workflows. No release contains them (the newest tag is
+  `v0.2.1`), so none of the workflows has run as engine-managed sessions, the
+  `0.2.2` pin stays ([packaging](packaging.md#what-remains-blocked)) and the
+  three inventory rows stay `not_implemented`. No local controller or launcher
+  stands in for the engine.
+- Reviewer skills supplied by the user still reject: #16 has no runtime path for
+  them through these workflows yet. Per-occurrence provider options and native
+  model controls reject until the engine offers them (Agent Workflow
+  [#134](https://github.com/dk-code-factory/agent-workflow/issues/134)).
 - Requesting the selected reviewers through the publisher is
-  `cf-workflows:dk-pr-publish` (#31). Plugin skill rows wait for a runnable
-  installed workflow ([packaging](packaging.md)).
+  `cf-workflows:dk-pr-publish` (#31).
 - Real provider-session adherence and GitHub conformance need separate
   authorization; these fixtures do not establish them.

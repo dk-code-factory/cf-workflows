@@ -420,29 +420,34 @@
         29
       ],
       "behavior": [
-        "cf_workflows/reviewers.py"
+        "cf_workflows/reviewers.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/code-simplify.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prepare.py"
       ],
       "documentation": "docs/reviewer-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_reviewer_skills.ReviewerHelpers.test_simplification_recommends_without_review_coverage_or_authority",
-        "test_reviewer_skills.ReviewerPreflight.test_simplify_options_select_one_bounded_reviewer"
+        "test_reviewer_skills.ReviewerPreflight.test_simplify_options_select_one_bounded_reviewer",
+        "test_reviewer_skills.InstalledEntries.test_reviewer_entry_workflows_fix_the_preset_over_main"
       ],
       "composed": [
-        "test_reviewer_skills.ReviewerHelpers.test_direct_and_composed_runs_share_occurrences_and_coverage"
+        "test_reviewer_skills.ReviewerHelpers.test_direct_and_composed_runs_share_occurrences_and_coverage",
+        "test_reviewer_skills.InstalledReviewerShape.test_the_entry_preset_is_incoming_reviews_plan"
       ],
       "recovery": [
         "test_reviewer_skills.ReviewerHelpers.test_a_simplification_policy_change_refreshes_only_that_reviewer",
-        "test_reviewer_skills.ReviewerPreflight.test_unsupported_controls_and_authority_reject_before_the_engine"
+        "test_reviewer_skills.ReviewerPreflight.test_unsupported_controls_and_authority_reject_before_the_engine",
+        "test_reviewer_skills.InstalledReviewerShape.test_any_other_shape_rejects_before_any_session"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as code-simplify.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the one-simplifier shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them, so it runs as an engine-managed native session only after such a release; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-reviewers-run",
@@ -450,31 +455,36 @@
         29
       ],
       "behavior": [
-        "cf_workflows/reviewers.py"
+        "cf_workflows/reviewers.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/reviewers-run.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prepare.py"
       ],
       "documentation": "docs/reviewer-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_reviewer_skills.ReviewerHelpers.test_capacity_one_keeps_required_passes_and_original_sibling_reports",
         "test_reviewer_skills.ReviewerHelpers.test_repeated_occurrences_each_need_their_own_session",
-        "test_reviewer_skills.ReviewerPreflight.test_ordered_groups_repeats_and_optional_reviewers_are_preserved"
+        "test_reviewer_skills.ReviewerPreflight.test_ordered_groups_repeats_and_optional_reviewers_are_preserved",
+        "test_reviewer_skills.InstalledEntries.test_reviewer_entry_workflows_fix_the_preset_over_main"
       ],
       "composed": [
         "test_reviewer_skills.ReviewerHelpers.test_direct_and_composed_runs_share_occurrences_and_coverage",
-        "test_reviewer_skills.ReviewerPreflight.test_direct_and_composed_entries_admit_the_same_reviewer_inputs"
+        "test_reviewer_skills.ReviewerPreflight.test_direct_and_composed_entries_admit_the_same_reviewer_inputs",
+        "test_reviewer_skills.InstalledReviewerShape.test_the_entry_preset_is_incoming_reviews_plan"
       ],
       "recovery": [
         "test_reviewer_skills.ReviewerPreflight.test_unsupported_controls_and_authority_reject_before_the_engine",
-        "test_reviewer_skills.ReviewerPreflight.test_reviewers_need_an_explicit_selection"
+        "test_reviewer_skills.ReviewerPreflight.test_reviewers_need_an_explicit_selection",
+        "test_reviewer_skills.InstalledReviewerShape.test_any_other_shape_rejects_before_any_session"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Supplied reviewer skills need a released engine with Agent Workflow #139. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Supplied reviewer skills reject until #16 has a runtime path for them (Agent Workflow #139 is on its main, unreleased); per-occurrence provider options and native model controls reject until the engine offers them (Agent Workflow #134). Listed in the plugin descriptor as reviewers-run.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the reviewer-stage shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-approvers",
@@ -482,30 +492,39 @@
         29
       ],
       "behavior": [
-        "cf_workflows/approvers.py"
+        "cf_workflows/approvers.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/approvers.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/approvers.py"
       ],
       "documentation": "docs/reviewer-skills.md",
       "composition": "boundary",
       "direct": [
         "test_reviewer_skills.Approvers.test_discovery_selects_only_eligible_evidenced_recipients",
         "test_reviewer_skills.Approvers.test_an_exact_override_skips_discovery_including_an_empty_one",
-        "test_reviewer_skills.Approvers.test_codeowners_patterns_follow_github_matching"
+        "test_reviewer_skills.Approvers.test_codeowners_patterns_follow_github_matching",
+        "test_reviewer_skills.InstalledApprovers.test_discovery_accepts_only_evidenced_eligible_choices",
+        "test_reviewer_skills.InstalledApprovers.test_an_exact_override_reads_nothing_and_runs_no_session",
+        "test_reviewer_skills.InstalledApproverPreflight.test_preflight_returns_the_workflow_inputs"
       ],
       "composed": [
-        "test_reviewer_skills.ReviewerPreflight.test_approver_discovery_never_runs_as_a_plain_task"
+        "test_reviewer_skills.ReviewerPreflight.test_approver_discovery_never_runs_as_a_plain_task",
+        "test_reviewer_skills.InstalledEntries.test_approvers_workflow_runs_one_native_selection_between_helpers"
       ],
       "recovery": [
         "test_reviewer_skills.Approvers.test_missing_or_changed_evidence_is_never_an_empty_selection",
-        "test_reviewer_skills.Approvers.test_the_entry_has_no_authority_and_needs_a_pull_request"
+        "test_reviewer_skills.Approvers.test_the_entry_has_no_authority_and_needs_a_pull_request",
+        "test_reviewer_skills.InstalledApprovers.test_retained_operations_replay_without_reading_again",
+        "test_reviewer_skills.InstalledApprovers.test_a_session_that_writes_or_a_moved_head_blocks",
+        "test_reviewer_skills.InstalledApprovers.test_the_installed_entry_takes_no_authority"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Approver discovery is refused as a plain task in a fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Approver discovery is refused as a plain task in a fix plan (composition boundary). Listed in the plugin descriptor as approvers.yml: helper evidence collection, one agent/run selection session on the leaf role and helper checks, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; no host/provider/engine combination is verified, and live GitHub evidence reads and session adherence need separate authorization."
     },
     {
       "skill": "dk-pr-feedback-read",
