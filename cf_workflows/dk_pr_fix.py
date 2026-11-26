@@ -43,14 +43,16 @@ PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'r
                        'rerun_ci': 'rerun_ci', 'approve_pr': 'approve_pr', 'merge': 'merge'}
 # Actions this release denies, with the work that owns them.
 UNAVAILABLE_ACTIONS = {
-    'create_issue': 'issue creation is an extension kind owned by #32',
-    'edit_issue': 'issue edits are an extension kind owned by #32',
+    # The shared publisher supports them for cf-workflows:dk-issue (#32); the installed
+    # workflow declares no issue input, so a dk-pr-fix plan cannot authorize them.
+    'create_issue': 'issue creation belongs to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
+    'edit_issue': 'issue edits belong to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
     'approve_fork_ci': 'fork-CI approval is an extension kind owned by #35',
 }
 
 
 # Bundled adapters whose procedure is an entry's helper side, never a plain workflow task.
-ENTRY_ONLY = ('discover-approvers',)
+ENTRY_ONLY = ('discover-approvers', 'draft-commit-message', 'draft-issue')
 # Incoming review publishes only its verified findings and a separately authorized
 # approval of a clean review; merge keeps its own grant and readiness.
 REVIEW_ACTIONS = {'post_findings', 'approve_pr', 'merge'}
@@ -217,9 +219,12 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
         return _reject(result, 'options.tasks', 'alternatives adapters run only through their staged procedure; '
                        'the installed workflow does not run alternatives stages yet')
-    if any(task['adapter'] in ENTRY_ONLY for task in snapshot['plan']['tasks']):
-        # Its result is meaningful only with the entry's evidence collection and checks (cf_workflows.approvers).
-        return _reject(result, 'options.tasks', 'discover-approvers runs only in cf-workflows:dk-pr-approvers')
+    entry_only = [task['adapter'] for task in snapshot['plan']['tasks'] if task['adapter'] in ENTRY_ONLY]
+    if entry_only:
+        # Its result is meaningful only with the entry's evidence collection and checks
+        # (cf_workflows.approvers, cf_workflows.drafting).
+        return _reject(result, 'options.tasks', entry_only[0] + ' runs only through its entry procedure; the '
+                       'installed workflow runs it as a generic task')
     if any(snapshot['custom'].values()):
         return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
                        'dk-pr-fix workflow yet')

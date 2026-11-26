@@ -141,6 +141,12 @@ directly and from dk-pr-fix and dk-pr-review plans on a fail-closed fake GitHub.
 They count review, edit, request and merge writes and native dispatches across
 denial, payload drift, pending drafts, body-only findings, approval and lost
 effects.
+[Drafting entry](drafting.md#verification) tests (`tests/test_drafting.py`)
+drive dk-pr-description, dk-commit-message and dk-issue directly and from
+shared plans, with repositories with and without templates. They use the fake
+engine and a fail-closed fake GitHub with issue, label and assignee routes. They
+count sessions, listings and writes across fabricated claims, unchanged Git
+state, metadata validation and uncertain issue creation and PR edits.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

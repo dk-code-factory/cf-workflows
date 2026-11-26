@@ -243,6 +243,28 @@ ENTRY_ADAPTERS.update({
             {'id': 'evidence', 'text': 'Cite the evidence of every selected recipient.'},
             {'id': 'scope', 'text': 'Select only eligible candidates; grant no authority.'}]},
 })
+# Drafting entries (#32, docs/drafting.md); dk-pr-description runs the baseline describe-pr.
+# Drafts are read-only: the commit-message entry never commits, and issue writes are exact
+# intents of the shared publisher. Both run only through cf_workflows.drafting.
+ENTRY_ADAPTERS.update({
+    'draft-commit-message': {'kind': 'task', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Draft one commit message for the selected local changes in the assignment. Follow repository conventions, '
+        'the commit template, recent human commits and any verified commit policy. Account for every changed path '
+        'as included or excluded with a reason. Cite sources for every claim; claim no validation, issue or '
+        'co-author that the evidence does not show. Do not stage, commit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Describe only the actual selected changes.'},
+            {'id': 'evidence', 'text': 'Cite the diff, history or policy behind every claim.'},
+            {'id': 'scope', 'text': 'Change no Git state; keep the user constraints exactly.'}]},
+    'draft-issue': {'kind': 'task', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Draft one GitHub issue title and body from the exact ask and the verified facts in the assignment, using '
+        'the governing repository template or the fallback sections. Cite sources for every claim; include '
+        'reproduction steps, logs or validation only when the evidence shows them. Do not create, edit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Keep the exact ask and its wording constraints.'},
+            {'id': 'evidence', 'text': 'Cite verified facts; invent no reproduction, version or result.'},
+            {'id': 'scope', 'text': 'Follow the governing template; publish nothing.'}]},
+})
 BUNDLED_ADAPTERS = {**BASELINE_ADAPTERS, **ENTRY_ADAPTERS}
 DEFAULTS = {
     'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback', {'stage': 'publication'},
