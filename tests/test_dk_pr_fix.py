@@ -95,14 +95,14 @@ class InstalledClosure(unittest.TestCase):
 
     def test_reusable_references_resolve_inside_the_installation(self):
         files = workflow_files()
-        # Every descriptor skill row names an entry: main.yml (dk-pr-fix), review.yml
-        # (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
+        # Every descriptor skill row names an entry: main.yml (dk-pr-fix), review.yml and
+        # iter.yml (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
         # review-post.yml (docs/publication-skills.md), plain-english.yml and
         # asd-ste100.yml (docs/prose.md), decisions.yml (docs/decisions.md), reviewers-run.yml,
         # code-simplify.yml and approvers.yml (docs/reviewer-skills.md), and description.yml,
         # commit-message.yml and issue.yml (docs/drafting.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
-        self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
+        self.assertEqual(entries, ['main.yml', 'review.yml', 'iter.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
                                    'code-simplify.yml', 'approvers.yml', 'description.yml',

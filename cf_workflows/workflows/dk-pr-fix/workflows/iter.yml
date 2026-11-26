@@ -1,0 +1,162 @@
+# Authored for cf-workflows (#24); no upstream counterpart. See docs/review.md.
+# dk-pr-iter: author-aware routing in front of the two existing entries, with no
+# orchestration of its own. Host-side preflight (cf_workflows.routing.preflight) compares
+# immutable numeric account IDs, admits the routed request through the selected entry's
+# preflight and stages it. The retained iter_route helper reads the PR and the
+# authenticated account again and rejects a changed identity or a request that no longer
+# fits the route, before any session or effect. Then exactly one of main.yml (fix) or
+# review.yml (incoming review) runs with the admitted inputs; their own prepare checks
+# apply unchanged.
+name: cf-workflows:dk-pr-iter
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      route:
+        # fix (workflows/main.yml) or review (workflows/review.yml), as routing chose.
+        type: string
+        required: true
+      identity:
+        # {author, actor}: the immutable numeric account IDs routing compared.
+        type: object
+        required: true
+      tasks:
+        # The selected entry's admitted selections; each entry has its own defaults.
+        type: array
+        required: true
+      finalizers:
+        type: array
+        required: true
+      reviewers:
+        type: array
+        required: true
+      adapters:
+        type: object
+        required: true
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          push_commits: false
+          rewrite_commits: false
+          edit_pr: false
+          reply_to_feedback: false
+          resolve_threads: false
+          create_draft_prs: false
+          request_review: false
+          post_findings: false
+          rerun_ci: false
+          approve_pr: false
+          approve_fork_ci: false
+          merge: false
+          create_issue: false
+          edit_issue: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+      prompts:
+        # Semantically accepted custom prompts and preferences (docs/semantic.md#installed-workflow).
+        type: array
+        default: []
+      policy:
+        # Semantically accepted free-text requirements and prohibitions.
+        type: object
+        default: {}
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      route:
+        value: ${{ jobs.route.outputs.result.route }}
+      complete:
+        value: ${{ jobs.fix.outputs.complete or jobs.review.outputs.complete }}
+      ready:
+        value: ${{ jobs.fix.outputs.ready or jobs.review.outputs.ready }}
+      provisional:
+        value: ${{ jobs.fix.outputs.provisional or jobs.review.outputs.provisional }}
+      clean_review:
+        value: ${{ jobs.fix.outputs.clean_review or jobs.review.outputs.clean_review }}
+jobs:
+  route:
+    uses: workflows/helper.yml
+    with:
+      operation: iter_route
+      payload:
+        request: ${{ inputs.request }}
+        route: ${{ inputs.route }}
+        identity: ${{ inputs.identity }}
+        accounts: ${{ inputs.accounts }}
+        permissions: ${{ inputs.permissions }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  fix:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      prompts: ${{ inputs.prompts }}
+      policy: ${{ inputs.policy }}
+      mode: fix
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: route
+    if: ${{ needs.route.outputs.result.route == 'fix' }}
+  review:
+    uses: workflows/review.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      prompts: ${{ inputs.prompts }}
+      policy: ${{ inputs.policy }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: route
+    if: ${{ needs.route.outputs.result.route == 'review' }}

@@ -58,7 +58,9 @@ class Descriptor(unittest.TestCase):
         self.assertEqual(descriptor['skills'], [{'name': 'dk-pr-fix', 'path': 'skills/dk-pr-fix/SKILL.md',
                                                  'workflow': 'workflows/main.yml'},
                                                 {'name': 'dk-pr-review', 'path': 'skills/dk-pr-review/SKILL.md',
-                                                 'workflow': 'workflows/review.yml'}]
+                                                 'workflow': 'workflows/review.yml'},
+                                                {'name': 'dk-pr-iter', 'path': 'skills/dk-pr-iter/SKILL.md',
+                                                 'workflow': 'workflows/iter.yml'}]
                          + [{'name': f'dk-pr-feedback-{part}', 'path': f'skills/dk-pr-feedback-{part}/SKILL.md',
                              'workflow': f'workflows/feedback-{part}.yml'} for part in ('read', 'address', 'reply')]
                          + [{'name': name, 'path': f'skills/{name}/SKILL.md', 'workflow': f'workflows/{entry}.yml'}
@@ -391,8 +393,9 @@ class InventoryStatus(unittest.TestCase):
     def test_lists_only_delivered_rows_and_is_not_releasable(self):
         status = package.inventory_status(self.descriptor())
         self.assertEqual(status['listed'], [{'skill': 'cf-workflows:' + name, 'parity_status': 'not_implemented'}
-                                            for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-feedback-read',
-                                                         'dk-pr-feedback-address', 'dk-pr-feedback-reply',
+                                            for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-iter',
+                                                         'dk-pr-feedback-read', 'dk-pr-feedback-address',
+                                                         'dk-pr-feedback-reply',
                                                          'dk-pr-publish', 'dk-pr-review-post', 'dk-plain-english',
                                                          'dk-asd-ste100', 'dk-pr-decisions', 'dk-pr-reviewers-run',
                                                          'dk-code-simplify', 'dk-pr-approvers',
@@ -406,7 +409,7 @@ class InventoryStatus(unittest.TestCase):
         self.assertFalse({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132',
                           'agent-workflow#133'} & missing)
         self.assertTrue({'engine release', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
-                         'cf-workflows:dk-pr-review', 'cf-workflows:dk-pr-feedback-read',
+                         'cf-workflows:dk-pr-review', 'cf-workflows:dk-pr-iter', 'cf-workflows:dk-pr-feedback-read',
                          'cf-workflows:dk-pr-feedback-address', 'cf-workflows:dk-pr-feedback-reply',
                          'cf-workflows:dk-plain-english', 'cf-workflows:dk-asd-ste100',
                          'live acceptance: user_supplied_skill',
