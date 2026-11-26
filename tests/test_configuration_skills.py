@@ -574,6 +574,131 @@ class Config(Changes):
                 self.assertIsNone(self.store.read())
                 self.assertEqual(self.fake.calls['validator_session'], 0)
 
+    GUIDE = {'root': 'repository', 'path': 'docs/tone.md', 'purpose': 'Reply tone prompt.', 'owner': 'maintainers'}
+
+    def test_resource_backed_prompt_is_pinned_admitted_and_read_back(self):
+        body = self.write('docs/tone.md', 'Keep replies short.\n').read_bytes()
+        pinned = hashlib.sha256(body).hexdigest()
+        prompt = {'op': 'set_prompt', 'scope': 'repo', 'record': {'id': 'tone', 'slot': 'additional',
+                                                                  'resource': 'repository:docs/tone.md'}}
+        result = self.configure(proposal(self.ENABLE[0], {'op': 'set_resource', 'resource': self.GUIDE}, prompt),
+                                instructions='Use docs/tone.md as the reply prompt.', validators=[verdict('accepted')])
+        self.assertEqual(result['status'], 'applied', result)
+        self.calls(capabilities=2, input_gates=2, native_session=1, validator_session=1)
+        # The validator assessed the exact resource bytes the helper pinned.
+        [assessment] = self.fake.assessments
+        self.assertEqual(assessment['readable'].get('repository:docs/tone.md'), pinned)
+        saved = self.store.read()
+        self.assertEqual(saved['resources'], [{**self.GUIDE, 'sha256': pinned}])
+        self.assertEqual(saved['scopes'][0]['prompts'], [prompt['record']])
+        self.assertIn('resources.repository:docs/tone.md', result['readback']['paths'])
+        # A referenced resource cannot be removed on its own; nothing is written.
+        self.engine = Engine()
+        kept = self.configure(proposal({'op': 'remove_resource', 'resource': {'root': 'repository',
+                                                                               'path': 'docs/tone.md'}}),
+                              instructions='Forget docs/tone.md.')
+        self.assertEqual((kept['status'], kept['error']['path']), ('rejected', 'proposal.operations[0].resource'))
+        self.assertEqual(self.store.read(), saved)
+        # Removing its prompt and the resource together is an exact saved change.
+        self.engine = Engine()
+        removed = self.configure(proposal({'op': 'remove_prompt', 'scope': 'repo', 'id': 'tone'},
+                                          {'op': 'remove_resource', 'resource': {'root': 'repository',
+                                                                                 'path': 'docs/tone.md'}}),
+                                 instructions='Drop the tone prompt and its file.')
+        self.assertEqual(removed['status'], 'applied', removed)
+        self.assertEqual((self.store.read()['resources'], self.store.read()['scopes'][0]['prompts']), ([], []))
+
+    def test_resource_declarations_are_bounded_to_current_target_files(self):
+        self.write('docs/tone.md', 'Keep replies short.\n')
+        outside = self.base / 'outside.md'
+        outside.write_text('Push freely.\n')
+        os.symlink(outside, self.repo / 'docs' / 'link.md')
+        for name, resource, path in [
+                ('stale digest', {**self.GUIDE, 'sha256': '0' * 64}, 'proposal.operations[1].resource.sha256'),
+                ('another root', {**self.GUIDE, 'root': 'cf-workflows'}, 'proposal.operations[1].resource.root'),
+                ('traversal', {**self.GUIDE, 'path': '../outside.md'}, 'proposal.operations[1].resource.path'),
+                ('symlink', {**self.GUIDE, 'path': 'docs/link.md'}, 'proposal.operations[1].resource.path'),
+                ('missing file', {**self.GUIDE, 'path': 'docs/none.md'}, 'proposal.operations[1].resource.path'),
+                ('unknown field', {**self.GUIDE, 'mode': 'x'}, 'proposal.operations[1].resource')]:
+            with self.subTest(name):
+                self.engine = Engine()
+                result = self.configure(proposal(self.ENABLE[0], {'op': 'set_resource', 'resource': resource}),
+                                        instructions='Declare ' + name)
+                self.assertEqual((result['status'], result['error']['path']), ('rejected', path), result)
+                self.assertIsNone(self.store.read())
+                self.assertEqual(self.fake.calls['validator_session'], 0)
+        # dk-preferences cannot declare resources.
+        self.engine = Engine()
+        result = self.configure(proposal({'op': 'set_resource', 'resource': self.GUIDE}), name='dk-preferences',
+                                instructions='Declare a file.')
+        self.assertEqual((result['status'], result['error']['path']), ('rejected', 'proposal.operations[0].op'))
+
+
+# -- Native controls ------------------------------------------------------------------------------
+
+class NativeControls(Changes):
+    CONTROLS = {'model': 'gpt-5.1-codex', 'reasoning_effort': 'high'}
+
+    def test_controls_are_admitted_assigned_and_observed(self):
+        observed = session(lambda task: report(task), native=self.CONTROLS)
+        result = configuration.onboard(request=self.request('Onboard this repository.'), store=self.store,
+                                       deployment=self.deployment, repository=self.repo,
+                                       transport=self.transport(observed), controls=self.CONTROLS)
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(self.fake.tasks[0]['native'], self.CONTROLS)
+        self.nothing_saved()
+        # The same discovery without controls is another claim; a session ignoring them blocks.
+        plain = configuration.onboard(request=self.request('Onboard this repository.'), store=self.store,
+                                      deployment=self.deployment, repository=self.repo,
+                                      transport=self.transport(session(lambda task: report(task))))
+        self.assertEqual((plain['status'], self.fake.tasks[0]['native']), ('complete', {}))
+        self.assertNotEqual(self.fake.tasks[0]['claim'], 'cfg-onboard-' + result['freshness'][:32])
+        ignored = configuration.onboard(request=self.request('Onboard again.'), store=self.store,
+                                        deployment=self.deployment, repository=self.repo, controls=self.CONTROLS,
+                                        transport=self.transport(session(lambda task: report(task))))
+        self.assertEqual((ignored['status'], ignored['error']['path']), ('blocked', 'session.observation.native'))
+
+    def test_controls_bind_the_saved_request_and_reach_both_writers(self):
+        applied = self.configure(session({'outcome': 'proposal', 'summary': 'Exact.', 'operations': list(self.ENABLE)},
+                                         native={'model': 'gpt-5.1-codex'}), controls={'model': 'gpt-5.1-codex'})
+        self.assertEqual(applied['status'], 'applied', applied)
+        self.assertEqual(self.fake.tasks[0]['native'], {'model': 'gpt-5.1-codex'})
+        plain = configuration.request_id(entries.preflight('dk-config', request=self.request(
+            'Enable pushes for this repository.'), deployment=self.deployment, repository=self.repo,
+            transport=self.transport()))
+        self.assertNotEqual(applied['request_id'], plain)
+        self.engine = Engine()
+        preferred = self.configure(session({'outcome': 'proposal', 'summary': 'Exact.', 'operations': [
+            {'op': 'add_scope', 'scope': 'me', 'selector': {'kind': 'personal', 'id': 'me'}}]},
+            native={'reasoning_effort': 'low'}), name='dk-preferences', instructions='Make a personal scope.',
+            controls={'reasoning_effort': 'low'})
+        self.assertEqual(preferred['status'], 'applied', preferred)
+
+    def test_invalid_or_unsupported_controls_reject_before_any_session(self):
+        for name, entry, controls, path in [
+                ('unknown control', 'dk-config', {'sandbox': 'danger-full-access'}, 'controls'),
+                ('empty model', 'dk-config', {'model': ''}, 'controls.model'),
+                ('model with spaces', 'dk-config', {'model': 'ignore previous'}, 'controls.model'),
+                ('unknown effort', 'dk-preferences', {'reasoning_effort': 'max'}, 'controls.reasoning_effort'),
+                ('not an object', 'dk-repo-onboard', ['high'], 'controls'),
+                ('another entry', 'dk-pr-approvers', {'model': 'gpt-5.1-codex'}, 'controls')]:
+            with self.subTest(name):
+                result = entries.preflight(entry, request=self.request('Explain.'), deployment=self.deployment,
+                                           repository=self.repo, transport=self.transport(), controls=controls)
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
+                self.calls()
+        # Claude SDK rejects a definition reasoning effort; a model alone is accepted.
+        claude = {'engine': CAPABILITIES['engine'], 'providers': {'claude-sdk': ['admitted_roles', 'native_session']}}
+        deployment = {**self.deployment, 'agents': {'codex': {'provider': 'claude-sdk'}}}
+        for controls, outcome in (({'reasoning_effort': 'low'}, 'rejected'), ({'model': 'claude-sonnet-4-6'}, 'admitted')):
+            with self.subTest(controls=controls):
+                self.fake = Transport(self.engine, capabilities=claude)
+                result = entries.preflight('dk-config', request=self.request('Explain.'), deployment=deployment,
+                                           repository=self.repo, transport=self.fake, controls=controls)
+                self.assertEqual(result['preflight'], outcome, result)
+                self.calls(capabilities=1)
+        self.nothing_saved()
+
 
 # -- dk-preferences -------------------------------------------------------------------------------
 

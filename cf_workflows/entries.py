@@ -19,6 +19,7 @@ Original role prompts and options come from the pinned dk-workflows baseline
 """
 import copy
 from pathlib import Path
+import re
 
 from . import admission, dk_pr_fix, semantic
 from .admission import AdmissionError, require
@@ -41,7 +42,7 @@ ENTRIES = {
         'baseline_prompt': 'claude/skills/dk-config/prompts/default.md',
         'options': {}, 'operations': ('view', 'explain', 'apply_operations', 'admit', 'write', 'readback'),
         'domains': ('add_scope', 'remove_scope', 'set_option', 'unset_option', 'set_permission',
-                    'unset_permission', 'set_prompt', 'remove_prompt'),
+                    'unset_permission', 'set_prompt', 'remove_prompt', 'set_resource', 'remove_resource'),
     },
     'dk-preferences': {
         'skill': 'cf-workflows:dk-preferences', 'adapter': 'admit-preferences', 'saves': True,
@@ -153,6 +154,33 @@ ENTRIES.update({
 })
 
 
+# Native controls (#26): the engine's optional agent-definition settings, chosen per entry run.
+# Only the configuration entries pass them to their session; other entries reject them.
+NATIVE_CONTROL_ENTRIES = ('dk-repo-onboard', 'dk-config', 'dk-preferences')
+REASONING_EFFORTS = ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')
+MODEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}')
+# Providers that reject a definition's reasoning-effort (Agent Workflow docs/AGENT_TASKS.md).
+NO_REASONING_EFFORT = ('claude-sdk',)
+
+
+def check_controls(name, controls):
+    """An entry run's native controls: a model and a reasoning effort, each optional and validated."""
+    require(name in ENTRIES, 'entry', 'unknown entry')
+    controls = {} if controls is None else controls
+    require(isinstance(controls, dict), 'controls', 'must be an object')
+    require(not controls or name in NATIVE_CONTROL_ENTRIES, 'controls',
+            ENTRIES[name]['skill'] + ' takes no native controls')
+    fields_ = set(controls) - {'model', 'reasoning_effort'}
+    require(not fields_, 'controls', 'unsupported native control(s): ' + ', '.join(sorted(map(str, fields_))))
+    if 'model' in controls:
+        require(isinstance(controls['model'], str) and MODEL.fullmatch(controls['model']), 'controls.model',
+                'must be a provider model identifier')
+    if 'reasoning_effort' in controls:
+        require(controls['reasoning_effort'] in REASONING_EFFORTS, 'controls.reasoning_effort',
+                'must be one of ' + ', '.join(REASONING_EFFORTS))
+    return dict(sorted(controls.items()))
+
+
 def preset(name, adapter=None):
     """The entry's selection for the shared plan: one adapter task and explicitly empty slots."""
     return {'tasks': [adapter or ENTRIES[name]['adapter']], 'finalizers': [], 'reviewers': []}
@@ -207,15 +235,17 @@ def _rejected(path, message, **extra):
 
 
 def preflight(name, *, request, deployment, repository, transport, invocation=None, options=None, roots=None,
-              install=dk_pr_fix.INSTALL, ledger=None, adapter=None):
+              install=dk_pr_fix.INSTALL, ledger=None, adapter=None, controls=None):
     """Admit one run of an entry through the shared admission pipeline.
 
     invocation may carry only `prompts`: the task, finalizer and reviewer selection
-    is the entry's preset. Writes nothing; transport sees the same operations as
+    is the entry's preset. controls carries the configuration entries' native
+    model and reasoning-effort choices for their session. Writes nothing; transport sees the same operations as
     semantic.admit (only capabilities() for the default plan).
     """
     try:
         entry_options = check_options(name, options)
+        native = check_controls(name, controls)
         require(isinstance(request, dict), 'request', 'must be an object')
         require(not request.get('authorizations'), 'request.authorizations',
                 'supporting entries perform no remote write; a permission is a saved setting, not an authorization')
@@ -255,10 +285,16 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
     [task] = snapshot['plan']['tasks']
     assert task['adapter'] == selected and [stage['kind'] for stage in snapshot['plan']['stages']] == ['tasks']
     assert not any(value['effective'] for value in snapshot['permissions'].values())
+    if 'reasoning_effort' in native:
+        # The entry session runs on the same agent as the shared validator (configuration.assignment).
+        _, provider = semantic.validator_agent(result)
+        if provider in NO_REASONING_EFFORT:
+            return {**_rejected('controls.reasoning_effort', provider + ' rejects a definition reasoning '
+                                'effort; omit it for this provider'), 'entry': result['entry']}
     result['entry'].update({
         'adapter': selected, 'task': task, 'definition': snapshot['adapters'][selected],
         'role_prompt': entry['role_prompt'], 'operations': list(entry['operations']),
-        'domains': list(entry['domains']), 'saves': entry['saves'],
+        'domains': list(entry['domains']), 'saves': entry['saves'], 'controls': native,
         # Applicable custom prompts reach the session after semantic acceptance, apart from the ask.
         'prompts': [{key: item[key] for key in ('id', 'slot', 'target', 'text')}
                     for item in snapshot['prompts'] if item['applicable']],

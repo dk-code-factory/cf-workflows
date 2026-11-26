@@ -34,6 +34,7 @@ ROOT_SOURCES = {'CONTRIBUTING.md': 'human', '.github/CONTRIBUTING.md': 'human', 
 SOURCE_DIRECTORIES = {'.github/instructions': '.instructions.md', '.cursor/rules': ''}
 MAX_WALK = 100_000
 MAX_ITEMS = 512
+RESOURCE_ROOT = 'repository'  # dk-config declares files of the target checkout only.
 AUTHORITIES = ('selected repository rule', 'evidence only', 'saved preference')
 SECTIONS = ('sources', 'rules', 'facts', 'configuration', 'conflicts', 'gaps', 'outcome')
 OUTCOMES = ('proposal', 'questions', 'cancelled')
@@ -185,6 +186,8 @@ def assignment(admitted, *, mode, claim, context, readable, clarifications=()):
         'agent': agent, 'provider': provider, 'skills': [], 'tools': 'read-only', 'writes': False,
         'publication': False, 'readable': dict(sorted(readable.items())), 'context': copy.deepcopy(context),
         'clarifications': copy.deepcopy(list(clarifications)),
+        # Admitted native controls (entries.check_controls); empty runs the definition as installed.
+        'native': copy.deepcopy(entry.get('controls', {})),
     }
 
 
@@ -198,7 +201,8 @@ def run_session(transport, task):
         fields(session, 'session', ('result_ref', 'output', 'observation'))
         reference = text(session['result_ref'], 'session.result_ref', 512)
         observed = fields(session['observation'], 'session.observation',
-                          ('session_id', 'agent', 'role', 'definition_sha256', 'skills_loaded', 'operations', 'claim'))
+                          ('session_id', 'agent', 'role', 'definition_sha256', 'skills_loaded', 'operations', 'claim'),
+                          ('native',))
         text(observed['session_id'], 'session.observation.session_id', 512)
     except AdmissionError as error:
         raise Blocked(error.path, error.message) from None
@@ -207,6 +211,8 @@ def run_session(transport, task):
     if (observed['role'], observed['definition_sha256'], observed['agent']) != (
             task['role'], task['definition_sha256'], task['agent']):
         raise Blocked('session.observation', 'session did not run the admitted role on the assigned agent')
+    if observed.get('native', {}) != task.get('native', {}):
+        raise Blocked('session.observation.native', 'session did not run with the admitted model and reasoning effort')
     if observed['skills_loaded'] != []:
         raise Blocked('session.observation.skills_loaded', 'entry sessions load no skills')
     if not isinstance(observed['operations'], list):
@@ -306,7 +312,8 @@ def _read(store):
         return None, {'subject': 'configuration', 'impact': 'configuration store unreadable: ' + type(failure).__name__}
 
 
-def onboard(*, request, store, deployment, repository, transport, invocation=None, roots=None, install=None):
+def onboard(*, request, store, deployment, repository, transport, invocation=None, roots=None, install=None,
+            controls=None):
     """cf-workflows:dk-repo-onboard: one read-only native session over current discovery.
 
     Reads the configuration store with read() only, creates no ledger, request or
@@ -314,7 +321,7 @@ def onboard(*, request, store, deployment, repository, transport, invocation=Non
     """
     extra = {} if install is None else {'install': install}
     admitted = entries.preflight('dk-repo-onboard', request=request, deployment=deployment, repository=repository,
-                                 transport=transport, invocation=invocation, roots=roots, **extra)
+                                 transport=transport, invocation=invocation, roots=roots, controls=controls, **extra)
     if admitted['preflight'] != 'admitted':
         return {'status': admitted['preflight'], 'admission': admitted}
     where = target(admitted['snapshot'])
@@ -326,7 +333,7 @@ def onboard(*, request, store, deployment, repository, transport, invocation=Non
     readable = {'repository:' + item['resolved']: item['sha256'] for item in inventory['sources']
                 if item['status'] == 'inspected'}
     freshness = digest({'target': where, 'inventory': inventory['digest'], 'configuration': current,
-                        'admission': admitted['snapshot_digest']})
+                        'admission': admitted['snapshot_digest'], **_native(admitted)})
     task = assignment(admitted, mode='onboard', claim='cfg-onboard-' + freshness[:32], readable=readable,
                       context={'repository': {**where, 'root': str(Path(repository).resolve())},
                                'inventory': inventory, 'configuration': current})
@@ -346,11 +353,12 @@ def onboard(*, request, store, deployment, repository, transport, invocation=Non
 
 # -- Explanation (dk-config inspection) --------------------------------------------------------
 
-def explain(*, request, store, deployment, repository, transport, invocation=None, roots=None, install=None):
+def explain(*, request, store, deployment, repository, transport, invocation=None, roots=None, install=None,
+            controls=None):
     """cf-workflows:dk-config inspection: a transient assignment with no request ID or history."""
     extra = {} if install is None else {'install': install}
     admitted = entries.preflight('dk-config', request=request, deployment=deployment, repository=repository,
-                                 transport=transport, invocation=invocation, roots=roots, **extra)
+                                 transport=transport, invocation=invocation, roots=roots, controls=controls, **extra)
     if admitted['preflight'] != 'admitted':
         return {'status': admitted['preflight'], 'admission': admitted}
     document, unreadable = _read(store)
@@ -358,7 +366,8 @@ def explain(*, request, store, deployment, repository, transport, invocation=Non
         return {'status': 'blocked', 'error': {'path': 'configuration_store', 'message': unreadable['impact']}}
     current = view(document, target(admitted['snapshot']))
     task = assignment(admitted, mode='explain', readable={},
-                      claim='cfg-explain-' + digest({'admission': admitted['snapshot_digest'], 'view': current})[:32],
+                      claim='cfg-explain-' + digest({'admission': admitted['snapshot_digest'], 'view': current,
+                                                     **_native(admitted)})[:32],
                       context={'configuration': current})
     try:
         reference, _, output = run_session(transport, task)
@@ -494,11 +503,13 @@ def _same(first, second):
     return {k: v for k, v in first.items() if k != 'id'} == {k: v for k, v in second.items() if k != 'id'}
 
 
-def apply_operations(document, operations, name, where, options):
+def apply_operations(document, operations, name, where, options, repository=None):
     """Apply the exact typed operation list of a proposal to a copy of the saved document.
 
     Returns (revised, changes). Only the named paths change; the result still
     passes full structural and semantic admission before anything is written.
+    `set_resource` declares a file of the target checkout (`repository`) pinned to
+    its current bytes, so a prompt can be resource-backed.
     """
     domains = entries.ENTRIES[name]['domains']
     revised = copy.deepcopy(document) if document is not None else empty_configuration()
@@ -526,6 +537,35 @@ def apply_operations(document, operations, name, where, options):
             revised['scopes'].append({'id': operation['scope'], 'selector': copy.deepcopy(selector),
                                       **{key: {} if key in ('options', 'permissions') else [] for key in SCOPE_KEYS}})
             changes['paths'].append('scopes.' + operation['scope'])
+            continue
+        if kind in ('set_resource', 'remove_resource'):
+            fields(operation, at, ('op', 'resource'))
+            record = operation['resource']
+            fields(record, at + '.resource', ('root', 'path') + (('purpose', 'owner') if kind == 'set_resource' else ()),
+                   ('sha256',) if kind == 'set_resource' else ())
+            require(record['root'] == RESOURCE_ROOT, at + '.resource.root',
+                    'dk-config declares resources of the target repository only')
+            rel = admission.relative(record['path'], at + '.resource.path')
+            key = RESOURCE_ROOT + ':' + rel
+            existing = [item for item in revised['resources']
+                        if isinstance(item, dict) and item.get('root') == RESOURCE_ROOT and item.get('path') == rel]
+            if kind == 'remove_resource':
+                require(existing, at + '.resource', 'unknown resource ' + key)
+                require(key not in _resource_refs(revised), at + '.resource',
+                        'resource is still referenced; remove or change its prompts and preferences first')
+            else:
+                require(repository is not None, at, 'resource declarations need the target checkout')
+                actual = hashlib.sha256(admission.read_file(Path(repository), rel, at + '.resource.path')).hexdigest()
+                require(record.get('sha256', actual) == actual, at + '.resource.sha256',
+                        'resource changed since the proposal: ' + key)
+            for item in existing:
+                revised['resources'].remove(item)
+            if kind == 'set_resource':
+                # Pinned to the bytes read now; admission verifies the same digest before the write.
+                revised['resources'].append({'root': RESOURCE_ROOT, 'path': rel, 'sha256': actual,
+                                             'purpose': text(record['purpose'], at + '.resource.purpose', 512),
+                                             'owner': text(record['owner'], at + '.resource.owner', 512)})
+            changes['paths'].append('resources.' + key)
             continue
         if kind == 'remove_scope':
             fields(operation, at, ('op', 'scope'))
@@ -595,6 +635,19 @@ def apply_operations(document, operations, name, where, options):
     return revised, changes
 
 
+def _resource_refs(document):
+    """Every resource key a saved prompt or preference names."""
+    refs = set()
+    for scope in document['scopes']:
+        for kind in ('prompts', 'preferences'):
+            for record in scope.get(kind, []):
+                if isinstance(record, dict):
+                    refs.update(item for item in record.get('resources', []) if isinstance(item, str))
+                    if isinstance(record.get('resource'), str):
+                        refs.add(record['resource'])
+    return refs
+
+
 def overlaps(revised, changes, where):
     """Pairs of changed and other applicable preferences whose scopes and modes may overlap."""
     request = {'pr': None, 'repository': where['repository'], 'upstream': None}
@@ -652,11 +705,17 @@ def request_id(admitted):
                                'logical_run': snapshot['request']['logical_run'],
                                'instructions': snapshot['request']['original_instructions'],
                                'options': {key: value['value'] for key, value in entry['options'].items()},
-                               'prompts': entry['prompts']})[:32]
+                               'prompts': entry['prompts'], **_native(admitted)})[:32]
+
+
+def _native(admitted):
+    """Native controls bound into a claim or request ID; absent when none were chosen, so IDs stay stable."""
+    controls = admitted['entry'].get('controls', {})
+    return {'native': controls} if controls else {}
 
 
 def configure(name, *, request, store, ledger, deployment, repository, transport, options=None, invocation=None,
-              roots=None, install=None):
+              roots=None, install=None, controls=None):
     """Saved change through cf-workflows:dk-config or dk-preferences.
 
     Reconciles earlier writes first, resumes the same request through its gates and
@@ -676,7 +735,7 @@ def configure(name, *, request, store, ledger, deployment, repository, transport
                                                'message': 'configuration store unavailable: ' + type(failure).__name__}}
     admitted = entries.preflight(name, request=request, deployment=deployment, repository=repository,
                                  transport=transport, invocation=invocation, options=options, roots=roots,
-                                 ledger=ledger, install=install)
+                                 ledger=ledger, install=install, controls=controls)
     if admitted['preflight'] != 'admitted':
         return {'status': admitted['preflight'], 'admission': admitted, 'recovered_writes': recovered}
     where, ident = target(admitted['snapshot']), request_id(admitted)
@@ -729,7 +788,7 @@ def configure(name, *, request, store, ledger, deployment, repository, transport
             return {**base, 'status': 'cancelled', 'summary': output['summary'],
                     'evidence_refs': ['native:' + reference]}
         revised, changes = apply_operations(document, output.get('operations'), name, where,
-                                            admitted['entry']['options'])
+                                            admitted['entry']['options'], repository=repository)
         if name == 'dk-preferences':
             open_pairs = check_resolutions(output.get('resolutions', []), overlaps(revised, changes, where),
                                            {item['answer_id'] for item in clarifications})
