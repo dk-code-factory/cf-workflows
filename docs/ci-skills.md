@@ -48,7 +48,11 @@ classifications, `learn()` reads the exact attempt's run, job and failed-step
 logs, takes the tests the logs name and searches open issues of the PR
 repository for each one. A candidate needs an explicit declaration of exactly
 that workflow path, job name, test and signature, and the signature must occur
-in these logs:
+in these logs. The PR author controls those logs, so a declaration counts only
+from a trusted author: the repository owner, a member or collaborator
+(`author_association`), or a configured personal account, and never the PR
+author. The issue must also have been opened before the failed run was
+created. Without the PR author's identity nothing is learned.
 
 ````text
 ```dk-flaky
@@ -76,8 +80,9 @@ absolute deadline (`ci:<logical run>`) that no resume, head change or larger
 timeout moves. dk-ci adds the baseline's pending-only extension:
 
 - After the window ends, one more observation may grant one extension, and
-  only while checks are still pending. A failure or success at that point
-  ends the wait.
+  only while checks are still pending. A failure or success that this
+  observation captures is reported as it is and uses no extension. Without an
+  available extension, the late observation is a timeout.
 - The grant is a durable reservation (`ci-pending-extension:<logical run>`),
   and its window starts where the original ended. A resumed, direct or
   composed observation of the same run never gets a second grant or a later
@@ -185,11 +190,14 @@ writes and native sessions are counted. It covers:
   unsupported options and overrides with zero engine calls.
 - **Deadlines.** A direct and a composed observation share one window. Resume,
   a changed head and a larger timeout renew nothing. The pending-only
-  extension is granted once, only while pending, and not after a failure.
+  extension is granted once and only while pending; a settled late capture is
+  reported without one.
   An interrupted wait resumes the same grant, and exhausted windows and
   allowances raise without observing.
-- **Flakes.** An exact issue declaration accepts its own attempt only. A
-  rerun attempt, a changed head, another test or line in the same step, an
+- **Flakes.** An exact issue declaration by a trusted author, opened before
+  the run, accepts its own attempt only. Declarations by the PR author, an
+  outsider or a contributor, opened after the run or without a creation
+  time, are never learned. A rerun attempt, a changed head, another test or line in the same step, an
   unrelated or closed issue, a mismatched signature, unavailable logs and a
   failed search leave the check failed and listed in `rejected`, and other
   checks are unaffected.

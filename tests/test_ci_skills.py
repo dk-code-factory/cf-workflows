@@ -43,6 +43,8 @@ INVENTORY = {row['name']: row for row in json.loads((ROOT / 'baselines/inventory
 PR = identity('https://github.com/owner/repo/pull/17')
 HEAD = 'a' * 40
 WORKFLOW = '.github/workflows/test.yml'
+AUTHOR = 999  # The PR author: a fork contributor whose CI logs a flake declaration must not be able to waive.
+MAINTAINER = {'id': 5, 'login': 'maintainer'}
 
 
 # -- Entries -------------------------------------------------------------------------------------
@@ -216,7 +218,7 @@ class CIGitHub:
         self.checks.append({'id': str(check_id), 'name': 'Test', 'status': 'completed', 'conclusion': 'failure',
                             'run_id': str(run_id), 'job_id': str(job_id), 'attempt': attempt})
         self.runs[run_id] = {'id': run_id, 'head_sha': head, 'run_attempt': attempt,
-                             'path': WORKFLOW + '@refs/pull/17/merge'}
+                             'path': WORKFLOW + '@refs/pull/17/merge', 'created_at': '2026-11-26T12:00:00Z'}
         self.jobs[job_id] = {'id': job_id, 'head_sha': head, 'run_id': run_id, 'run_attempt': attempt, 'name': 'Test',
                              'status': 'completed', 'conclusion': 'failure',
                              'check_run_url': f'https://api.github.com/repos/owner/repo/check-runs/{check_id}',
@@ -225,9 +227,12 @@ class CIGitHub:
                           '--- FAIL: TestFlaky (0.10s)', 'FAIL', 'exit status 1']
         self.logs[(str(run_id), str(job_id), attempt)] = '\n'.join('Test\tTests\t' + line for line in lines)
 
-    def issue(self, number, body, state='open', repository='owner/repo'):
+    def issue(self, number, body, state='open', repository='owner/repo', user=None, association='MEMBER',
+              created='2026-01-01T00:00:00Z'):
         self.issues[number] = {'number': number, 'state': state, 'title': 'Flaky test', 'body': body,
-                               'html_url': f'https://github.com/{repository}/issues/{number}'}
+                               'html_url': f'https://github.com/{repository}/issues/{number}',
+                               'user': dict(user or MAINTAINER), 'author_association': association,
+                               'created_at': created}
 
     def capture(self, pr):
         self.calls['capture'] += 1
@@ -284,7 +289,8 @@ class Observation(unittest.TestCase):
 
     @staticmethod
     def plan(ci_controls=None, run='pr_shared', **options):
-        return {'pr': PR, 'logical_run': run, 'options': {'ci': ci_controls or {}, **options}}
+        return {'pr': PR, 'logical_run': run, 'snapshot': {'author_id': AUTHOR},
+                'options': {'ci': ci_controls or {}, **options}}
 
     @staticmethod
     def direct():
@@ -348,16 +354,25 @@ class Observation(unittest.TestCase):
             self.observe(self.plan(self.direct()), 'poll-6', 1720.0)
         self.assertEqual((self.github.calls['observe_ci'], self.grants()), (before, 1), 'no second grant or poll')
 
-    def test_extension_is_never_granted_after_failure_or_success(self):
+    def test_a_settled_post_window_capture_is_reported_and_grants_no_extension(self):
         self.pending()
         self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
-        for conclusion in ('failure', 'success'):
+        for conclusion, status in (('failure', 'failed'), ('success', 'success')):
             with self.subTest(conclusion=conclusion):
                 self.github.checks = [{'id': '9', 'name': 'Test', 'status': 'completed', 'conclusion': conclusion,
                                        'run_id': '', 'job_id': '', 'attempt': 0}]
-                with self.assertRaisesRegex(TimeoutError, 'during observation'):
-                    self.observe(self.plan(self.direct()), 'late-' + conclusion, 1121.0)
+                result = self.observe(self.plan(self.direct()), 'late-' + conclusion, 1121.0)
+                self.assertEqual((result['status'], result['extended'], result['deadline']), (status, False, 1120.0))
                 self.assertEqual(self.grants(), 0)
+        # Without an available extension the same late capture is a timeout.
+        with self.assertRaisesRegex(TimeoutError, 'exhausted'):
+            self.observe(self.plan({**self.direct(), 'max_pending_extensions': 0}), 'late-off', 1121.0)
+        # A still-pending capture takes the one extension; a later settled one inside it is reported.
+        self.pending()
+        self.assertTrue(self.observe(self.plan(self.direct()), 'late-pending', 1122.0)['extended'])
+        self.github.checks[0].update(status='completed', conclusion='success')
+        result = self.observe(self.plan(self.direct()), 'in-extension', 1200.0)
+        self.assertEqual((result['status'], result['extended'], self.grants()), ('success', True, 1))
 
     def test_interrupted_wait_resumes_the_original_window(self):
         self.pending()
@@ -433,6 +448,42 @@ class Observation(unittest.TestCase):
                                  ('failed', 'failure', []))
                 if label == 'other repository':
                     self.assertRegex(result['rejected'][0]['reason'], 'canonical issue in the PR repository')
+
+    def test_only_a_trusted_earlier_declaration_is_learned(self):
+        # The PR adds TestNewFeature and it really fails; a declaration must not waive it.
+        lines = ['=== RUN   TestNewFeature', '    feature_test.go:9: got 1 want 2', '--- FAIL: TestNewFeature (0.01s)',
+                 'FAIL', 'exit status 1']
+        body = declaration(test='TestNewFeature', signature='got 1 want 2')
+        cases = {
+            'PR author, even as a member': ({'user': {'id': AUTHOR, 'login': 'contributor'}}, None, 'failed'),
+            'outsider': ({'user': {'id': 77, 'login': 'outsider'}, 'association': 'NONE'}, None, 'failed'),
+            'contributor association': ({'user': {'id': 77, 'login': 'outsider'}, 'association': 'CONTRIBUTOR'},
+                                        None, 'failed'),
+            'opened after the run': ({'created': '2026-11-26T12:30:00Z'}, None, 'failed'),
+            'no creation time': ({'created': None}, None, 'failed'),
+            'maintainer before the run': ({}, None, 'success'),
+            'configured personal account': ({'user': {'id': 77, 'login': 'personal'}, 'association': 'NONE'},
+                                            [{'host': 'github.com', 'id': 77}], 'success'),
+        }
+        for label, (issue, accounts, status) in cases.items():
+            with self.subTest(label=label):
+                self.github = CIGitHub()
+                self.github.failed(9, 2, 3, lines=lines)
+                self.github.issue(77, body, **issue)
+                plan = self.plan(**({'accounts': accounts} if accounts else {}))
+                result = ci.classify_current(self.github, plan, {'head': HEAD, 'checks': copy.deepcopy(self.github.checks)})
+                self.assertEqual(result['status'], status)
+                self.assertEqual(self.github.calls['issues'], 1 if status == 'success' else 0,
+                                 'an untrusted declaration is never even verified')
+        # Without the PR author's identity nothing is learned, and the check stays failed.
+        self.github = CIGitHub()
+        self.github.failed(9, 2, 3, lines=lines)
+        self.github.issue(77, body)
+        plan = dict(self.plan(), snapshot={})
+        result = ci.classify_current(self.github, plan, {'head': HEAD, 'checks': copy.deepcopy(self.github.checks)})
+        self.assertEqual((result['status'], result['rejected'][0]['reason']),
+                         ('failed', 'PR author identity unavailable for flake learning'))
+        self.assertEqual(self.github.calls['search'], 0)
 
     def test_one_declared_flake_never_covers_another_failure_in_the_same_step(self):
         for label, extra in (('undeclared test', ['--- FAIL: TestBroken (0.20s)']),

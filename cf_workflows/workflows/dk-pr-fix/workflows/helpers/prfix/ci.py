@@ -7,7 +7,10 @@ blocking; an agent's classification is a candidate, never authority by itself.
 
 Issue-backed flakes (#35) are learned only from a failed check's own exact
 attempt: the tests its failed-step logs name, and open issues of the PR
-repository that declare exactly that workflow, job, test and signature. Each
+repository that declare exactly that workflow, job, test and signature. Only
+a trusted author's declaration counts (repository owner, member or
+collaborator, or a configured personal account; never the PR author), and only
+one opened before the failed run. Each
 failed check is verified on its own. Evidence that is unavailable, ambiguous or
 does not affirm the exact attempt leaves that check failed and is reported in
 ``rejected``; it never waives a failure, and one check's evidence never exempts
@@ -36,6 +39,8 @@ GO_LOCATION = re.compile(r"^\s+[^\s]+\.go:[0-9]+:\s*")
 # Bounds of automatic flake learning for one failed check (baseline dk-ci-flakes max_issues).
 LEARN_TESTS = 20
 LEARN_ISSUES = 500
+# Issue authors whose flaky declarations a PR's own CI may learn from (GitHub author_association).
+TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
 # Evidence failures that leave a check failed; anything else (a programming or fixture error) propagates.
 EVIDENCE_ERRORS = (ValueError, KeyError, TypeError, OSError, RuntimeError)
 
@@ -400,15 +405,52 @@ def _declarations(issue):
             yield value
 
 
-def learn(provider, pr, check):
+def _when(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def trusted_declarer(issue, trust, run):
+    """Whether ``issue`` may declare a flake for the PR's failed ``run``.
+
+    The PR's logs are under the PR author's control, so a declaration counts
+    only from a trusted author other than the PR author, made before the
+    failed run was created. Missing identities or timestamps never count.
+    """
+    user = issue.get("user") if isinstance(issue.get("user"), dict) else {}
+    author = user.get("id")
+    if type(author) is not int or author == trust["author"]:
+        return False
+    if issue.get("author_association") not in TRUSTED_ASSOCIATIONS and author not in trust["accounts"]:
+        return False
+    opened, started = _when(issue.get("created_at")), _when(run.get("created_at"))
+    return opened is not None and started is not None and opened < started
+
+
+def _trust(plan):
+    author = plan.get("snapshot", {}).get("author_id")
+    if type(author) is not int or author < 1:
+        raise ValueError("PR author identity unavailable for flake learning")
+    host = plan["pr"].get("host", "github.com")
+    accounts = {item.get("id") for item in plan.get("options", {}).get("accounts", [])
+                if isinstance(item, dict) and str(item.get("host", "")).lower() == host}
+    return {"author": author, "accounts": accounts}
+
+
+def learn(provider, pr, check, trust):
     """Issue-backed flake candidates for one failed Actions check, from its exact attempt only.
 
     Reads the attempt's run, job and failed-step logs, takes the tests those
     logs name and looks up open issues of the PR repository that mention each
     test. A candidate needs an explicit ``dk-flaky`` declaration of exactly this
-    workflow, job and test whose signature occurs in these logs. Candidates
-    are never authority: ``verify_exceptions`` rereads everything and requires
-    every failed test and diagnostic line to be covered.
+    workflow, job and test whose signature occurs in these logs, by a trusted
+    author before the run (``trusted_declarer``). Candidates are never
+    authority: ``verify_exceptions`` rereads everything and requires every
+    failed test and diagnostic line to be covered.
     """
     for key in ("run_id", "job_id"):
         if not str(check.get(key, "")).isdigit() or int(check[key]) < 1:
@@ -437,7 +479,8 @@ def learn(provider, pr, check):
         matched = []
         for issue in issues:
             url = str(issue.get("html_url", ""))
-            if issue.get("pull_request") or issue.get("state") != "open" or not url:
+            if (issue.get("pull_request") or issue.get("state") != "open" or not url
+                    or not trusted_declarer(issue, trust, run)):
                 continue
             for declared in _declarations(issue):
                 signature = declared.get("signature")
@@ -481,7 +524,7 @@ def classify_current(provider, plan, observation):
                  if isinstance(candidate, dict) and candidate.get("check_id") == check.get("id")]
         try:
             # Configured candidates are explicit; learning is the default for a check without them.
-            group = group or learn(provider, plan["pr"], check)
+            group = group or learn(provider, plan["pr"], check, _trust(plan))
             if group:
                 proofs.extend(verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"]))
         except EVIDENCE_ERRORS as error:
@@ -538,12 +581,14 @@ def observe(provider, plan, ledger, operation):
         raise ValueError("CI observer returned another head")
     result = classify_current(provider, plan, observation)
     if time.time() >= deadline:
-        if not eligible or result["status"] != "pending":
+        if not eligible:
             raise TimeoutError("retained CI deadline exhausted during observation")
-        extended = _extension(ledger, run, selected, original, create=True)
-        if extended is None or time.time() >= extended:
-            raise TimeoutError("retained CI deadline and pending extension exhausted")
-        deadline = extended
+        if result["status"] == "pending":
+            extended = _extension(ledger, run, selected, original, create=True)
+            if extended is None or time.time() >= extended:
+                raise TimeoutError("retained CI deadline and pending extension exhausted")
+            deadline = extended
+        # A settled post-window capture is reported as it is; it consumes no extension.
     result.update(deadline=deadline, original_deadline=original, extended=extended is not None,
                   operation=operation, ready=result["status"] == "success", pending=result["status"] == "pending",
                   failed=result["status"] == "failed", repair=False)
