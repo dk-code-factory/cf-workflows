@@ -420,6 +420,34 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-approvers/SKILL.md",
       "reason": "Approver discovery skill entry point (#29); no upstream counterpart (docs/reviewer-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/drafting.py",
+      "reason": "Drafting procedure of describe-pr, draft-commit-message and draft-issue (#32), installed so helper containers run it; no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-description/SKILL.md",
+      "reason": "PR description skill entry point (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-commit-message/SKILL.md",
+      "reason": "Commit message skill entry point (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-issue/SKILL.md",
+      "reason": "Issue drafting and creation skill entry point (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/description.yml",
+      "reason": "PR description preset over main.yml (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/commit-message.yml",
+      "reason": "Commit message preset over main.yml (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/issue.yml",
+      "reason": "Issue preset over main.yml (#32); no upstream counterpart (docs/drafting.md)."
     }
   ],
   "corrections": [

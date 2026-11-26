@@ -1,0 +1,102 @@
+# Authored for cf-workflows (#32); no upstream counterpart. See docs/drafting.md.
+# Issues: a preset over the shared workflow. One draft-issue occurrence drafts the
+# issue in a read-only session; the helpers check the draft and create or edit the
+# issue only through the shared publication stage under create_issue or edit_issue.
+name: cf-workflows:dk-issue
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - draft-issue
+        - stage: publication
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          draft-issue:
+            kind: task
+            writes: false
+            definition: leaf
+            assignment: "Draft one GitHub issue title and body from the exact ask and the verified facts in the assignment, using the governing repository template or the fallback sections. Cite sources for every claim; include reproduction steps, logs or validation only when the evidence shows them. Do not create, edit or publish."
+            checklist:
+            - id: assignment
+              text: "Keep the exact ask and its wording constraints."
+            - id: evidence
+              text: "Cite verified facts; invent no reproduction, version or result."
+            - id: scope
+              text: "Follow the governing template; publish nothing."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          create_issue: false
+          edit_issue: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        # settings.drafting.dk-issue: the entry options and requested labels, assignees and issue.
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.drafting.outputs.complete }}
+      ready:
+        value: ${{ jobs.drafting.outputs.ready }}
+      provisional:
+        value: ${{ jobs.drafting.outputs.provisional }}
+jobs:
+  drafting:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+      entry: dk-issue
+    secrets:
+      github_token: ${{ secrets.github_token }}

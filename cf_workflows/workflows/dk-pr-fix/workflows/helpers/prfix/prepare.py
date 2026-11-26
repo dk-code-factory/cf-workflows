@@ -147,6 +147,16 @@ ENTRY_PRESETS = {"changes": ("fix", ["tasks", "publication"], ["prepare-publicat
 # exactly one bundled simplification reviewer (app.SIMPLIFIERS). The plan and its
 # occurrence identities are incoming review's, so the shape is checked, never changed.
 REVIEW_ENTRIES = ("dk-pr-reviewers-run", "dk-code-simplify")
+# Drafting entries (#32; docs/drafting.md): each runs exactly its adapter, then the
+# shared publication stage when it can write, and accepts only its own actions.
+# Issue writes belong to dk-issue alone; dk-commit-message drafts the checkout's
+# uncommitted changes, so only its plan starts from a checkout with local changes.
+DRAFTING_ENTRIES = {
+    "dk-pr-description": ("describe-pr", ["tasks", "publication"], ("edit_pr",)),
+    "dk-commit-message": ("draft-commit-message", ["tasks"], ()),
+    "dk-issue": ("draft-issue", ["tasks", "publication"], ("create_issue", "edit_issue")),
+}
+ISSUE_ACTIONS = ("create_issue", "edit_issue")
 # Actions that other entries own; no publication entry dispatches them.
 ENTRY_OWNERS = {
     "approve_fork_ci": "fork workflow approval belongs to cf-workflows:dk-ci-approve",
@@ -318,13 +328,24 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if mode not in MODES:
         raise ValueError("unsupported plan mode")
     entry = controls.get("entry", "")
-    preset = None
+    preset = drafting_entry = None
+    requested = request.get("authorizations", {})
     if entry in REVIEW_ENTRIES:
         if mode != "review":
             raise ValueError("cf-workflows:" + entry + " runs in review mode only")
         if request.get("authorizations") or request.get("maintain_other"):
             raise ValueError("cf-workflows:" + entry + " is read-only review; it has no publication, approval "
                              "or merge authority")
+    elif entry in DRAFTING_ENTRIES:
+        drafting_entry = DRAFTING_ENTRIES[entry]
+        if mode != "fix":
+            raise ValueError("cf-workflows:" + entry + " runs in fix mode only")
+        if not isinstance(requested, dict) or set(requested) - set(drafting_entry[2]):
+            raise ValueError("cf-workflows:" + entry + " accepts only " + (", ".join(drafting_entry[2]) or "no")
+                             + " authorization")
+    elif isinstance(requested, dict) and set(requested) & set(ISSUE_ACTIONS):
+        action = sorted(set(requested) & set(ISSUE_ACTIONS))[0]
+        raise ValueError(action + ": " + ENTRY_OWNERS[action])
     elif entry:
         # A direct publication entry runs exactly its preset (publish.yml, review-post.yml).
         preset = entry_preset(entry, request.get("authorizations", {}))
@@ -364,6 +385,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS
                                 if name not in ("merge", "post_findings", "approve_pr", "approve_fork_ci")):
         raise ValueError("incoming review enables no branch or feedback publication input")
+    if entry != "dk-issue" and any(permissions.get(name) for name in ISSUE_ACTIONS):
+        raise ValueError("issue writes belong to cf-workflows:dk-issue; no other plan enables them")
     if mode != "review" and permissions.get("approve_pr"):
         raise ValueError("approval belongs to incoming review; a maintained PR is never approved by its maintainer run")
     if mode != "review" and permissions.get("approve_fork_ci"):
@@ -515,6 +538,23 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                 or [task["skill"] for task in tasks if task["id"] in first] != leading
                 or any(task["writes"] for task in tasks)):
             raise ValueError("cf-workflows:" + entry + " runs exactly its " + preset + " preset")
+    from . import drafting
+    drafted = [task for task in tasks if drafting.role(task)]
+    for task in drafted:
+        if drafting.role(task) == "dk-commit-message" and entry != "dk-commit-message":
+            raise ValueError("draft-commit-message describes uncommitted changes and runs only through "
+                             "cf-workflows:dk-commit-message")
+        if task["writes"]:
+            raise ValueError(task["skill"] + " drafts only; it cannot write")
+        try:
+            drafting.settings({"settings": controls.get("settings", {})}, drafting.role(task))
+        except drafting.Blocked as error:
+            raise ValueError(str(error)) from None
+    if drafting_entry:
+        adapter, kinds, _ = drafting_entry
+        if ([stage["kind"] for stage in stages] != kinds or any(stage["phase"] != "tasks" for stage in stages)
+                or [task["skill"] for task in tasks] != [adapter]):
+            raise ValueError("cf-workflows:" + entry + " runs exactly its preset")
     if any(task["kind"] == "review" for task in tasks):
         # Incoming review verifies findings independently and never fixes them.
         for key, kind, role, assignment in [
@@ -568,7 +608,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         _validate_commit_identity(root)
     from .capture import GitHub, capture
     provider = provider or GitHub(root)
-    plan["snapshot"] = capture(root, provider, plan, clean=True)
+    # dk-commit-message drafts the checkout's uncommitted changes; every other plan starts clean.
+    plan["snapshot"] = capture(root, provider, plan, clean=entry != "dk-commit-message")
     plan["fingerprint"] = digest(plan)
     plan_reference = artifact(root, plan)
     return {"logical_run": logical_run, "plan": plan_reference, "stages": stages,

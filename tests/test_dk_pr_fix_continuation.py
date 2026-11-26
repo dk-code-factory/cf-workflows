@@ -119,7 +119,10 @@ class Continuation(unittest.TestCase):
     def prepare(self, tasks=(), finalizers=(), execution="exec-1", logical_run=None, settings=None, **options):
         controls = {"tasks": list(tasks), "finalizers": list(finalizers), "settings": settings or {},
                     "adapters": {**DEFAULT_ADAPTERS, "review": REVIEW, "ruled-review": RULED, "reply-feedback": RESPONDER,
-                                 "plain-review": {**RULED, "resources": []}},
+                                 "plain-review": {**RULED, "resources": []},
+                                 # A plain read-only task: describe-pr runs the drafting procedure (#32).
+                                 "summarize": {"kind": "description", "definition": "leaf", "writes": False,
+                                               "assignment": "Summarize the final diff."}},
                     "resources": ["rules"], "turns": 8, **options}
         request = {"pr": PR_URL, "instructions": "Fix the selected issue.", "authorizations": {}}
         if logical_run:
@@ -176,15 +179,15 @@ class Continuation(unittest.TestCase):
     # -- occurrence identity ------------------------------------------------
 
     def test_reordered_and_repeated_selections_keep_occurrence_identity_and_results(self):
-        first = self.prepare(tasks=["read-feedback", "describe-pr", "describe-pr"], finalizers=["describe-pr"])
-        reordered = self.prepare(tasks=["describe-pr", ["read-feedback", "assess-scope"], "describe-pr"],
-                                 finalizers=["describe-pr"])
+        first = self.prepare(tasks=["read-feedback", "summarize", "summarize"], finalizers=["summarize"])
+        reordered = self.prepare(tasks=["summarize", ["read-feedback", "assess-scope"], "summarize"],
+                                 finalizers=["summarize"])
         self.assertEqual(self.task(first, "read-feedback")["id"], self.task(reordered, "read-feedback")["id"])
-        repeated = [task["id"] for task in first["tasks"] if task["skill"] == "describe-pr"]
+        repeated = [task["id"] for task in first["tasks"] if task["skill"] == "summarize"]
         self.assertEqual(len(set(repeated)), 3, "repeated selections and finalizers are distinct occurrences")
-        self.assertEqual(repeated, [task["id"] for task in reordered["tasks"] if task["skill"] == "describe-pr"])
-        instructed = self.prepare(tasks=[{"task": "describe-pr", "instructions": "Mention the migration."}])
-        self.assertNotIn(self.task(instructed, "describe-pr")["id"], repeated)
+        self.assertEqual(repeated, [task["id"] for task in reordered["tasks"] if task["skill"] == "summarize"])
+        instructed = self.prepare(tasks=[{"task": "summarize", "instructions": "Mention the migration."}])
+        self.assertNotIn(self.task(instructed, "summarize")["id"], repeated)
 
         ledger = self.ledger(first)
         for task in first["tasks"]:
@@ -453,7 +456,7 @@ class Continuation(unittest.TestCase):
     # -- completion versus readiness -----------------------------------------
 
     def test_selected_plan_completion_stays_separate_from_readiness(self):
-        for name, selections in (("empty", {}), ("custom", {"tasks": ["describe-pr"]}),
+        for name, selections in (("empty", {}), ("custom", {"tasks": ["summarize"]}),
                                  ("finalizer", {"finalizers": ["inspect-commits"]})):
             with self.subTest(plan=name):
                 plan = self.prepare(logical_run=name, **selections)
@@ -469,10 +472,10 @@ class Continuation(unittest.TestCase):
         self.assertEqual(self.transport.calls["request"], 0)
 
     def test_interrupted_finalizer_keeps_its_claim_until_the_original_settles(self):
-        plan = self.prepare(tasks=["read-feedback"], finalizers=["describe-pr"])
+        plan = self.prepare(tasks=["read-feedback"], finalizers=["summarize"])
         ledger = self.ledger(plan)
         self.run_task(plan, ledger, self.task(plan, "read-feedback")["id"])
-        finalizer = self.task(plan, "describe-pr")["id"]
+        finalizer = self.task(plan, "summarize")["id"]
         claimed = self.handle("claim", plan, {"task": finalizer, "cycle": 1}, "finalizer")
         # Response loss replays the retained operation; a replacement run cannot redispatch.
         self.assertEqual(self.handle("claim", plan, {"task": finalizer, "cycle": 1}, "finalizer"), claimed)

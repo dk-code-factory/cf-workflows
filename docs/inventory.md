@@ -42,9 +42,14 @@ listed in the plugin descriptor with their own installed workflows
 (`reviewers-run.yml`, `code-simplify.yml`, `approvers.yml`). The three CI rows
 (#35, [CI entries](ci-skills.md)) are presets over the installed `dk-pr-fix`
 workflow with deterministic direct and composed fixtures. All six stay
-`not_implemented` for the same reason. So do the three
-drafting rows (#32, [drafting entries](drafting.md)) and the two splitting rows
+`not_implemented` for the same reason. So do the two splitting rows
 (#34, [commit organization and PR splitting](splitting.md)).
+
+The three drafting rows (#32, [drafting entries](drafting.md#installed-workflow))
+are listed in the plugin descriptor with their own installed entry workflows,
+`description.yml`, `commit-message.yml` and `issue.yml`, over `dk-pr-fix`. They
+stay `not_implemented` until they run as engine-managed sessions through a
+released engine.
 
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |

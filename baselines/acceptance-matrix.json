@@ -663,30 +663,38 @@
         32
       ],
       "behavior": [
-        "cf_workflows/drafting.py"
+        "cf_workflows/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/description.yml"
       ],
       "documentation": "docs/drafting.md",
       "composition": "shared_workflow",
       "direct": [
         "test_drafting.Description.test_fallback_draft_is_private_without_authority_and_reused_unchanged",
-        "test_drafting.Description.test_repository_template_governs_and_validation_needs_evidence"
+        "test_drafting.Description.test_repository_template_governs_and_validation_needs_evidence",
+        "test_dk_pr_fix_drafting.Description.test_draft_is_checked_private_without_authority_and_reused_unchanged",
+        "test_dk_pr_fix_drafting.Description.test_each_unsupported_draft_rejects",
+        "test_dk_pr_fix_drafting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [
-        "test_drafting.Description.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+        "test_drafting.Description.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure",
+        "test_dk_pr_fix_drafting.Description.test_composed_dk_pr_fix_occurrence_and_decisions_section_share_one_intent"
       ],
       "recovery": [
         "test_drafting.Description.test_authorized_update_reconciles_lost_responses_and_never_duplicates",
         "test_drafting.Description.test_lost_request_before_the_effect_stays_pending_and_is_never_resent",
-        "test_recovery.DraftingRecovery.test_accepted_draft_is_reused_after_restore"
+        "test_recovery.DraftingRecovery.test_accepted_draft_is_reused_after_restore",
+        "test_dk_pr_fix_drafting.Description.test_authorized_edit_publishes_once_and_reconciles_lost_responses",
+        "test_dk_pr_fix_drafting.Description.test_an_edit_after_the_draft_is_never_overwritten"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/description.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); the installed helper collects no linked issues or caller-verified validation facts; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-decisions",
@@ -931,16 +939,21 @@
         32
       ],
       "behavior": [
-        "cf_workflows/drafting.py"
+        "cf_workflows/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/commit-message.yml"
       ],
       "documentation": "docs/drafting.md",
       "composition": "shared_workflow",
       "direct": [
         "test_drafting.CommitMessage.test_draft_accounts_for_every_change_and_changes_no_git_state",
-        "test_drafting.CommitMessage.test_policy_replaces_fallbacks_and_validation_needs_evidence"
+        "test_drafting.CommitMessage.test_policy_replaces_fallbacks_and_validation_needs_evidence",
+        "test_dk_pr_fix_drafting.CommitMessage.test_entry_drafts_uncommitted_changes_and_changes_no_git_state",
+        "test_dk_pr_fix_drafting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [
-        "test_drafting.CommitMessage.test_composed_occurrence_hands_the_message_to_its_committer"
+        "test_drafting.CommitMessage.test_composed_occurrence_hands_the_message_to_its_committer",
+        "test_dk_pr_fix_drafting.CommitMessage.test_only_its_entry_runs_the_adapter_and_other_plans_start_clean"
       ],
       "recovery": [
         "test_drafting.CommitMessage.test_lost_session_response_reconciles_by_claim",
@@ -949,11 +962,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-message.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a repository target and commit-policy text run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-issue",
@@ -961,30 +974,38 @@
         32
       ],
       "behavior": [
-        "cf_workflows/drafting.py"
+        "cf_workflows/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/drafting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/issue.yml"
       ],
       "documentation": "docs/drafting.md",
       "composition": "shared_workflow",
       "direct": [
         "test_drafting.Issue.test_fallback_draft_with_verified_metadata_and_no_write",
-        "test_drafting.Issue.test_issue_form_template_and_reproduction_need_evidence"
+        "test_drafting.Issue.test_issue_form_template_and_reproduction_need_evidence",
+        "test_dk_pr_fix_drafting.Issue.test_unauthorized_draft_stays_private",
+        "test_dk_pr_fix_drafting.Issue.test_missing_requested_metadata_blocks_before_any_session",
+        "test_dk_pr_fix_drafting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [
-        "test_drafting.Issue.test_composed_pr_occurrence_shares_the_pr_run_journal"
+        "test_drafting.Issue.test_composed_pr_occurrence_shares_the_pr_run_journal",
+        "test_dk_pr_fix_drafting.Issue.test_composed_dk_pr_fix_occurrence_drafts_privately"
       ],
       "recovery": [
         "test_drafting.Issue.test_creation_reconciles_uncertainty_and_never_duplicates",
         "test_drafting.Issue.test_lost_request_before_creation_stays_pending_and_is_never_resent",
-        "test_drafting.IssuePublication.test_payloads_permissions_and_repository_plans_are_bounded"
+        "test_drafting.IssuePublication.test_payloads_permissions_and_repository_plans_are_bounded",
+        "test_dk_pr_fix_drafting.Issue.test_creation_publishes_once_with_verified_metadata_and_reconciles_uncertainty",
+        "test_dk_pr_fix_drafting.Issue.test_update_edits_only_after_an_unchanged_issue"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); the installed entry files issues from a pull request run, and a repository target runs only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     }
   ],
   "defects": [

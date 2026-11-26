@@ -406,6 +406,13 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             raise ValueError("dependent implementation is blocked by unresolved decisions; answer the open "
                              "decision gate first")
         assignment["decisions"] = handed
+    from . import drafting
+    if drafting.role(task):
+        # Read-only evidence, the governing template or fallback sections and the draft contract (drafting.py).
+        try:
+            assignment["drafting"] = drafting.context(root, provider, plan, task, snapshot)
+        except drafting.Blocked as error:
+            raise ValueError("drafting evidence unavailable: " + str(error)) from None
     from .responses import context as feedback_context, role as feedback_role
     if feedback_role(task):
         # Feedback occurrences receive the retained assessments, so standalone and composed
@@ -688,7 +695,7 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
-    from . import decisions
+    from . import decisions, drafting
     from .feedback import FeedbackError
     from .responses import check_feedback, retain_feedback, role as feedback_role
     validated = decided = None
@@ -736,6 +743,12 @@ def accept(root, provider, ledger, plan, inputs):
                 retain_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
+        elif drafting.role(task) and complete:
+            # A cited, template-following draft that proposes no operations (drafting.py).
+            try:
+                drafting.check(root, plan, report, assignment)
+            except drafting.Blocked as error:
+                raise ReportContractError("drafting: " + str(error)) from error
         elif decisions.role(task) and complete:
             # Sourced decisions, user-only resolution and refresh through changed sources only.
             try:

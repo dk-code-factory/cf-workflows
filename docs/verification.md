@@ -168,6 +168,10 @@ shared plans, with repositories with and without templates. They use the fake
 engine and a fail-closed fake GitHub with issue, label and assignee routes. They
 count sessions, listings and writes across fabricated claims, unchanged Git
 state, metadata validation and uncertain issue creation and PR edits.
+`tests/test_dk_pr_fix_drafting.py` drives the installed drafting helpers on a
+disposable repository and fail-closed fake GitHub: claims, same-session
+corrections, reuse, the publication stage's issue and PR edits with lost
+responses, entry presets and the installed preflight.
 [CI entry](ci-skills.md#verification) tests (`tests/test_ci_skills.py`) cover
 dk-ci deadlines and the pending-only extension across direct, composed and
 resumed observations, issue-backed flake matches and mismatches per exact
