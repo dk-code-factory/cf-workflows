@@ -403,6 +403,7 @@ def readiness(root, provider, ledger, plan, inputs=None):
     """Fresh application coverage plus live repository/CI evidence, read-only."""
     from . import app
     from .ci import classify_current
+    from .registry import Registry
     result = {"complete": False, "ready": False, "clean_review": False, "verified": False,
               "provisional": {"provisional": None},
               "head": "", "target": "", "ci": {"head": "", "success": False}, "evidence": [], "blockers": []}
@@ -444,7 +445,12 @@ def readiness(root, provider, ledger, plan, inputs=None):
         observed = provider.observe_ci(plan["pr"], snapshot["head"])
         if observed.get("head") != snapshot["head"]:
             raise PublicationError("CI observation belongs to another head")
-        classified = classify_current(provider, plan, observed)
+        # Saved fail-then-pass history counts here too; readiness saves nothing.
+        registry = Registry(root, read_only=True)
+        try:
+            classified = classify_current(provider, plan, observed, registry=registry)
+        finally:
+            registry.close()
         result["ci"] = {**classified, "success": classified["status"] == "success"}
         result["evidence"].append("sha256:" + digest(observed))
         if not result["ci"]["success"]:

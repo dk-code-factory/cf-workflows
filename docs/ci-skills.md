@@ -68,6 +68,31 @@ step to be covered, so one flaky test never exempts another test, a compiler
 error or a non-test step. Configured classifications and exception rules keep
 their existing form; when a check has them, nothing is learned for it.
 
+**Shared registry and fail-then-pass history.** Observation saves named test
+outcomes in a registry shared by every PR and logical run of the base
+repository ([`prfix/registry.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/registry.py),
+`registry/ci-tests.sqlite` in the state namespace). Each row binds the exact
+head, workflow path, job, test, run, job ID and attempt:
+
+- **Failures.** `learn()` saves each named failure it reads, with the
+  normalized diagnostic lines of the failed-step logs.
+- **Passes.** At a head with a saved failure, `observe()` reads the complete
+  logs (`job_logs`) of each successful exact attempt of that workflow and job
+  once and saves the named passes (`--- PASS:` or `PASSED`). An unreadable or
+  mismatched job saves nothing and is listed in `registry.gaps`; it never fails
+  the observation.
+
+A trusted issue's `dk-flaky` block that names the exact context but does not
+affirm it (no `flaky` field) nominates a flake only with saved fail-then-pass
+history: a failure of that workflow, job, test and signature, and a later pass
+of another exact attempt at the same commit, from any PR of the base
+repository. Verification rereads both exact attempts (`actions/runs/{id}/attempts/{n}`
+and the job) and their logs, and the issue must still declare the context.
+Expired logs, a changed attempt, a denial (`"flaky": false`), prose, another
+signature, an untrusted or later declaration, or a caller without the
+registry leave the check failed. Readiness uses the same history through a
+read-only registry and saves nothing.
+
 **Unavailable evidence never waives.** Each failed check is verified on its
 own. A missing log, a closed, unrelated or ambiguous issue, a failed search,
 an unknown line or an exceeded bound leaves that check failed. The check and
@@ -186,6 +211,12 @@ inventories, failures that name no test) make `covered` false. A failed read is
 a blocker, never an empty result. The result waives nothing, saves nothing and
 grants nothing.
 
+`ci_flakes.saved()` pages the registry's saved observations, optionally of
+one exact earlier `{workflow, job, test}` context, through a read-only
+registry. It reads nothing from GitHub, starts no session and is marked
+`saved: true, verified: false`: saved evidence, never fresh verification.
+Follow `next_offset` for further pages.
+
 ## Options
 
 | Entry | Option | Default | Mapping |
@@ -229,7 +260,11 @@ writes and native sessions are counted. It covers:
   time, are never learned. A rerun attempt, a changed head, another test or line in the same step, an
   unrelated or closed issue, a mismatched signature, unavailable logs and a
   failed search leave the check failed and listed in `rejected`, and other
-  checks are unaffected.
+  checks are unaffected. Fail-then-pass history at one commit from another
+  PR accepts a failure only with a trusted unaffirmed declaration and both
+  attempts reread. A missing, denied, prose-only, untrusted or later issue,
+  another signature, an earlier or other-head pass, and expired or changed
+  history leave it failed. Saved inspection reads no GitHub state.
 - **Fork approval.** One intent per eligible run attempt, published once and
   reconciled on rerun, plus the verified no-op. Rejection cases:
   - no grant, or a grant without the permission;
@@ -252,9 +287,6 @@ writes and native sessions are counted. It covers:
   for them. Plugin `SKILL.md` and descriptor rows wait for that runtime, so all
   three inventory rows stay `not_implemented`.
 - **Baseline features without an equivalent yet.**
-  - Fail-then-pass flake evidence at the same commit, a shared cross-PR
-    observation registry and saved-observation inspection of an earlier
-    check. Flakes need an explicit issue declaration.
   - The native failure-diagnosis role, and automatic reruns of unrelated
     retryable failures under a `user_retry` grant. Reruns publish through
     dk-pr-publish with the per-head allowance.

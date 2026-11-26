@@ -29,6 +29,7 @@ from prfix.capture import identity
 from prfix.core import Ledger
 from prfix.prepare import prepare
 from prfix.publication import SUPPORTED, Drift, PublicationError
+from prfix.registry import Registry
 from test_publication_skills import AUDIENCE, GitHub as PublicationGitHub, Helpers, grant
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,8 @@ from test_configuration_skills import Engine, Transport as EngineTransport, sess
 INVENTORY = {row['name']: row for row in json.loads((ROOT / 'baselines/inventory.json').read_text())['skills']}
 PR = identity('https://github.com/owner/repo/pull/17')
 HEAD = 'a' * 40
+OTHER_PR = identity('https://github.com/owner/repo/pull/18')
+OTHER_HEAD = 'b' * 40
 WORKFLOW = '.github/workflows/test.yml'
 AUTHOR = 999  # The PR author: a fork contributor whose CI logs a flake declaration must not be able to waive.
 MAINTAINER = {'id': 5, 'login': 'maintainer'}
@@ -233,22 +236,34 @@ class CIGitHub:
         self.head = HEAD
         self.calls = Counter()
         self.checks, self.runs, self.jobs, self.logs, self.issues = [], {}, {}, {}, {}
+        self.attempts, self.full_logs = {}, {}
         self.unavailable = set()
 
-    def failed(self, check_id, run_id, job_id, attempt=1, lines=None, head=None):
-        """A failed Actions check of the exact attempt with its run, job and failed-step logs."""
-        head = head or self.head
-        self.checks.append({'id': str(check_id), 'name': 'Test', 'status': 'completed', 'conclusion': 'failure',
+    def _attempt(self, check_id, run_id, job_id, attempt, head, conclusion, completed):
+        self.checks.append({'id': str(check_id), 'name': 'Test', 'status': 'completed', 'conclusion': conclusion,
                             'run_id': str(run_id), 'job_id': str(job_id), 'attempt': attempt})
-        self.runs[run_id] = {'id': run_id, 'head_sha': head, 'run_attempt': attempt,
-                             'path': WORKFLOW + '@refs/pull/17/merge', 'created_at': '2026-11-26T12:00:00Z'}
+        # GET actions/runs/{id} is the run's latest attempt; .../attempts/{n} is that exact attempt.
+        self.runs[run_id] = self.attempts[(run_id, attempt)] = {
+            'id': run_id, 'head_sha': head, 'run_attempt': attempt, 'path': WORKFLOW + '@refs/pull/17/merge',
+            'created_at': '2026-11-26T12:00:00Z'}
         self.jobs[job_id] = {'id': job_id, 'head_sha': head, 'run_id': run_id, 'run_attempt': attempt, 'name': 'Test',
-                             'status': 'completed', 'conclusion': 'failure',
+                             'status': 'completed', 'conclusion': conclusion, 'completed_at': completed,
                              'check_run_url': f'https://api.github.com/repos/owner/repo/check-runs/{check_id}',
-                             'steps': [{'name': 'Tests', 'number': 2, 'status': 'completed', 'conclusion': 'failure'}]}
+                             'steps': [{'name': 'Tests', 'number': 2, 'status': 'completed', 'conclusion': conclusion}]}
+
+    def failed(self, check_id, run_id, job_id, attempt=1, lines=None, head=None, completed='2026-11-26T12:05:00Z'):
+        """A failed Actions check of the exact attempt with its run, job and failed-step logs."""
+        self._attempt(check_id, run_id, job_id, attempt, head or self.head, 'failure', completed)
         lines = lines or ['=== RUN   TestFlaky', '    client.go:17: intermittent gateway timeout',
                           '--- FAIL: TestFlaky (0.10s)', 'FAIL', 'exit status 1']
         self.logs[(str(run_id), str(job_id), attempt)] = '\n'.join('Test\tTests\t' + line for line in lines)
+        self.full_logs[(str(run_id), str(job_id), attempt)] = self.logs[(str(run_id), str(job_id), attempt)]
+
+    def passed(self, check_id, run_id, job_id, attempt=2, lines=None, head=None, completed='2026-11-26T12:20:00Z'):
+        """A successful Actions check of the exact attempt with its complete job logs."""
+        self._attempt(check_id, run_id, job_id, attempt, head or self.head, 'success', completed)
+        lines = lines or ['=== RUN   TestFlaky', '--- PASS: TestFlaky (0.08s)', 'PASS', 'ok  example 0.1s']
+        self.full_logs[(str(run_id), str(job_id), attempt)] = '\n'.join('Test\tTests\t' + line for line in lines)
 
     def issue(self, number, body, state='open', repository='owner/repo', user=None, association='MEMBER',
               created='2026-01-01T00:00:00Z'):
@@ -269,6 +284,10 @@ class CIGitHub:
 
     def request(self, method, path, payload=None):
         self.calls['request'] += 1
+        exact = re.fullmatch(r'repos/owner/repo/actions/runs/(\d+)/attempts/(\d+)', path)
+        if method == 'GET' and exact:
+            self.calls['actions/attempts'] += 1
+            return copy.deepcopy(self.attempts[(int(exact[1]), int(exact[2]))])
         match = re.fullmatch(r'repos/owner/repo/(actions/runs|actions/jobs|issues)/(\d+)', path)
         if method != 'GET' or not match:
             raise AssertionError(f'unconfigured fixture route: {method} {path}')
@@ -281,6 +300,12 @@ class CIGitHub:
         if (run, job, attempt) not in self.logs or 'logs' in self.unavailable:
             raise OSError('failed-step logs expired')
         return self.logs[(run, job, attempt)]
+
+    def job_logs(self, pr, run, job, attempt):
+        self.calls['job_logs'] += 1
+        if (run, job, attempt) not in self.full_logs or 'job_logs' in self.unavailable:
+            raise OSError('job logs expired')
+        return self.full_logs[(run, job, attempt)]
 
     def pages(self, path, key=None):
         self.calls['search'] += 1
@@ -311,8 +336,8 @@ class Observation(unittest.TestCase):
         return ledger
 
     @staticmethod
-    def plan(ci_controls=None, run='pr_shared', **options):
-        return {'pr': PR, 'logical_run': run, 'snapshot': {'author_id': AUTHOR},
+    def plan(ci_controls=None, run='pr_shared', pr=PR, **options):
+        return {'pr': pr, 'logical_run': run, 'snapshot': {'author_id': AUTHOR},
                 'options': {'ci': ci_controls or {}, **options}}
 
     @staticmethod
@@ -666,6 +691,152 @@ class Observation(unittest.TestCase):
         result = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
         self.assertEqual((result['status'], result['ready'], result['failed']), ('failed', False, True))
 
+
+    # -- shared registry, fail-then-pass history and saved inspection ----------------------------
+
+    def unaffirmed(self, number=8, signature='intermittent gateway timeout'):
+        """A trusted issue that declares the exact context without affirming it as flaky."""
+        body = {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky', 'signature': signature}
+        self.github.issue(number, 'Tracking TestFlaky.\n```dk-flaky\n' + json.dumps(body) + '\n```\n')
+
+    def registry(self, read_only=False):
+        registry = Registry(self.root, read_only=read_only)
+        self.addCleanup(registry.close)
+        return registry
+
+    def history(self):
+        """PR 17 fails TestFlaky at HEAD, then a rerun attempt of the same run passes it."""
+        self.github.failed(9, 2, 3)
+        first = self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        self.assertEqual(first['status'], 'failed', 'no history yet: the declaration alone never waives')
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2)
+        second = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual((second['status'], second['registry']), ('success', {'recorded': 1, 'gaps': []}))
+        # Another PR of the base repository fails the same test with the same signature at its own head.
+        self.github.head = OTHER_HEAD
+        self.github.checks = []
+        self.github.failed(29, 5, 6, head=OTHER_HEAD)
+
+    def test_fail_then_pass_at_one_commit_nominates_a_flake_for_another_pr(self):
+        self.unaffirmed()
+        self.history()
+        calls = Counter(self.github.calls)
+        result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                              self.ledger_for(OTHER_PR, 'pr_other'))
+        self.assertEqual((result['status'], result['outcome'], result['rejected']), ('success', 'known_flakes', []))
+        [proof] = result['classifications']
+        self.assertEqual((proof['check_id'], proof['run_id'], proof['attempt']), ('29', '5', 1))
+        [history] = [item for item in proof['evidence'] if item['kind'] == 'same-commit-fail-pass']
+        self.assertEqual((history['failure']['head'], history['failure']['run_id'], history['failure']['attempt'],
+                          history['pass']['head'], history['pass']['run_id'], history['pass']['attempt']),
+                         (HEAD, '2', 1, HEAD, '2', 2))
+        # Verification reread both saved exact attempts and their logs.
+        delta = self.github.calls - calls
+        self.assertEqual((delta['actions/attempts'], delta['job_logs']), (2, 1))
+        # Readiness uses the same saved history through a read-only registry and saves nothing.
+        before = self.registry().page(PR['repository'])['total']
+        readiness = ci.classify_current(self.github, {**self.plan(), 'pr': OTHER_PR},
+                                        {'head': OTHER_HEAD, 'checks': copy.deepcopy(self.github.checks)},
+                                        registry=self.registry(read_only=True))
+        self.assertEqual(readiness['status'], 'success')
+        self.assertEqual(self.registry().page(PR['repository'])['total'], before)
+
+    def test_history_never_stands_in_for_missing_or_mismatched_evidence(self):
+        cases = {
+            'no issue': lambda: None,
+            'prose only': lambda: self.github.issue(8, 'TestFlaky `intermittent gateway timeout` happens'),
+            'denied': lambda: self.github.issue(8, '```dk-flaky\n' + json.dumps(
+                {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky',
+                 'signature': 'intermittent gateway timeout', 'flaky': False}) + '\n```\n'),
+            'other signature': lambda: self.unaffirmed(signature='connection reset'),
+            'untrusted author': lambda: (self.unaffirmed(), self.github.issues[8].update(
+                author_association='NONE', user={'id': 77, 'login': 'outsider'})),
+            'declared after the run': lambda: (self.unaffirmed(), self.github.issues[8].update(
+                created_at='2026-11-27T00:00:00Z')),
+        }
+        for label, arrange in cases.items():
+            with self.subTest(label=label):
+                self.setUp()
+                arrange()
+                self.history()
+                result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                                      self.ledger_for(OTHER_PR, 'pr_other'))
+                self.assertEqual((result['status'], result['classifications']), ('failed', []))
+
+    def test_unavailable_or_changed_history_leaves_the_failure(self):
+        cases = {
+            'pass logs expired': lambda g: g.unavailable.add('job_logs'),
+            'pass attempt changed': lambda g: g.attempts[(2, 2)].update(head_sha='c' * 40),
+            'failure logs expired': lambda g: g.logs.pop(('2', '3', 1)),
+        }
+        for label, arrange in cases.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.unaffirmed()
+                self.history()
+                arrange(self.github)
+                result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                                      self.ledger_for(OTHER_PR, 'pr_other'))
+                self.assertEqual((result['status'], result['classifications']), ('failed', []))
+                self.assertEqual([item['check_id'] for item in result['rejected']], ['29'])
+        # Without the shared registry (an older caller) history is unavailable, never assumed.
+        with self.assertRaisesRegex(ValueError, 'without the shared registry'):
+            ci._verify_history(self.github, PR, {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky',
+                                                 'signature': 'x', 'history': {}}, None)
+
+    def test_history_needs_a_later_pass_at_the_same_commit(self):
+        self.unaffirmed()
+        self.github.failed(9, 2, 3)
+        self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        # A pass at another head, and a pass completed before the failure, are no history.
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2, head='c' * 40)
+        self.github.passed(20, 7, 8, attempt=1, completed='2026-11-26T11:00:00Z')
+        result = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual(result['registry'], {'recorded': 1, 'gaps': [{'check_id': '19', 'reason':
+                                              'successful job does not bind the exact head and attempt'}]})
+        self.assertIsNone(self.registry().history(PR['repository'], {'workflow': WORKFLOW, 'job': 'Test',
+                                                                     'test': 'TestFlaky'},
+                                                  'intermittent gateway timeout'))
+        # Recorded passes are read once per exact attempt.
+        reads = self.github.calls['job_logs']
+        self.observe(self.plan(self.direct()), 'poll-3', 1002.0)
+        self.assertEqual(self.github.calls['job_logs'], reads)
+
+    def test_saved_observations_are_inspected_without_github_reads(self):
+        self.unaffirmed()
+        self.history()
+        calls = Counter(self.github.calls)
+        context = {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky'}
+        page = ci_flakes.saved(self.registry(read_only=True), 'GitHub.com/Owner/Repo', context=context, limit=1)
+        self.assertEqual((page['saved'], page['verified'], page['waives'], page['authority'], page['total'],
+                          page['next_offset']), (True, False, False, 'none', 2, 1))
+        self.assertEqual((page['items'][0]['outcome'], page['items'][0]['run_id'], page['items'][0]['attempt']),
+                         ('fail', '2', 1))
+        self.assertIn('intermittent gateway timeout', page['items'][0]['lines'])
+        rest = ci_flakes.saved(self.registry(read_only=True), PR['repository'], context=context, offset=1)
+        self.assertEqual(([item['outcome'] for item in rest['items']], rest['next_offset']), (['pass'], None))
+        other = ci_flakes.saved(self.registry(read_only=True), 'github.com/owner/other')
+        self.assertEqual((other['items'], other['total']), ([], 0))
+        self.assertEqual(self.github.calls, calls, 'saved inspection reads nothing from GitHub')
+        for arguments, path in (({'repository': 'owner/repo'}, 'repository'),
+                                ({'context': {'workflow': WORKFLOW}}, 'context'),
+                                ({'limit': 101}, 'limit')):
+            with self.subTest(path=path), self.assertRaises(admission.AdmissionError) as raised:
+                ci_flakes.saved(self.registry(read_only=True), **{'repository': PR['repository'], **arguments})
+            self.assertTrue(raised.exception.path.startswith(path))
+        # Without a state namespace there is nothing saved, and nothing is created.
+        empty = tempfile.TemporaryDirectory(prefix='cfw registry ')
+        self.addCleanup(empty.cleanup)
+        with patch.dict('os.environ', {'CF_WORKFLOWS_STATE': empty.name}):
+            self.assertEqual(ci_flakes.saved(Registry(self.root, read_only=True), PR['repository'])['total'], 0)
+        self.assertEqual(list(Path(empty.name).iterdir()), [])
+
+    def ledger_for(self, pr, run):
+        ledger = Ledger(self.root, run, pr['url'])
+        self.ledgers.append(ledger)
+        return ledger
 
 # -- Fork workflow approval ---------------------------------------------------------------------------
 

@@ -17,6 +17,13 @@ does not affirm the exact attempt leaves that check failed and is reported in
 another. The observation window is an absolute retained deadline with at most
 one pending-only extension. A configured classification timeout and absent-check
 grace are retained windows too; none of them restarts on resume.
+
+Observed named outcomes go to the shared cross-PR registry (prfix/registry.py):
+failures that learning reads, and passes of later successful attempts at a head
+with a saved failure. A trusted open issue that declares an exact context
+without affirming it (``dk-flaky`` without ``"flaky": true``) nominates a flake
+only with saved fail-then-pass history at one commit, and verification rereads
+both exact attempts before the failure is accepted.
 """
 
 from __future__ import annotations
@@ -29,11 +36,13 @@ import time
 from urllib.parse import quote, urlsplit
 
 from .core import bounded_json, digest, text
+from .registry import MAX_LINE, MAX_LINES, Registry
 
 
 SUCCESS = {"success", "neutral", "skipped"}
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\s")
 NAMED_FAILURE = re.compile(r"^(?:--- FAIL: |FAILED )([^\s(]+)")
+NAMED_PASS = re.compile(r"^(?:--- PASS: |PASSED )([^\s(]+)")
 GO_SUMMARY = re.compile(r"^(?:FAIL(?:\s+\S+(?:\s+[0-9.]+s)?)?|PASS|ok\s+\S+\s+(?:[0-9.]+s|\(cached\))|\?\s+\S+\s+\[no test files\]|exit status [1-9][0-9]*)$")
 MAKE_FAILURE = re.compile(r"^(?:make(?:\[[0-9]+\])?: \*\*\* \[[^\]]+: test\] Error [1-9][0-9]*|(?:##\[error\])?(?:Error: )?Process completed with exit code [1-9][0-9]*\.)$")
 GO_LOCATION = re.compile(r"^\s+[^\s]+\.go:[0-9]+:\s*")
@@ -320,7 +329,49 @@ def _affirmative_issue(issue, candidate):
             and bool(re.search(r"^\s*(?:confirmed flaky test|known flaky test|this test is flaky)[.: ]", content, re.I | re.M)))
 
 
-def verify_exceptions(provider, pr, observation, candidates, rules=None):
+def _matching_issue(issue, candidate):
+    """An open issue that declares exactly this context without affirming or denying it."""
+    if issue.get("state") != "open" or issue.get("pull_request"):
+        return False
+    keys = ("workflow", "job", "test", "signature")
+    return any(all(declared.get(k) == candidate[k] for k in keys) for declared in _declarations(issue, False))
+
+
+def _verify_history(provider, pr, candidate, registry):
+    """Reread the saved fail-then-pass of the candidate's context; its evidence, or ValueError."""
+    if registry is None:
+        raise ValueError("fail-then-pass evidence is unavailable without the shared registry")
+    context = {key: candidate[key] for key in ("workflow", "job", "test")}
+    saved = registry.history(pr["repository"], context, candidate["signature"])
+    if saved is None or saved != candidate.get("history"):
+        raise ValueError("saved fail-then-pass history differs or is unavailable")
+    prefix = "repos/" + pr["owner"] + "/" + pr["name"]
+    evidence = {}
+    for side, conclusion in (("failure", "failure"), ("pass", "success")):
+        item = saved[side]
+        # The exact attempt, not the run's latest one: a pass is often a later attempt of the same run.
+        run = provider.request("GET", f'{prefix}/actions/runs/{item["run_id"]}/attempts/{item["attempt"]}')
+        job = provider.request("GET", prefix + "/actions/jobs/" + item["job_id"])
+        if (str(run.get("id")) != item["run_id"] or str(job.get("id")) != item["job_id"]
+                or run.get("run_attempt") != item["attempt"] or run.get("head_sha") != item["head"] or job.get("head_sha") != item["head"]
+                or str(run.get("path", "")).split("@", 1)[0] != item["workflow"] or job.get("name") != item["job"]
+                or job.get("run_attempt") != item["attempt"] or str(job.get("run_id")) != item["run_id"]
+                or job.get("status") != "completed" or job.get("conclusion") != conclusion):
+            raise ValueError("saved " + side + " no longer binds its exact head/run/job/attempt")
+        if side == "failure":
+            logs = provider.failure_logs(pr, item["run_id"], item["job_id"], item["attempt"])
+            failed, _, lines = _lines(logs)
+            if item["test"] not in failed or candidate["signature"] not in lines:
+                raise ValueError("saved failure logs no longer name this test and signature")
+        else:
+            logs = provider.job_logs(pr, item["run_id"], item["job_id"], item["attempt"])
+            if item["test"] not in _lines(logs)[1]:
+                raise ValueError("saved pass logs no longer name this test as passed")
+        evidence[side] = {**item, "sha256": digest({"run": run, "job": job, "logs": logs})}
+    return {"kind": "same-commit-fail-pass", **evidence}
+
+
+def verify_exceptions(provider, pr, observation, candidates, rules=None, registry=None):
     """Read exact run/job/log/issue evidence before permitting any exemption."""
     head = observation["head"]
     rule_map = {rule["id"]: rule for rule in (rules or [])}
@@ -383,7 +434,14 @@ def verify_exceptions(provider, pr, observation, candidates, rules=None):
                         or parts[2] != "issues" or not parts[3].isdigit() or int(parts[3]) < 1):
                     raise ValueError("flake requires a canonical issue in the PR repository")
                 issue = provider.request("GET", prefix + "/issues/" + parts[3])
-                if issue.get("html_url", "").lower() != candidate["issue"].lower() or not _affirmative_issue(issue, candidate):
+                if issue.get("html_url", "").lower() != candidate["issue"].lower():
+                    raise ValueError("issue does not affirm this exact test/signature as flaky")
+                if "history" in candidate:
+                    # A declaration without affirmation counts only with reread fail-then-pass history.
+                    if not _matching_issue(issue, candidate):
+                        raise ValueError("issue does not declare this exact test/signature")
+                    evidence.append(_verify_history(provider, pr, candidate, registry))
+                elif not _affirmative_issue(issue, candidate):
                     raise ValueError("issue does not affirm this exact test/signature as flaky")
                 evidence.append({"kind": "open-flake-issue", "url": candidate["issue"], "sha256": digest(issue)})
             else:
@@ -411,15 +469,32 @@ def _timestamp(value):
     return value
 
 
-def _declarations(issue):
+def _declarations(issue, affirmed=True):
+    """Exact ``dk-flaky`` declarations; with ``affirmed=False`` those that name a context without affirming it."""
     content = str(issue.get("title", "")) + "\n" + str(issue.get("body") or "")
     for block in re.findall(r"```dk-flaky\s*\n(.*?)\n```", content, re.S):
         try:
             value = bounded_json(block)
         except (ValueError, TypeError):
             continue
-        if isinstance(value, dict) and value.get("flaky") is True:
+        if isinstance(value, dict) and ("flaky" not in value if not affirmed else value.get("flaky") is True):
             yield value
+
+
+def _lines(logs):
+    """Named outcomes and normalized diagnostic lines of ``job\\tstep\\tline`` logs."""
+    failed, passed, lines = [], [], set()
+    for raw in logs.splitlines():
+        line = TIMESTAMP.sub("", raw.split("\t", 2)[-1])
+        value = line.strip()
+        for pattern, names in ((NAMED_FAILURE, failed), (NAMED_PASS, passed)):
+            match = pattern.match(value)
+            if match and match[1] not in names:
+                names.append(match[1])
+        for item in (value, GO_LOCATION.sub("", line).strip()):
+            if item and len(item) <= MAX_LINE and len(lines) < MAX_LINES:
+                lines.add(item)
+    return failed, passed, sorted(lines)
 
 
 def _when(value):
@@ -458,14 +533,17 @@ def _trust(plan):
     return {"author": author, "accounts": accounts}
 
 
-def learn(provider, pr, check, trust):
+def learn(provider, pr, check, trust, registry=None):
     """Issue-backed flake candidates for one failed Actions check, from its exact attempt only.
 
     Reads the attempt's run, job and failed-step logs, takes the tests those
     logs name and looks up open issues of the PR repository that mention each
     test. A candidate needs an explicit ``dk-flaky`` declaration of exactly this
     workflow, job and test whose signature occurs in these logs, by a trusted
-    author before the run (``trusted_declarer``). Candidates are never
+    author before the run (``trusted_declarer``). With a ``registry`` the
+    failures are saved, and a trusted declaration of the exact context that does
+    not affirm it nominates a candidate only with saved fail-then-pass history
+    of that context and signature at one commit. Candidates are never
     authority: ``verify_exceptions`` rereads everything and requires every
     failed test and diagnostic line to be covered.
     """
@@ -480,41 +558,96 @@ def learn(provider, pr, check, trust):
     if not workflow or not isinstance(name, str) or not name:
         raise ValueError("exact workflow/job identity unavailable for flake learning")
     logs = provider.failure_logs(pr, str(check["run_id"]), str(check["job_id"]), attempt)
-    tests = []
-    for line in logs.splitlines():
-        match = NAMED_FAILURE.match(TIMESTAMP.sub("", line.split("\t", 2)[-1]).strip())
-        if match and match[1] not in tests:
-            tests.append(match[1])
+    tests, _, lines = _lines(logs)
     if len(tests) > LEARN_TESTS:
         raise ValueError("too many failed tests to learn flakes from one check")
+    if registry is not None and tests and run.get("head_sha") == job.get("head_sha") and job.get("conclusion") == "failure":
+        try:
+            registry.record(pr["repository"], pr["url"], [
+                {"head": run.get("head_sha"), "workflow": workflow, "job": name, "test": test, "outcome": "fail",
+                 "run_id": str(check["run_id"]), "job_id": str(check["job_id"]), "attempt": attempt,
+                 "completed": job.get("completed_at"), "lines": lines, "logs_sha256": digest(logs)}
+                for test in tests])
+        except ValueError:
+            pass  # Incomplete attempt metadata is not saved; classification is unaffected.
     candidates = []
     for test in tests:
         query = quote(f'repo:{pr["owner"]}/{pr["name"]} is:issue is:open "{test}"', safe="")
         issues = provider.pages("search/issues?q=" + query, key="items")
         if len(issues) > LEARN_ISSUES:
             raise ValueError("flake issue lookup exceeds its bound")
-        matched = []
+        matched, historical = [], []
         for issue in issues:
             url = str(issue.get("html_url", ""))
             if (issue.get("pull_request") or issue.get("state") != "open" or not url
                     or not trusted_declarer(issue, trust, run)):
                 continue
-            for declared in _declarations(issue):
-                signature = declared.get("signature")
-                if (declared.get("workflow") == workflow and declared.get("job") == name
-                        and declared.get("test") == test and isinstance(signature, str) and signature.strip()
-                        and "\n" not in signature and signature in logs):
-                    matched.append((str(issue.get("number", "")).zfill(20), url, signature))
+            number = str(issue.get("number", "")).zfill(20)
+            for affirmed, found in ((True, matched), (False, historical)):
+                for declared in _declarations(issue, affirmed):
+                    signature = declared.get("signature")
+                    if (declared.get("workflow") == workflow and declared.get("job") == name
+                            and declared.get("test") == test and isinstance(signature, str) and signature.strip()
+                            and "\n" not in signature and signature in logs):
+                        found.append((number, url, signature))
+        candidate = {"check_id": check["id"], "run_id": str(check["run_id"]), "job_id": str(check["job_id"]),
+                     "attempt": attempt, "kind": "flake", "workflow": workflow, "job": name, "test": test}
         if matched:
             _, url, signature = min(matched)
-            candidates.append({"check_id": check["id"], "run_id": str(check["run_id"]),
-                               "job_id": str(check["job_id"]), "attempt": attempt, "kind": "flake",
-                               "workflow": workflow, "job": name, "test": test, "signature": signature,
-                               "issue": url})
+            candidates.append({**candidate, "signature": signature, "issue": url})
+            continue
+        for _, url, signature in sorted(historical):
+            history = None if registry is None else registry.history(
+                pr["repository"], {"workflow": workflow, "job": name, "test": test}, signature)
+            if history is not None:
+                candidates.append({**candidate, "signature": signature, "issue": url, "history": history})
+                break
     return candidates
 
 
-def classify_current(provider, plan, observation, window=None):
+def record_passes(provider, pr, observation, registry):
+    """Save named passes of successful Actions checks at a head with a saved failure.
+
+    Only a completed successful job of the exact head whose workflow and job
+    have a saved failure there is read. Missing or unreadable logs save no
+    pass and are returned as gaps; they never fail the observation.
+    """
+    head = observation["head"]
+    failures = registry.failed_at(pr["repository"], head)
+    names = {row["job"] for row in failures}
+    prefix = "repos/" + pr["owner"] + "/" + pr["name"]
+    saved, gaps = 0, []
+    for check in observation.get("checks", []):
+        if (check.get("status") != "completed" or check.get("conclusion") != "success"
+                or check.get("name") not in names or not str(check.get("run_id", "")).isdigit()
+                or not str(check.get("job_id", "")).isdigit() or type(check.get("attempt")) is not int
+                or check["attempt"] < 1
+                or registry.recorded(pr["repository"], check["run_id"], check["job_id"], check["attempt"], "pass")):
+            continue
+        try:
+            run = provider.request("GET", f'{prefix}/actions/runs/{check["run_id"]}/attempts/{check["attempt"]}')
+            job = provider.request("GET", prefix + "/actions/jobs/" + str(check["job_id"]))
+            workflow = str(run.get("path", "")).split("@", 1)[0]
+            if (run.get("run_attempt") != check["attempt"] or run.get("head_sha") != head or job.get("head_sha") != head or job.get("status") != "completed"
+                    or job.get("conclusion") != "success" or job.get("run_attempt") != check["attempt"]
+                    or job.get("name") != check["name"]):
+                raise ValueError("successful job does not bind the exact head and attempt")
+            wanted = {row["test"] for row in failures if (row["workflow"], row["job"]) == (workflow, job["name"])}
+            if not wanted:
+                continue
+            logs = provider.job_logs(pr, str(check["run_id"]), str(check["job_id"]), check["attempt"])
+            _, passed, _ = _lines(logs)
+            saved += registry.record(pr["repository"], pr["url"], [
+                {"head": head, "workflow": workflow, "job": job["name"], "test": test, "outcome": "pass",
+                 "run_id": str(check["run_id"]), "job_id": str(check["job_id"]), "attempt": check["attempt"],
+                 "completed": job.get("completed_at"), "lines": [], "logs_sha256": digest(logs)}
+                for test in passed if test in wanted])
+        except EVIDENCE_ERRORS as error:
+            gaps.append({"check_id": str(check.get("id", "")), "reason": str(error)[:500]})
+    return {"recorded": saved, "gaps": gaps}
+
+
+def classify_current(provider, plan, observation, window=None, registry=None):
     """Classify one supplied observation with freshly verified exception proofs.
 
     The caller owns capture freshness and any retained observation deadline.
@@ -528,6 +661,9 @@ def classify_current(provider, plan, observation, window=None):
     classification window, or None for no bound. A check whose window has
     ended before its evidence is read, or ends while it is verified, stays
     failed: its proofs are discarded, never applied late.
+
+    ``registry`` is the shared cross-PR registry: learning saves the failures
+    it reads there (unless it is read-only) and uses its fail-then-pass history.
     """
     selected = _selection(plan.get("options", {}))
     configured = selected["classifications"]
@@ -550,8 +686,9 @@ def classify_current(provider, plan, observation, window=None):
             continue
         try:
             # Configured candidates are explicit; learning is the default for a check without them.
-            group = group or learn(provider, plan["pr"], check, _trust(plan))
-            verified = verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"]) if group else []
+            group = group or learn(provider, plan["pr"], check, _trust(plan), registry)
+            verified = (verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"], registry)
+                        if group else [])
         except EVIDENCE_ERRORS as error:
             rejected.append({"check_id": str(check.get("id", "")), "reason": str(error)[:500]})
             continue
@@ -636,8 +773,16 @@ def observe(provider, plan, ledger, operation):
     observation = provider.observe_ci(plan["pr"], head)
     if observation.get("head") != head:
         raise ValueError("CI observer returned another head")
-    result = classify_current(provider, plan, observation,
-                              _classification_window(ledger, run, selected["classification_timeout_seconds"]))
+    registry = Registry(ledger.root)
+    try:
+        # Passes first: a later attempt that passed at this head completes saved history.
+        saved = record_passes(provider, plan["pr"], observation, registry)
+        result = classify_current(provider, plan, observation,
+                                  _classification_window(ledger, run, selected["classification_timeout_seconds"]),
+                                  registry)
+    finally:
+        registry.close()
+    result["registry"] = saved
     if (result["status"] == "pending" and not result["checks"]
             and _no_checks(ledger, run, head, selected["no_checks_grace_seconds"])):
         result.update(status="no_checks", outcome="no_checks")
