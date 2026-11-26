@@ -225,8 +225,8 @@ def installed_preflight(name, *, request, configuration, deployment, repository,
     """Admit one run of an installed prose entry and return its declared workflow inputs; writes nothing.
 
     The preset is the invocation layer, so saved scopes cannot replace the entry's
-    finalizer. Custom inputs (prompts, preferences) reject like every installed run,
-    since the installed workflow does not consume semantically admitted text yet.
+    finalizer. Custom inputs (prompts, preferences) reject before any gate read: the
+    entry workflows declare no prompt inputs (custom=False).
     """
     try:
         require(name in ENTRIES, 'entry', 'unknown prose entry')
@@ -240,7 +240,8 @@ def installed_preflight(name, *, request, configuration, deployment, repository,
     result = dk_pr_fix.preflight(request=copy.deepcopy(request), configuration=configuration,
                                  invocation={'options': preset(name), **copy.deepcopy(invocation)},
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
-                                 home=home, install=install, workflow=ENTRIES[name]['skill'], entry=WORKFLOWS[name])
+                                 home=home, install=install, workflow=ENTRIES[name]['skill'], entry=WORKFLOWS[name],
+                                 custom=False)
     result['entry'] = {'name': name, 'skill': ENTRIES[name]['skill']}
     if result['preflight'] == 'admitted':
         assert result['inputs']['finalizers'] == [ENTRIES[name]['adapter']]

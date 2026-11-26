@@ -103,7 +103,8 @@ def preflight(*, request, deployment, repository, transport, configuration=None,
                           'limits': limits or {**admission.DEFAULTS['limits'], 'ci_repairs_per_cycle': 0}}}
     result = dk_pr_fix.preflight(request=request, configuration=configuration, invocation=merged,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
-                                 home=home, install=install, workflow=ENTRY['skill'], entry=dk_pr_fix.ENTRY)
+                                 home=home, install=install, workflow=ENTRY['skill'], entry=dk_pr_fix.ENTRY,
+                                 custom=False)
     result['entry'] = {'name': NAME, 'skill': ENTRY['skill'], 'preset': 'observe', 'mode': 'fix',
                        'options': entry_options}
     if result['preflight'] != 'admitted':

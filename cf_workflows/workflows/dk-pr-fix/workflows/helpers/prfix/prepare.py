@@ -47,6 +47,72 @@ MODES = ("fix", "review")
 VALIDATION_LIMITS = {"commands": 32, "arguments": 256, "bytes": 64 << 10}
 
 
+# Semantically accepted custom inputs (cf_workflows.semantic, docs/semantic.md#installed-workflow).
+# Prompts reach the occurrences they target (every occurrence when untargeted); these
+# slots also narrow them to one phase or kind. Other slots apply to any occurrence.
+PROMPT_SLOTS = {"task": lambda phase, kind: phase == "tasks" and kind != "review",
+                "reviewer": lambda phase, kind: kind == "review",
+                "finalizer": lambda phase, kind: phase == "finalizers",
+                "reply": lambda phase, kind: kind == "reply"}
+PROMPT_LIMITS = {"prompts": 256, "bytes": 1 << 20}
+POLICY_KEYS = ("requirements", "prohibitions")
+
+
+def custom_prompts(raw):
+    """The exact accepted prompt records: {id, slot, target, text} plus a preference's scope."""
+    if not isinstance(raw, list) or len(raw) > PROMPT_LIMITS["prompts"]:
+        raise ValueError("prompts are an array of at most 256 accepted prompt records")
+    seen, replaced = set(), set()
+    for item in raw:
+        if (not isinstance(item, dict) or not {"id", "slot", "target", "text"} <= set(item)
+                or set(item) - {"id", "slot", "target", "text", "scope"}
+                or not all(isinstance(item[key], str) and item[key].strip() for key in ("id", "slot", "text"))
+                or not (item["target"] is None or isinstance(item["target"], str) and item["target"].strip())
+                or not isinstance(item.get("scope", {}), dict)):
+            raise ValueError("prompt records are {id, slot, target, text} with an optional preference scope")
+        if item["id"] in seen:
+            raise ValueError("duplicate prompt id")
+        seen.add(item["id"])
+        if item["slot"] == "behavior_replacement":
+            if item["target"] is None or item["target"] in replaced:
+                raise ValueError("a behavior replacement names one adapter, at most once")
+            replaced.add(item["target"])
+    if len(json.dumps(raw).encode()) > PROMPT_LIMITS["bytes"]:
+        raise ValueError("prompts exceed 1 MiB")
+    return [dict(item) for item in raw]
+
+
+def custom_policy(raw):
+    """Free-text requirements and prohibitions; an absent kind is omitted."""
+    if (not isinstance(raw, dict) or set(raw) - set(POLICY_KEYS)
+            or any(not isinstance(value, list) or not value
+                   or any(not isinstance(item, str) or not item.strip() for item in value) for value in raw.values())):
+        raise ValueError("policy is {requirements, prohibitions}: nonempty arrays of text")
+    return {key: list(raw[key]) for key in POLICY_KEYS if key in raw}
+
+
+def customize(task, adapter, phase, prompts, policy):
+    """Apply accepted prompts and policy to one occurrence; nothing changes without them.
+
+    A default plan adds no keys, so its occurrence fingerprints are unchanged.
+    """
+    applicable = [item for item in prompts if item["target"] in (None, adapter)
+                  and PROMPT_SLOTS.get(item["slot"], lambda *_: True)(phase, task["kind"])]
+    for item in applicable:
+        if item["slot"] == "behavior_replacement":
+            # The accepted replacement stands in for the adapter's assignment; instructions still follow it.
+            task["assignment"] = item["text"] + task["assignment"][len(task.pop("base_assignment")):]
+            task["behavior"] = "prompt:" + item["id"]
+    task.pop("base_assignment", None)
+    additions = [{key: item[key] for key in ("id", "slot", "text", "scope") if key in item}
+                 for item in applicable if item["slot"] != "behavior_replacement"]
+    if additions:
+        task["prompts"] = additions
+    if policy:
+        task["policy"] = policy
+    return task
+
+
 def validation_commands(raw):
     """The exact validated argument arrays: no shell string and no empty argument.
 
@@ -241,7 +307,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     pr = identity(request["pr"])
     instructions = text(request.get("instructions"), "exact original instruction")
     execution_fingerprint = text(execution_fingerprint, "admitted execution fingerprint")
-    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry"}:
+    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry", "prompts", "policy"}:
         raise ValueError("unsupported YAML preparation input")
     mode = controls.get("mode", "fix")
     if mode not in MODES:
@@ -263,7 +329,10 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if set(definitions) != {"leaf", "reviewer", "verifier", "fixer", "audience"}:
         raise ValueError("five explicit native definitions required")
     options = {key: value for key, value in controls.items()
-               if key not in {"settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry"}}
+               if key not in {"settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry",
+                              "prompts", "policy"}}
+    prompts = custom_prompts(controls.get("prompts", []))
+    policy = custom_policy(controls.get("policy", {}))
     allowed_options = {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method",
                        "ci_timeout_seconds", "ci_classifications", "ci_exceptions", "before_cycle", "after_cycle"}
     if set(options) - allowed_options:
@@ -349,6 +418,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                 "checklist": adapter.get("checklist", CHECKLIST), "options": call.get("options", {}),
                 "resources": adapter.get("resources", []), "history": bool(adapter.get("history", kind == "cleanup")),
                 "head_sensitive": bool(adapter.get("head_sensitive", False)), "cacheable": bool(adapter.get("cacheable", True))}
+        task["base_assignment"] = text(adapter.get("assignment"), "adapter assignment")
+        customize(task, adapter_name, phase, prompts, policy)
         if type(task["required"]) is not bool or not isinstance(task["options"], dict):
             raise ValueError("invalid task controls")
         if not task["checklist"] or len(task["checklist"]) > 32 or len({item["id"] for item in task["checklist"]}) != len(task["checklist"]):
@@ -429,17 +500,18 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         for key, kind, role, assignment in [
             ("finding_verification", "verification", "verifier", "Independently verify every retained original finding. Preserve exact finding_id and report source; return dispositions confirmed/rejected with concrete source evidence and reason. Do not edit or publish."),
             *([] if mode == "review" else [("finding_fix", "fix", "fixer", "Address independently confirmed findings. Return every finding_id disposition fixed/accepted/deferred/rejected, current evidence IDs and exact changed-file hashes/commit_message. Preserve original report/source references in deliverables. Accepted/deferred dispositions require retained exact user authority. Do not publish or commit.")])]:
-            tasks.append({"id": key, "skill": key, "kind": kind, "definition": role,
+            tasks.append(customize({"id": key, "skill": key, "kind": kind, "definition": role,
                 "definition_digest": hashlib.sha256(definitions[role]).hexdigest(), "assignment": assignment,
                 "required": True, "writes": kind == "fix", "checklist": CHECKLIST,
-                "options": {}, "resources": [], "history": False, "head_sensitive": False, "cacheable": True})
+                "options": {}, "resources": [], "history": False, "head_sensitive": False, "cacheable": True},
+                None, None, prompts, policy))
     if any(stage["kind"] == "ci" for stage in stages) and limits["ci_repairs_per_cycle"] > 0:
         # Without a repair allowance (cf-workflows:dk-ci observes only) no repair session exists.
-        tasks.append({"id": "ci_repair", "skill": "ci_repair", "kind": "fix", "definition": "fixer",
+        tasks.append(customize({"id": "ci_repair", "skill": "ci_repair", "kind": "fix", "definition": "fixer",
             "definition_digest": hashlib.sha256(definitions["fixer"]).hexdigest(),
             "assignment": "Repair only the exact evidenced failed CI head/run/job/attempt in this assignment. Inspect original logs and relevant tests. Return source evidence, complete changed-file manifest and native commit message. Do not publish or commit; do not reinterpret unknown failures as flakes.",
             "required": False, "writes": True, "checklist": CHECKLIST, "options": {}, "resources": [],
-            "history": False, "head_sensitive": True, "cacheable": False})
+            "history": False, "head_sensitive": True, "cacheable": False}, None, None, prompts, policy))
     options_of({"settings": controls.get("settings", {})})
     plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),

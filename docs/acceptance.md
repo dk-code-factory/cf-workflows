@@ -3,9 +3,9 @@
 [`cf_workflows/acceptance.py`](../cf_workflows/acceptance.py) retains
 [semantic acceptance](semantic.md) so that unchanged custom inputs are not
 assessed again. [`cf_workflows/writes.py`](../cf_workflows/writes.py) writes
-accepted configuration revisions back and recovers interrupted writes. Like
-admission, both are library operations for the future preparation helper (#14);
-no installed workflow calls them yet.
+accepted configuration revisions back and recovers interrupted writes. Both are
+library operations for the future preparation helper (#14). Installed preflight
+assesses custom inputs without a ledger, so it does not reuse acceptances yet.
 
 ## Acceptance units and bindings
 

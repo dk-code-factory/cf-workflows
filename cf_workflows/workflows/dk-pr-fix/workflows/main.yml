@@ -140,6 +140,15 @@ name: cf-workflows:dk-pr-fix
       turns:
         type: number
         default: 8
+      prompts:
+        # Semantically accepted custom prompts and preferences: {id, slot, target, text[, scope]}
+        # (cf_workflows.semantic; docs/semantic.md#installed-workflow). Empty without custom inputs.
+        type: array
+        default: []
+      policy:
+        # Semantically accepted free-text {requirements, prohibitions}; empty without them.
+        type: object
+        default: {}
       mode:
         # fix maintains the PR; review is incoming review (workflows/review.yml).
         type: string
@@ -194,6 +203,8 @@ jobs:
           settings: ${{ inputs.settings }}
           resources: ${{ inputs.resources }}
           turns: ${{ inputs.turns }}
+          prompts: ${{ inputs.prompts }}
+          policy: ${{ inputs.policy }}
           mode: ${{ inputs.mode }}
           validation_commands: ${{ inputs.validation_commands }}
           entry: ${{ inputs.entry }}

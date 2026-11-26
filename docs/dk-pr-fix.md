@@ -104,16 +104,20 @@ Adaptations to the example:
 | Private request | Exact PR URL, instructions and logical run, staged in the state namespace |
 
 [`cf_workflows/dk_pr_fix.py`](../cf_workflows/dk_pr_fix.py) prepares a run. It
-starts no session and runs nothing.
+runs no target task. Only custom inputs make it ask the engine for one
+configuration-validator task and durable input gates ([semantic assessment](semantic.md#installed-workflow)).
 
 1. `preflight()` checks the installation against `closure.json` and checks that
    the target checkout is outside it. On failure it rejects before contacting the
    engine.
 2. It runs [structural admission](admission.md) with the installed role catalog.
-   Custom prompts, per-task instructions, custom adapters and free-text policy
-   reject at preflight. Admission reports them as `semantic_required`, but the
-   installed workflow has no inputs that carry them yet, so running without them
-   would silently drop them. Supplied skills reject until Agent Workflow #139
+   Custom prompts and preferences, per-task instructions, custom adapters and
+   free-text policy are `semantic_required`. After the installed-workflow limits
+   below pass, they go through [semantic assessment](semantic.md): one validator
+   task, then a durable gate and re-admission when it asks for clarification.
+   Only an accepted proposal is mapped; `waiting`, `rejected` and `blocked` map
+   and stage nothing. Preset entries over this workflow reject custom inputs
+   before any gate read. Supplied skills reject until Agent Workflow #139
    ([skills.md](skills.md)). A repository-only request and the configuration
    adapters of `dk-config` and `dk-preferences` reject; the read-only
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
@@ -130,7 +134,9 @@ starts no session and runs nothing.
    Every other input is `false`.
 4. It maps the effective options onto the declared inputs: tasks, finalizers,
    reviewers, the selected baseline adapters, limits, CI timeout, merge method,
-   accounts, settings and turns. `inputs.request` names the staged request.
+   accounts, settings and turns. Accepted custom prompts and free-text policy
+   map onto `prompts` and `policy`, which are absent otherwise. `inputs.request`
+   names the staged request.
 5. `stage_request()` writes the request as `requests/<sha256>.json` (mode 0600) in
    the state namespace. This is the only write.
 
@@ -297,7 +303,9 @@ provider or host capability.
 - Proof that budgets, occurrences and continuation hold across real engine runs
   and native sessions needs #129 and #130. The fixtures exercise only the
   helpers.
-- Workflow inputs for semantically admitted custom inputs (#12), and supplied-skill
-  bindings ([skills.md](skills.md)), which need Agent Workflow #139.
+- Semantic admission of custom inputs through a real engine: the validator task
+  needs an engine operation receipt or a validator-only read-only tool policy,
+  which Agent Workflow `8758775` does not provide ([engine binding](semantic.md#engine-binding)).
+  Supplied-skill bindings ([skills.md](skills.md)) also need Agent Workflow #139.
 
 No local launcher, controller or second agent loop stands in for these.

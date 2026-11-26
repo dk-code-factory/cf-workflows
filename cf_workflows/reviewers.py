@@ -173,7 +173,7 @@ def preflight(name, *, request, configuration=None, invocation=None, deployment,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
                                  home=home, install=install, mode='review',
                                  defaults={'tasks': [{'stage': 'reviews'}], 'finalizers': [], 'reviewers': []},
-                                 workflow=ENTRIES[name]['skill'], entry=dk_pr_review.ENTRY)
+                                 workflow=ENTRIES[name]['skill'], entry=dk_pr_review.ENTRY, custom=False)
     entry = {'name': name, 'skill': ENTRIES[name]['skill'], 'options': entry_options,
              'role_prompt': ENTRIES[name]['role_prompt']}
     result['entry'] = entry

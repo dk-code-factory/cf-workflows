@@ -7,7 +7,7 @@
   "files": {
     "LICENSE": "c9c1a0955ab365663dce7d5911c1d9e5aa13a1f497cebd5bbacc15bb353a1beb",
     "agents.yml": "1b908fef92164ebc47556ebd12ee5490ccb46893c2363d402cf4456a46384929",
-    "plugin.yaml": "c9c0c09a4810deb739a461ddaccb0ee8721ad68891b75500136bb12ab11a5a7d",
+    "plugin.yaml": "251b156c86090b5c4f5b0a0c8b67247e11e03b6bb9fd8e690d1b00bffb1ec8e7",
     "request.example.json": "b37cc9b392acae54178afa4e51a1822f72294cd10b8eef1b5c2e6d158ccdfd3f",
     "skills/dk-asd-ste100/SKILL.md": "b46c169308d4839bb0fd0401be2e0d527931835c9380096d53043ac9510df575",
     "skills/dk-plain-english/SKILL.md": "0903707ec03a851478749da97311e433629599abfa17f68219e71a37f0156918",
@@ -25,6 +25,7 @@
     "workflows/agents/reviewer.yaml": "8fe62fdf55e62afdbb308041b1cfcc18f53f6f7045a1d74c9880a9761a03dbd4",
     "workflows/agents/verifier.yaml": "b8aa6800c412b45c8aabcc9dd96171b00a82aff3f64d77cc71d9acfb16dbb5e8",
     "workflows/asd-ste100.yml": "b02e2d0d5822de53cefd93404fed2d17d6b75e96c14085955af270030b50f86c",
+    "workflows/assess.yml": "69b19d9d5aae887101a5c969d238b873fa773ffb3e3ba39bb948f71e445854a9",
     "workflows/batch.yml": "2299a12062d435cd03092e3d9d9c75058cbe2c0b29d55c5459049f50c0ee9772",
     "workflows/ci-pass.yml": "10f6708bf36cfe63388de1ccb0a455b30de0ee47303d087b3f4daed4f4b803a8",
     "workflows/ci-poll.yml": "13051dbf4429d4f12aaee3a159402e7f4e1ffa9c1890b10856e6a8a38df03ccf",
@@ -45,13 +46,13 @@
     "workflows/helpers/prfix/feedback.py": "bf626acf07fca765dba83682d8b2a37325bfd0f81bb2b77751947ff4b7603913",
     "workflows/helpers/prfix/findings.py": "974caa2707879f483201b0258601819d1d027f286e5f2c7e23784004ed8ee9d0",
     "workflows/helpers/prfix/preparation.py": "b61d4b35213063285877b2794dcd9b8206ac9c19f624abc744d41bf22a8a9dd6",
-    "workflows/helpers/prfix/prepare.py": "dad52609d499d34a17eabeb92ed3ee6a84d945a30ce6b851184b9cd329605480",
+    "workflows/helpers/prfix/prepare.py": "647419184dda303d749f5e52ec72621612fe59a093eb660c986677ccb1274672",
     "workflows/helpers/prfix/prose.py": "d187245a18cf530694cc87522a86cdee70f5e047cb479db20eb1df13b60f5966",
     "workflows/helpers/prfix/publication.py": "56b22eacb6dc721e65c08fe50a299cb79aedd471f86581c68b0d6c693130304c",
     "workflows/helpers/prfix/publishing.py": "9f022ae6990caa34722a5b6d9574eeb8bc967add817fdfd003fa36f7f095ff70",
     "workflows/helpers/prfix/registry.py": "1537fe1635f8b84923ba34e99b55255795a17037de93823dd0110e858c05e8b1",
     "workflows/helpers/prfix/responses.py": "1b5efa64c3f938aba1fa43e23eed5fb512038a85234eb4355b8404bc3bc5ebab",
-    "workflows/main.yml": "18eeef45633f6ab37bd9f213bf206a6d53ae6bdd7fd4acdec3c4974e82d941ac",
+    "workflows/main.yml": "a584c838efc1066cbfb63c6843c6362e1ebf666c958080fea9169829143c7d5c",
     "workflows/native.yml": "a474e83504ac52bb1ff46bae82df8b7897532c48181aa46f61064194cc5d5467",
     "workflows/plain-english.yml": "1581720597cb7f597d58e983fedf5270cae55788c60c286680f3abbbd51c2f20",
     "workflows/publication-barrier.yml": "ef3af69fa52effb5f647c90d5ec5cfbb573cd9676e5d07b2b7c88fb413613776",
@@ -60,8 +61,9 @@
     "workflows/reconciliation.yml": "f2852ac77b61375cd30067518140766a350f5a908430b4d54680c67fd1e4fcb9",
     "workflows/responses.yml": "347b0b0f7352753946afbc6921a5350a63dd715aff567c4c5a4039688118239b",
     "workflows/review-post.yml": "499ec354176785e1fadbd03bae4a3b505379af81498aa97571f07d3b52f2bb3e",
-    "workflows/review.yml": "78a90486e66fc4996e2da96393a9fc96fbab847f1f21092f52ab7f9e9f6f5618",
+    "workflows/review.yml": "5406d4c49afedc1a52e91593aa92ae29f3551ef1f1c30b8a17b5a4ad79e6b2de",
     "workflows/stage.yml": "a283d64e781e461f97abae40f649d053bd0a72fff208527fe182c7a51a0ca98c",
-    "workflows/task.yml": "e940b7ba150f53537ada6eca490e63e92bb7f13f7fa7e7ed612d9d292aba1dea"
+    "workflows/task.yml": "e940b7ba150f53537ada6eca490e63e92bb7f13f7fa7e7ed612d9d292aba1dea",
+    "workflows/validator/configuration-validator.yaml": "3585d3bde2a04f9e667390beb7fb7bd367657f8976744fe3c5982000531d8ee8"
   }
 }

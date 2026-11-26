@@ -308,8 +308,9 @@ counts and, where it matters, the number of distinct sessions.
 - These features have no equivalent yet: saved instruction-source overrides
   (admission consumes the root guidance closure for every run, so an override
   changes what governs all runs and needs its own admission design) and
-  per-task preference handoffs in the installed `dk-pr-fix` workflow (which
-  still rejects custom inputs).
+  per-task preference handoffs in the installed `dk-pr-fix` workflow (accepted
+  preferences reach occurrences with their scope as data; the helpers do not
+  narrow them to matching paths).
 - Native controls are admitted and checked at library level. The installed
   graph does not pass them to an engine yet, so no provider is shown to honor
   them.
