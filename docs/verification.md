@@ -108,7 +108,11 @@ rejection through the shared publication journal, counting review writes and
 native dispatches on a fail-closed fake GitHub.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
-gateways. They cover missing, duplicate, undeclared and nested children, digest
+gateways. They cover the Agent Workflow #139 admission profile (SKILL.md
+metadata and size, one entry, no symlinks, one constrained Claude child, no
+Codex children or arguments, per-runtime profiles), Claude calls without their
+successful result, Codex fragments with other bytes or provenance, missing,
+duplicate, undeclared, differently controlled and nested children, digest
 mismatch, same-named and host skills, report-only claims, resumed and checklist
 sessions without the skill, interrupted and failed writers, and occurrence IDs
 equal to the installed helper's.

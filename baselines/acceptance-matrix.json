@@ -1159,7 +1159,7 @@
     {
       "case": "default_plan_loads_no_skills",
       "tests": [
-        "test_skills.Bindings.test_default_plan_loads_no_skills_and_needs_no_skill_capability",
+        "test_skills.Bindings.test_default_plan_loads_no_skills_and_needs_no_skill_profile",
         "test_skills.Evidence.test_default_sessions_load_and_invoke_nothing"
       ]
     },
@@ -1216,7 +1216,7 @@
       "tests": [
         "test_dk_pr_fix.Preflight.test_custom_prompts_and_supplied_skills_reject_at_preflight",
         "test_semantic.Routing.test_supplied_skills_stay_rejected_before_any_session",
-        "test_skills.Bindings.test_supplied_skills_stay_rejected_until_session_scoped_loading_exists"
+        "test_skills.Bindings.test_supplied_skills_stay_rejected_until_the_workflow_is_wired"
       ]
     },
     {

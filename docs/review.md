@@ -223,8 +223,9 @@ publication helpers list only verified findings and the final merge there.
   merge withheld without coverage. The review preflight cases cover the preset,
   scope overrides and rejected writes and publications.
 - `tests/test_skills.py` (`IncomingReviewCoordinator`) checks a supplied
-  coordinator skill with three required passes on the review preset. Report-only
-  claims, missing passes and unfinished passes stay `incomplete`.
+  coordinator skill with its one required child pass on the review preset
+  (Agent Workflow #139 admits exactly one required child, on Claude only).
+  Report-only claims, missing passes and unfinished passes stay `incomplete`.
 
 ## What remains
 
