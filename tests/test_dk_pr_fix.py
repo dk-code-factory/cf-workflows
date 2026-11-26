@@ -22,7 +22,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
-from cf_workflows import admission, dk_pr_fix, validator_binding  # noqa: E402
+from cf_workflows import acceptance, admission, dk_pr_fix, dk_pr_review, validator_binding, writes  # noqa: E402
+from test_acceptance import Interrupted, Store  # noqa: E402
 from test_semantic import Engine, verdict  # noqa: E402
 
 sys.dont_write_bytecode = True  # Importing the helpers must not add caches to the installed closure.
@@ -569,6 +570,283 @@ class SemanticPreflight(PreflightFixture):
                                      transport=self.transport, install=self.clean, custom=False)
         self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'custom'))
         self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
+
+class LedgeredPreflight(SemanticPreflight):
+    """Installed preflight with the suite's configuration ledger and store: reuse and write recovery."""
+
+    INSTRUCTION = 'invocation.options.tasks[0].instructions'
+    SAVED = 'configuration.scopes[0].options.tasks[0].instructions'
+
+    def setUp(self):
+        super().setUp()
+        self.xdg = {'HOME': str(self.base / 'user home'), 'XDG_STATE_HOME': str(self.base / 'xdg state'),
+                    'XDG_CONFIG_HOME': str(self.base / 'xdg config')}
+        self.reopen()
+
+    def reopen(self):
+        """A fresh process: new connections to the same durable ledger and store."""
+        store, self.ledger = writes.open_state(self.xdg)
+        self.addCleanup(self.ledger.close)
+        self.store = Store(store.path)
+
+    def admit(self, *sessions, invocation=None, capabilities=CAPABILITIES, stored=False, **changes):
+        self.transport = FakeTransport(capabilities)
+        script = list(sessions)
+        self.assignments = []
+
+        def session(task):
+            self.assignments.append(task)
+            if not script:
+                raise AssertionError('unscripted validator session')
+            return script.pop(0)(task)
+        self.transport.configured.update(
+            validator_session=session, open_input_gate=self.engine.open,
+            input_gates=lambda request_id: copy.deepcopy([gate for gate in self.engine.gates
+                                                          if gate['request_id'] == request_id]))
+        self.store.calls.clear()
+        arguments = {'request': self.request, 'configuration': None,
+                     'invocation': self.CUSTOM if invocation is None else invocation,
+                     'deployment': self.deployment, 'repository': self.repo, 'home': self.home, **changes}
+        result = dk_pr_fix.preflight(transport=self.transport, install=self.clean, ledger=self.ledger,
+                                     store=self.store if stored else None, **copy.deepcopy(arguments))
+        self.assertLessEqual(set(self.transport.calls),
+                             {'capabilities', 'input_gates', 'validator_session', 'open_input_gate'})
+        self.assertLessEqual(self.transport.calls['validator_session'], 1)
+        # Only the suite's own XDG ledger and configuration store are written.
+        self.assertFalse(self.home.exists(), 'preflight stages nothing')
+        self.assertEqual(git(self.repo, 'status', '--porcelain', '--ignored'), '')
+        return result
+
+    def test_ledger_and_store_live_in_the_suites_own_xdg_namespaces(self):
+        paths = acceptance.locations(self.xdg)
+        self.assertEqual((self.ledger.path, self.store.inner.path), (paths['ledger'], paths['configuration']))
+        self.assertEqual(paths['ledger'], self.base / 'xdg state' / 'cf-workflows' / 'configuration.sqlite3')
+        self.assertEqual(paths['configuration'], self.base / 'xdg config' / 'cf-workflows' / 'configuration.json')
+        # A store needs the ledger, and never stands beside an explicit configuration.
+        for changes in ({'ledger': None, 'store': self.store},
+                        {'ledger': self.ledger, 'store': self.store, 'configuration': {}}):
+            with self.subTest(changes=sorted(changes)):
+                result = dk_pr_fix.preflight(**{'request': self.request, 'configuration': None, 'invocation': None,
+                                                'deployment': self.deployment, 'repository': self.repo,
+                                                'home': self.home, 'transport': FakeTransport(),
+                                                'install': self.clean, **changes})
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'configuration'))
+        self.assertEqual(self.store.calls, Counter())
+
+    def test_unchanged_fresh_preflight_reuses_original_evidence_without_a_validator_task(self):
+        first = self.admit(verdict('accepted'))
+        self.assertEqual((first['preflight'], first['semantic']), ('admitted', 'accepted'), first.get('error'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1, input_gates=1, validator_session=1))
+        [task] = self.assignments
+        original = 'native:result-' + task['claim']
+        self.reopen()
+        self.engine = Engine()  # No gate survives: reuse needs none.
+        again = self.admit()
+        self.assertEqual((again['preflight'], again['semantic']), ('admitted', 'accepted'), again.get('error'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1))
+        self.assertIn(original, again['admission']['evidence_refs'])
+        self.assertEqual(set(again['reuse']['reused'].values()), {'result-' + task['claim']})
+        self.assertEqual((again['reuse']['subjects'], again['reuse']['invalidated']), ([], {}))
+        self.assertEqual(again['inputs'], first['inputs'])
+        self.assertEqual(again['state']['request_document'], first['state']['request_document'])
+
+    def test_each_changed_input_invalidates_only_its_units(self):
+        self.admit(verdict('accepted'))
+        [task] = self.assignments
+        original = 'result-' + task['claim']
+        options = self.CUSTOM['options']
+        adapter = options['adapters']['check-docs']
+        cases = [
+            ('instruction', {**self.CUSTOM, 'options': {**options, 'tasks': [
+                {'task': 'address-feedback', 'instructions': 'Only touch tests/ and docs/.'}]}},
+             CAPABILITIES, {'instruction:' + self.INSTRUCTION: ['content']}),
+            # The custom adapter is a finalizer of this plan, so untargeted text and policy are bound to it.
+            ('adapter', {**self.CUSTOM, 'options': {**options, 'adapters': {
+                'check-docs': {**adapter, 'assignment': 'Check that docs and examples match.'}}}},
+             CAPABILITIES, {'adapter:check-docs': ['content'], 'policy': ['plan'],
+                            'prompt:invocation:invocation:tone': ['plan']}),
+            ('capabilities', None, {**CAPABILITIES, 'engine': {**CAPABILITIES['engine'], 'version': 'fixture-2'}},
+             None),
+        ]
+        for name, invocation, capabilities, invalidated in cases:
+            with self.subTest(name):
+                result = self.admit(verdict('accepted'), invocation=invocation, capabilities=capabilities)
+                self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'),
+                                 result.get('error'))
+                self.assertEqual(self.transport.calls['validator_session'], 1)
+                assessed = self.assignments[-1]
+                if invalidated is None:  # Actual capabilities bind every unit.
+                    self.assertEqual(result['reuse']['reused'], {})
+                    self.assertEqual(len(result['reuse']['invalidated']), 4)
+                    self.assertTrue(all('capabilities' in reasons
+                                        for reasons in result['reuse']['invalidated'].values()))
+                    continue
+                self.assertEqual(result['reuse']['invalidated'], invalidated)
+                self.assertEqual(sorted(result['reuse']['subjects']), sorted(invalidated))
+                # Unchanged units are context with their original native evidence, not subjects.
+                self.assertTrue(result['reuse']['reused'])
+                self.assertEqual(set(result['reuse']['reused'].values()), {original})
+                self.assertEqual(set(assessed['accepted'].values()), {'native:' + original})
+                self.assertFalse(set(assessed['accepted']) & set(assessed['subjects']))
+                self.assertIn('native:' + original, result['admission']['evidence_refs'])
+        # The original proposal is still current: a fresh preflight runs nothing.
+        self.reopen()
+        self.assertEqual(self.admit()['semantic'], 'accepted')
+        self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
+    def test_clarified_acceptance_replays_answers_then_reuses_without_any_gate(self):
+        question = [{'id': 'u1', 'paths': ['invocation.prompts[0]'], 'question': 'Small enough to skip tests?'}]
+        self.assertEqual(self.admit(verdict('needs_clarification', uncertainties=question))['preflight'], 'waiting')
+        self.engine.answer('gate-1', 'answer-1', {'action': 'supplement', 'text': 'Tests still apply.'})
+        accepted = self.admit(verdict('accepted', resolved=[{'id': 'r1', 'paths': ['invocation.prompts[0]'],
+                                                             'detail': 'Answered.'}]))
+        self.assertEqual(accepted['semantic'], 'accepted', accepted.get('error'))
+        # The original invocation replays the answered gate (read once) into the same revision, now current.
+        self.reopen()
+        replayed = self.admit()
+        self.assertEqual((replayed['preflight'], replayed['semantic']), ('admitted', 'accepted'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=2, input_gates=1))
+        self.assertEqual(replayed['inputs'], accepted['inputs'])
+        self.assertEqual([gate['gate_id'] for gate in self.engine.gates], ['gate-1'])
+
+    def test_lost_gate_response_asks_the_retained_question_without_a_new_task(self):
+        question = [{'id': 'u1', 'paths': ['invocation.prompts[0]'], 'question': 'Small enough to skip tests?'}]
+
+        def lost(request):
+            raise ConnectionError('gate response lost before the engine created it')
+        self.engine.open, opened = lost, self.engine.open
+        first = self.admit(verdict('needs_clarification', uncertainties=question))
+        self.assertEqual((first['preflight'], first['error']['path']), ('blocked', 'gate'))
+        self.engine.open = opened
+        self.reopen()
+        again = self.admit()
+        self.assertEqual((again['preflight'], again['gate']['gate_id']), ('waiting', 'gate-1'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1, input_gates=1, open_input_gate=1))
+        self.assertEqual(self.engine.gates[0]['request']['payload']['verdict']['uncertainties'], question)
+
+    def stored(self, instructions='Rewrite everything.'):
+        saved = {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows',
+                 'scopes': [{'id': 'repo', 'selector': {'kind': 'repository', 'id': 'github.com/owner/repo'},
+                             'options': {'tasks': [{'task': 'address-feedback', 'instructions': instructions}]},
+                             'permissions': {}, 'prompts': [], 'skills': [], 'preferences': []}],
+                 'resources': [],
+                 'admission': {'structural': 'pending', 'semantic': None, 'request_id': None,
+                               'context_digest': None, 'resource_digest': None, 'capability_digest': None,
+                               'evidence_refs': []}}
+        self.store.inner.write(None, saved)
+        return self.store.inner.read()['revision']
+
+    def clarify_saved(self, fault=None):
+        base = self.stored()
+        question = [{'id': 'u1', 'paths': [self.SAVED, 'request.instructions'], 'question': 'Everything?'}]
+        first = self.admit(verdict('needs_clarification', uncertainties=question), invocation={}, stored=True)
+        self.assertEqual(first['preflight'], 'waiting', first.get('error'))
+        self.assertEqual(first['recovered_writes'], [])
+        self.engine.answer('gate-1', 'answer-1', {'action': 'replace', 'path': self.SAVED,
+                                                  'text': 'Only the flaky test.'})
+        self.store.fault = fault
+        return base
+
+    def saved_instruction(self):
+        return self.store.inner.read()['scopes'][0]['options']['tasks'][0]['instructions']
+
+    def test_answered_revision_of_the_saved_configuration_is_written_once(self):
+        base = self.clarify_saved()
+        result = self.admit(verdict('accepted'), invocation={}, stored=True)
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'), result.get('error'))
+        self.assertEqual(result['configuration_write']['status'], 'applied')
+        self.assertEqual(self.store.calls, Counter(read=1, write=1))
+        self.assertEqual(self.saved_instruction(), 'Only the flaky test.')
+        self.assertEqual(result['inputs']['tasks'], [{'task': 'address-feedback',
+                                                      'instructions': 'Only the flaky test.'}])
+        [intent] = self.ledger.writes()
+        self.assertEqual((intent['status'], intent['dispatches'], intent['base_revision']), ('applied', 1, base))
+        # A fresh preflight reads the written revision and reuses its acceptance: no task, gate or write.
+        self.reopen()
+        self.engine = Engine()
+        again = self.admit(invocation={}, stored=True)
+        self.assertEqual((again['preflight'], again['semantic']), ('admitted', 'accepted'), again.get('error'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1))
+        self.assertEqual(self.store.calls, Counter(read=1))
+        self.assertNotIn('configuration_write', again)
+        self.assertEqual(again['inputs'], result['inputs'])
+
+    def test_lost_write_response_settles_by_readback_without_a_retry(self):
+        self.clarify_saved('lost-response')
+        result = self.admit(verdict('accepted'), invocation={}, stored=True)
+        self.assertEqual(result['configuration_write']['status'], 'applied')
+        self.assertEqual(self.store.calls, Counter(read=2, write=1))
+        [intent] = self.ledger.writes()
+        self.assertEqual((intent['status'], intent['dispatches'], intent['receipt']['by']), ('applied', 1, 'readback'))
+
+    def test_interrupted_write_is_reconciled_before_preflight_reads_the_configuration(self):
+        for fault, writes_after in (('interrupt-after', 0), ('interrupt-before', 1)):  # Before: same intent again.
+            with self.subTest(fault):
+                self.setUp()
+                base = self.clarify_saved(fault)
+                with self.assertRaises(Interrupted):
+                    self.admit(verdict('accepted'), invocation={}, stored=True)
+                [intent] = self.ledger.writes()
+                self.assertEqual((intent['status'], intent['dispatches']), ('pending', 1))
+                self.reopen()
+                self.engine = Engine()  # The answered gate is gone; nothing can be asked or answered again.
+                result = self.admit(invocation={}, stored=True)
+                self.assertEqual(result['recovered_writes'], [{'intent_id': intent['intent_id'], 'status': 'applied'}])
+                self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'),
+                                 result.get('error'))
+                # Readback first, then the revised configuration reuses its acceptance.
+                self.assertEqual(self.transport.calls, Counter(capabilities=1))
+                self.assertEqual(self.store.calls['write'], writes_after)
+                self.assertNotIn('configuration_write', result)
+                self.assertEqual(self.saved_instruction(), 'Only the flaky test.')
+                self.assertNotEqual(self.store.inner.read()['revision'], base)
+                [intent] = self.ledger.writes()
+                self.assertEqual((intent['status'], intent['dispatches']), ('applied', 1 + writes_after))
+
+    def test_another_writer_leaves_the_uncertain_write_blocked_and_reassesses(self):
+        self.clarify_saved('interrupt-before')
+        with self.assertRaises(Interrupted):
+            self.admit(verdict('accepted'), invocation={}, stored=True)
+        current = self.store.inner.read()
+        self.store.inner.write(current['revision'], {**{k: v for k, v in current.items() if k != 'revision'},
+                                                     'scopes': []})
+        self.reopen()
+        result = self.admit(invocation={}, stored=True)
+        [intent] = self.ledger.writes()
+        self.assertEqual(result['recovered_writes'], [{'intent_id': intent['intent_id'], 'status': 'blocked'}])
+        self.assertEqual(intent['status'], 'blocked')
+        # The other writer's configuration has no custom input: the default plan, with nothing written.
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', None))
+        self.assertEqual(self.store.calls, Counter(read=2))
+        self.assertNotIn('configuration_write', result)
+
+    def test_incoming_review_preflight_recovers_writes_from_the_same_store(self):
+        self.clarify_saved('interrupt-after')
+        with self.assertRaises(Interrupted):
+            self.admit(verdict('accepted'), invocation={}, stored=True)
+        [intent] = self.ledger.writes()
+        self.reopen()
+        transport = FakeTransport()
+        result = dk_pr_review.preflight(request=self.request, configuration=None, invocation=None,
+                                        deployment=self.deployment, repository=self.repo, home=self.home,
+                                        transport=transport, install=self.clean, ledger=self.ledger,
+                                        store=self.store)
+        self.assertEqual(result['recovered_writes'], [{'intent_id': intent['intent_id'], 'status': 'applied'}])
+        self.assertEqual(self.store.calls, Counter(read=2))
+        self.assertEqual(self.saved_instruction(), 'Only the flaky test.')
+        # Recovery precedes admission, which then rejects the saved writing task for incoming review.
+        self.assertEqual((result['preflight'], result['error']['message']),
+                         ('rejected', 'incoming review tasks cannot write'))
+        self.assertEqual(transport.calls, Counter(capabilities=1))
+
+    def test_unavailable_store_blocks_before_any_gate_read_or_task(self):
+        self.stored()
+        self.store.fault = 'read'
+        result = self.admit(invocation={}, stored=True)
+        self.assertEqual((result['preflight'], result['error']['path']), ('blocked', 'configuration_store'))
+        self.assertEqual(self.transport.calls, Counter())
+        self.assertNotIn('inputs', result)
 
 
 class RelocatedReadOnlyRun(PreflightFixture):

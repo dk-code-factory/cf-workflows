@@ -10,7 +10,11 @@ state namespace, outside the target checkout.
 It never runs the workflow, a target task or a local provider session, and never
 writes to the target checkout or the installation. Custom inputs only ask the
 engine, through the transport, for one validator task and durable input gates
-(cf_workflows.validator_binding). Agent Workflow runs the
+(cf_workflows.validator_binding). With the suite's configuration ledger
+(cf_workflows.acceptance) current acceptances are reused instead; with its
+configuration store (cf_workflows.writes) unsettled configuration writes are
+read back before the saved configuration is read, and a revision a
+clarification answer made to it is written back once. Agent Workflow runs the
 workflow; until it can resolve an installed package and mount the state
 namespace (Agent Workflow #130), the result is a validated input set only.
 """
@@ -23,7 +27,7 @@ import re
 import stat
 import tempfile
 
-from . import admission, semantic
+from . import admission, semantic, writes
 
 WORKFLOW = 'cf-workflows:dk-pr-fix'
 INSTALL = Path(__file__).resolve().parent / 'workflows' / 'dk-pr-fix'
@@ -163,7 +167,8 @@ def _disjoint(first, second):
 def _reject(result, path, message):
     return {'preflight': 'rejected', 'structural': result.get('structural', 'rejected'),
             'semantic': result.get('semantic'), 'error': {'path': path, 'message': message},
-            **{key: result[key] for key in ('admission', 'snapshot', 'snapshot_digest') if key in result}}
+            **{key: result[key] for key in ('admission', 'snapshot', 'snapshot_digest', 'recovered_writes')
+               if key in result}}
 
 
 def _adapter(record):
@@ -260,10 +265,11 @@ def _custom_inputs(snapshot):
 
 def preflight(*, request, configuration, invocation, deployment, repository, transport,
               roots=None, home=None, install=INSTALL, maintain_other=None, mode='fix', defaults=None,
-              workflow=WORKFLOW, entry=ENTRY, custom=True):
+              workflow=WORKFLOW, entry=ENTRY, custom=True, ledger=None, store=None):
     """Admit one run of the installed workflow and return its declared inputs.
 
-    Writes nothing. A rejected or blocked result carries the admission error.
+    Writes nothing outside the ledger and the configuration store. A rejected or
+    blocked result carries the admission error.
     maintain_other is the explicit request to maintain another author's PR
     ({request_id, instruction, source}); it is staged with the private request.
     mode, defaults, workflow and entry select an entry-point preset over the
@@ -275,6 +281,15 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     validator task and reads or opens durable input gates (see
     cf_workflows.validator_binding). An entry whose preset workflow does not
     carry them passes custom=False and rejects them before any gate read.
+
+    ledger, an acceptance.Ledger, retains each accepted unit of custom input: a
+    later preflight whose units are all current admits on their original native
+    evidence with no gate read or validator task, and a changed input sends only
+    the units bound to it to the validator. store, the suite's configuration store
+    (writes.FileStore), replaces the configuration argument and needs the ledger:
+    every unsettled write intent is read back first, then the saved configuration
+    is read, and an admitted revision of it is written back exactly once
+    (`configuration_write`) after the installed-workflow checks pass.
     """
     failure = {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None}
     try:
@@ -293,15 +308,27 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
                 or not all(isinstance(value, str) and value.strip() for value in maintain_other.values())):
             return _reject(failure, 'maintain_other', 'maintaining another author\'s PR needs an exact '
                            '{request_id, instruction, source} request and the fix workflow')
+    recovered = None
+    if store is not None:
+        if ledger is None or configuration is not None:
+            return _reject(failure, 'configuration', 'a stored configuration is read from the store, and its '
+                           'writes are recovered through the configuration ledger')
+        try:
+            # Before anything reads the saved configuration: an earlier write's effect is settled first.
+            recovered, configuration = writes.recover(store, ledger)
+        except Exception as error:
+            return writes.unavailable(error)
     result = semantic.admit(request=request, configuration=configuration, invocation=invocation,
                             deployment=deployment, roles=role_catalog(install),
                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport,
-                            defaults=defaults,
+                            ledger=ledger, defaults=defaults,
                             check=lambda admitted: _constraints(admitted, mode, workflow) if custom else (
                                 'custom', 'custom configuration inputs are not supported by the installed ' + workflow
                                 + ' entry; run them through cf-workflows:dk-pr-fix or cf-workflows:dk-pr-review'))
+    if recovered is not None:
+        result['recovered_writes'] = recovered
     if result['preflight'] != 'admitted':
-        # Rejected, blocked, or waiting on a durable clarification gate: nothing is mapped or staged.
+        # Rejected, blocked, or waiting on a durable clarification gate: nothing is mapped, staged or written.
         return result
     rejected = _constraints(result, mode, workflow)
     if rejected:
@@ -313,6 +340,11 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     for other, name in ((repository, 'repository'), (install, 'installation')):
         if not _disjoint(namespace, other):
             return _reject(result, 'state', 'state namespace must be disjoint from the ' + name)
+    if store is not None:
+        # The exact admitted revision of the saved configuration, once; a lost response settles by readback.
+        write = writes.write_back(store, ledger, configuration, result)
+        if write is not None:
+            result['configuration_write'] = write
     options = {key: value['value'] for key, value in snapshot['options'].items()}
     selected = {task['adapter'] for task in snapshot['plan']['tasks']}
     prompts, policy = _custom_inputs(snapshot)
