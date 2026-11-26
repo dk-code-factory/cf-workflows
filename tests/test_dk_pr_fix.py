@@ -520,6 +520,43 @@ class SemanticPreflight(PreflightFixture):
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path), result)
                 self.assertEqual(self.transport.calls, Counter(capabilities=1))
 
+    def test_resource_bearing_custom_inputs_reject_before_any_gate_read_or_session(self):
+        # The workflow carries no configured resource, so an adapter's resources or a prompt's
+        # files would reach no occurrence; they reject instead of running without them.
+        guidance = self.base / 'guidance'
+        (guidance / 'prompts').mkdir(parents=True)
+        files = {'guide.md': b'See [notes](prompts/notes.md).\n', 'prompts/notes.md': b'Prefer small diffs.\n'}
+        for rel, body in files.items():
+            (guidance / rel).write_bytes(body)
+        configuration = {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',
+                         'scopes': [], 'resources': [{'root': 'configuration', 'path': rel,
+                                                      'sha256': hashlib.sha256(body).hexdigest(),
+                                                      'purpose': 'Guidance.', 'owner': 'maintainers'}
+                                                     for rel, body in files.items()],
+                         'admission': {'structural': 'pending', 'semantic': None, 'request_id': None,
+                                       'context_digest': None, 'resource_digest': None,
+                                       'capability_digest': None, 'evidence_refs': []}}
+        adapter = self.CUSTOM['options']['adapters']['check-docs']
+        cases = [
+            ({**self.CUSTOM, 'options': {**self.CUSTOM['options'], 'adapters': {
+                'check-docs': {**adapter, 'resources': ['configuration:prompts/notes.md']}}}},
+             'options.adapters.check-docs.resources'),
+            ({**self.CUSTOM, 'prompts': [{**self.CUSTOM['prompts'][0], 'resources': ['configuration:prompts/notes.md']}]},
+             'invocation.prompts[0].resources'),
+            ({**self.CUSTOM, 'prompts': [{'id': 'tone', 'slot': 'additional', 'resource': 'configuration:guide.md'}]},
+             'invocation.prompts[0].resource'),
+            ({**self.CUSTOM, 'preferences': [{'id': 'small', 'text': 'Keep it small.',
+                                              'resources': ['configuration:prompts/notes.md']}]},
+             'invocation.preferences[0].resources'),
+        ]
+        for invocation, path in cases:
+            with self.subTest(path=path):
+                result = self.assess(invocation=invocation, configuration=configuration,
+                                     roots={'configuration': guidance})
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path), result)
+                self.assertNotIn('inputs', result)
+                self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
     def test_preset_entries_keep_rejecting_custom_inputs_before_any_gate_read(self):
         self.transport = FakeTransport()
         result = dk_pr_fix.preflight(request=self.request, configuration=None, invocation=copy.deepcopy(self.CUSTOM),

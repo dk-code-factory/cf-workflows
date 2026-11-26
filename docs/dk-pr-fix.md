@@ -117,7 +117,9 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    task, then a durable gate and re-admission when it asks for clarification.
    Only an accepted proposal is mapped; `waiting`, `rejected` and `blocked` map
    and stage nothing. Preset entries over this workflow reject custom inputs
-   before any gate read. Supplied skills reject until Agent Workflow #139
+   before any gate read. Custom adapters, prompts and preferences that declare
+   resources reject: the workflow carries no configured resource yet.
+   Supplied skills reject until Agent Workflow #139
    ([skills.md](skills.md)). A repository-only request and the configuration
    adapters of `dk-config` and `dk-preferences` reject; the read-only
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).

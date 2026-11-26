@@ -106,8 +106,11 @@ assessed.
 instead of structural admission alone. Before any gate read or validator task,
 the installed-workflow limits apply to the structural result and to every
 revision: a repository-only target, configuration, alternatives and entry-only
-adapters, an untargeted or repeated `behavior_replacement`, and unsupported
-authorizations reject. Only an `admitted` result is mapped and staged. A
+adapters, an untargeted or repeated `behavior_replacement`, adapters, prompts
+or preferences that declare resources (or a resource-backed prompt), and
+unsupported authorizations reject. The workflow mounts no configured resource,
+so such an input would reach its occurrence without the files it names. Only
+an `admitted` result is mapped and staged. A
 `waiting` result carries its gate and maps nothing; the next preflight call
 replays the answered gate and admits the revision again.
 
@@ -117,8 +120,8 @@ inputs of `main.yml` and `review.yml`:
 | Custom input | Workflow input | In the plan |
 | --- | --- | --- |
 | Per-task instructions | `tasks`, `finalizers`, `reviewers` selections | Appended to the adapter assignment |
-| Custom adapters | `adapters` | The adapter definition |
-| Prompts and preferences | `prompts`: `{id, slot, target, text}` plus a preference's `scope` | `prompts` of each targeted occurrence; a `behavior_replacement` replaces its adapter's assignment |
+| Custom adapters without resources | `adapters` | The adapter definition |
+| Inline prompts and preferences without resources | `prompts`: `{id, slot, target, text}` plus a preference's `scope` | `prompts` of each targeted occurrence; a `behavior_replacement` replaces its adapter's assignment |
 | Free-text requirements and prohibitions | `policy`: `{requirements, prohibitions}` | `policy` of every occurrence |
 
 An untargeted prompt reaches every occurrence. The `task`, `reviewer`,

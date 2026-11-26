@@ -194,7 +194,18 @@ def _constraints(result, mode):
         # (cf_workflows.approvers, cf_workflows.drafting, cf_workflows.ci_flakes).
         return 'options.tasks', (entry_only[0] + ' runs only through its entry procedure; the '
                                  'installed workflow runs it as a generic task')
-    replacements = Counter(prompt['target'] for prompt in snapshot['prompts']
+    # The workflow mounts only the repository and its own installation; a declared resource
+    # (and a resource-backed prompt's link closure) would reach no occurrence.
+    resourced = [task['adapter'] for task in snapshot['plan']['tasks'] if task['resources']]
+    if resourced:
+        return (f'options.adapters.{resourced[0]}.resources',
+                'the installed workflow does not carry adapter resources yet; remove them or inline the guidance')
+    for entry in snapshot['prompts'] + snapshot['preferences']:
+        if entry['applicable'] and entry['resources']:
+            return (entry['path'] + ('.resource' if entry['resource'] is not None else '.resources'),
+                    'the installed workflow does not carry prompt or preference resources yet; '
+                    'use inline text without resources')
+    replacements =Counter(prompt['target'] for prompt in snapshot['prompts']
                            if prompt['applicable'] and prompt['slot'] == 'behavior_replacement')
     if None in replacements:
         return 'prompts', 'a behavior replacement prompt must target one adapter in the installed workflow'
