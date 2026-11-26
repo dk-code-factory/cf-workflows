@@ -128,5 +128,5 @@ unsettled intents, so an uncertain write is still read back rather than reapplie
 - Reuse of completed run work, budgets and the logical-run ledger: #15.
 - Supplied-skill units are exercised only with supplied-skill execution patched on
   ([skills.md](skills.md), Agent Workflow #139).
-- Migration of a future ledger version and qualification of backup and upgrade
-  across releases: #37.
+- Backup, restore and upgrade of this ledger together with the rest of the
+  suite's state: [recovery.md](recovery.md).

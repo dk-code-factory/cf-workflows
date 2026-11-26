@@ -1,0 +1,693 @@
+"""Upgrade, backup and restore of the suite's retained state (contract v1, #37).
+
+The suite state home is `$XDG_STATE_HOME/cf-workflows`. It holds the configuration
+ledger, the prose ledgers and one namespace per repository with the logical-run,
+feedback, decision, alignment and drafting ledgers, the writer lease and the
+content-addressed artifacts, requests and preparation checkpoints. The saved
+configuration is `$XDG_CONFIG_HOME/cf-workflows/configuration.json`.
+
+- `audit()` classifies every retained file against the catalog below. Each table
+  of each store has a stated retention purpose; anything else is refused, so no
+  transcript, rendered copy or foreign state enters a backup unnoticed.
+- `backup()` takes one consistent snapshot of every SQLite store while writers
+  may continue: read transactions are opened on all stores and kept only if no
+  store changed between the first and the last, so the copies show one instant.
+  The engine's database backup and recovery bundle are taken first, while its
+  controller is stopped, and named by digest in the same manifest.
+- `restore()` verifies the whole backup before it changes anything, never merges
+  into existing state and never imports another suite's settings or state. It
+  reports which logical runs can resume with their original admitted assets.
+- `upgrade()` migrates every store under a journal with one retained pre-upgrade
+  backup; an interrupted upgrade resumes and never replaces that backup.
+- `cost()` keeps fixture proxies apart from provider-reported dollar cost.
+
+The engine side (`agent-workflow backup`, `bundle` and `restore`) is reached only
+through a caller-supplied adapter; there is no released engine to bind yet.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import sqlite3
+import stat
+import subprocess
+import sys
+import tempfile
+
+from cf_workflows import admission, dk_pr_fix
+
+SUITE_DIR = 'cf-workflows'
+FORMAT = 'cf-workflows-state-backup-v1'
+UPGRADE_FORMAT = 'cf-workflows-upgrade-v1'
+JOURNAL = 'upgrade.json'
+UPGRADES = 'upgrades'
+MARKER = dk_pr_fix.STATE_MARKER
+NAMESPACE = r'repositories/[0-9a-f]{32}/'
+RUN = NAMESPACE + r'runs/[0-9a-f]{64}'
+IDENTITY = 'identity: suite, kind and binding of this record'
+
+# Every SQLite store, the schema version this release writes, the versions it can
+# migrate, and why each table is retained (contract: minimal retention).
+STORES = {
+    'configuration': {
+        'path': r'configuration\.sqlite3', 'kind': 'configuration_state', 'version': 1,
+        'tables': {'meta': IDENTITY,
+                   'acceptances': 'analysis: semantic acceptance per unit with its native result reference',
+                   'assessments': 'analysis: the units each accepted session judged together',
+                   'questions': 'recovery: a clarification verdict retained before its gate opens',
+                   'writes': 'recovery: configuration write intents, dispatch counts and receipts'}},
+    'prose': {
+        'path': r'prose/[0-9a-f]{32}\.sqlite3', 'kind': 'prose_state', 'version': 1,
+        'tables': {'meta': IDENTITY,
+                   'passes': 'recovery: each claimed pass, its intent and accepted result',
+                   'units': 'analysis: accepted per-file outputs that unchanged reruns reuse'}},
+    'run': {
+        'path': RUN + r'\.sqlite', 'kind': None, 'version': 3, 'migrates': (1, 2),
+        'tables': {'groups': 'identity: the logical run and its PR',
+                   'reservations': 'evidence: consumed allowances and their original ceilings',
+                   'deadlines': 'evidence: absolute deadlines and their original starts',
+                   'extensions': 'evidence: explicit continuation grants with their authorization',
+                   'claims': 'recovery: occurrence claims, assignments and accepted coverage',
+                   'submissions': 'evidence: each submitted native report',
+                   'report_rejections': 'evidence: rejected reports and why',
+                   'accepted_reports': 'analysis: accepted reports reused while their fingerprint holds',
+                   'operations': 'recovery: replay-safe helper operation results',
+                   'publication_intents': 'recovery: exact publication intents, states and receipts',
+                   'publication_aliases': 'recovery: equivalent intent identities',
+                   'publication_events': 'evidence: append-only publication history',
+                   'publication_effects': 'recovery: unique observed external effects',
+                   'publication_lock': 'recovery: the one unsettled publication',
+                   'local_commits': 'recovery: local commit intents',
+                   'native_failures': 'evidence: classified native failures',
+                   'review_rounds': 'recovery: the round basis each review claim charged',
+                   'ci_observations': 'evidence: exact-head CI observations'}},
+    'feedback': {
+        'path': RUN + r'\.feedback\.sqlite', 'kind': 'feedback_state', 'version': 1,
+        'tables': {'meta': IDENTITY, 'sources': 'recovery: feedback source identities',
+                   'assessments': 'analysis: implementation dispositions and response obligations',
+                   'replies': 'evidence: answering replies and resolution'}},
+    'decisions': {
+        'path': RUN + r'\.decisions\.sqlite', 'kind': 'decisions_state', 'version': 1,
+        'tables': {'meta': IDENTITY, 'results': 'analysis: sourced decision results',
+                   'rejections': 'evidence: rejected session results'}},
+    'alignment': {
+        'path': RUN + r'(?:\.whole-problem)?\.alignment\.sqlite', 'kind': 'alignment_state', 'version': 1,
+        'tables': {'meta': IDENTITY, 'attempts': 'analysis: settled stage results and their bindings',
+                   'requests': 'evidence: explicit comparison requests',
+                   'reservations': 'evidence: consumed analysis allowances',
+                   'grants': 'evidence: explicit continuation grants'}},
+    'drafting': {
+        'path': RUN + r'\.drafting\.sqlite', 'kind': 'drafting_state', 'version': 1,
+        'tables': {'meta': IDENTITY, 'results': 'analysis: accepted drafts and their bindings',
+                   'rejections': 'evidence: rejected session results'}},
+    'splitting': {
+        'path': RUN + r'\.splitting\.sqlite', 'kind': 'splitting_state', 'version': 1,
+        'tables': {'meta': IDENTITY, 'results': 'analysis: accepted series and split proposals',
+                   'rejections': 'evidence: rejected session results',
+                   'operations': 'recovery: ledgered local Git operations and their reports'}},
+    'writer': {
+        'path': NAMESPACE + r'workspace-writer\.sqlite', 'kind': None, 'version': 0,
+        'tables': {'writer': 'recovery: the one writer fencing the shared Git index'}},
+}
+
+# Other retained files. Content-addressed files must match their names.
+FILES = {
+    'marker': NAMESPACE + re.escape(MARKER),
+    'artifact': NAMESPACE + r'artifacts/[0-9a-f]{64}\.json',
+    'request': NAMESPACE + r'requests/[0-9a-f]{64}\.json',
+    'preparation': NAMESPACE + r'preparations/[0-9a-f]{64}(?:\.request)?\.json',
+    'journal': re.escape(JOURNAL),
+}
+ADDRESSED = ('artifact', 'request')
+# Not retained state: SQLite sidecars (the snapshot includes committed WAL),
+# staging files an interrupted atomic write left behind, and pre-upgrade backups.
+SKIPPED = re.compile(r'.*-(?:wal|shm|journal)|(?:.*/)?\.staged-[^/]*|' + UPGRADES + r'/.*')
+
+# Where each inventory row retains state. Rows without stores keep none of their own:
+# their runs report, route or read only.
+ROWS = {
+    'dk-pr-iter': ('run', 'feedback', 'writer'),
+    'dk-pr-fix': ('run', 'feedback', 'writer'),
+    'dk-pr-review': ('run',),
+    'dk-repo-onboard': (),
+    'dk-config': ('configuration',),
+    'dk-preferences': ('configuration',),
+    'dk-issue-alternatives': ('alignment',),
+    'dk-pr-alternatives': ('alignment',),
+    'dk-alternatives-review': ('alignment',),
+    'dk-pr-review-alternatives': ('alignment',),
+    'dk-plain-english': ('prose', 'configuration'),
+    'dk-asd-ste100': ('prose', 'configuration'),
+    'dk-code-simplify': ('run',),
+    'dk-pr-reviewers-run': ('run',),
+    'dk-pr-approvers': (),
+    'dk-pr-feedback-read': ('run', 'feedback'),
+    'dk-pr-feedback-address': ('run', 'feedback', 'writer'),
+    'dk-pr-feedback-reply': ('run', 'feedback'),
+    'dk-pr-review-post': ('run',),
+    'dk-pr-description': ('drafting', 'run'),
+    'dk-pr-decisions': ('decisions', 'run'),
+    'dk-commit-split': ('splitting', 'drafting', 'run'),
+    'dk-pr-split': ('splitting', 'run'),
+    'dk-pr-publish': ('run',),
+    'dk-ci-approve': ('run',),
+    'dk-ci': ('run',),
+    'dk-ci-flakes': (),
+    'dk-commit-message': ('drafting',),
+    'dk-issue': ('drafting', 'run'),
+}
+UNSETTLED_CLAIMS = ('claimed', 'incomplete')
+UNSETTLED_PUBLICATIONS = ('prepared', 'pending')
+
+
+class RecoveryError(ValueError):
+    """The state, backup or upgrade cannot be used as it is."""
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _atomic(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, name = tempfile.mkstemp(prefix='.staged-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'wb') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def _json(path):
+    try:
+        return admission.load_json(Path(path).read_bytes())
+    except (OSError, ValueError, admission.AdmissionError) as error:
+        raise RecoveryError(f'unreadable {Path(path).name}: {error}') from error
+
+
+def _connect(path, write=False):
+    return sqlite3.connect(Path(path).resolve().as_uri() + ('' if write else '?mode=ro'), uri=True,
+                           isolation_level=None, timeout=30)
+
+
+# -- Catalog ---------------------------------------------------------------------------------
+
+def classify(relative):
+    """('store'|'file'|'skipped', name) for one path relative to the suite state home."""
+    for name, spec in STORES.items():
+        if re.fullmatch(spec['path'], relative):
+            return 'store', name
+    for name, pattern in FILES.items():
+        if re.fullmatch(pattern, relative):
+            return 'file', name
+    if SKIPPED.fullmatch(relative):
+        return 'skipped', None
+    raise RecoveryError('not retained cf-workflows state: ' + relative)
+
+
+def check_store(path, name, relative=None):
+    """Integrity, identity, justified tables and schema version of one store; returns its version."""
+    spec = STORES[name]
+    try:
+        db = _connect(path)
+        try:
+            if db.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
+                raise RecoveryError('store fails its integrity check: ' + str(relative or path))
+            if db.execute('PRAGMA foreign_key_check').fetchall():
+                raise RecoveryError('store fails its foreign key check: ' + str(relative or path))
+            version = db.execute('PRAGMA user_version').fetchone()[0]
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                      if not row[0].startswith('sqlite_')}
+            unjustified = sorted(tables - set(spec['tables']))
+            if unjustified:
+                raise RecoveryError(f'unjustified retained table in {relative or path}: ' + ', '.join(unjustified))
+            if spec['kind'] is not None:
+                meta = dict(db.execute('SELECT key, value FROM meta').fetchall()) if 'meta' in tables else {}
+                if (meta.get('suite'), meta.get('kind')) != (admission.SUITE, spec['kind']):
+                    raise RecoveryError('not a cf-workflows ' + spec['kind'] + ' store: ' + str(relative or path))
+            if name == 'run':
+                runs = [row[0] for row in db.execute('SELECT id FROM groups')] if 'groups' in tables else []
+                if len(runs) != 1 or hashlib.sha256(runs[0].encode()).hexdigest() != Path(path).stem:
+                    raise RecoveryError('logical-run ledger identity differs from its name: ' + str(relative or path))
+        finally:
+            db.close()
+    except sqlite3.DatabaseError as error:
+        raise RecoveryError(f'unreadable store {relative or path}: {error}') from error
+    if version > spec['version']:
+        raise RecoveryError(f'{relative or path} has schema version {version}, newer than this release '
+                            f'({spec["version"]}); install the newer release instead of downgrading')
+    if version != spec['version'] and version not in spec.get('migrates', ()):
+        raise RecoveryError(f'{relative or path} has unsupported schema version {version}')
+    return version
+
+
+def check_file(path, name, relative=None):
+    if name in ADDRESSED and _sha256(path) != Path(path).stem:
+        raise RecoveryError('content-addressed file differs from its name: ' + str(relative or path))
+    if name == 'marker' and Path(path).read_bytes() != admission.canonical({'format': dk_pr_fix.STATE_FORMAT}):
+        raise RecoveryError('state namespace ownership marker differs: ' + str(relative or path))
+
+
+def audit(suite):
+    """Every retained file under the suite state home, classified; unknown or linked entries reject."""
+    suite = Path(suite)
+    found = {'stores': {}, 'files': {}, 'skipped': []}
+    if not suite.exists():
+        return found
+    if suite.is_symlink() or not suite.is_dir():
+        raise RecoveryError('suite state home must be a directory, not a link')
+    for directory, names, files in os.walk(suite):
+        names.sort()
+        for entry in names + sorted(files):
+            path = Path(directory) / entry
+            relative = path.relative_to(suite).as_posix()
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode):
+                raise RecoveryError('retained state must not contain links: ' + relative)
+            if stat.S_ISDIR(mode):
+                continue
+            if not stat.S_ISREG(mode):
+                raise RecoveryError('retained state must contain only regular files: ' + relative)
+            kind, name = classify(relative)
+            if kind == 'skipped':
+                found['skipped'].append(relative)
+            else:
+                found[kind + 's'][relative] = name
+    return found
+
+
+# -- Snapshot ----------------------------------------------------------------------------------
+
+def _acquired(index):
+    """Called after each store's read snapshot is opened (a seam for concurrency fixtures)."""
+
+
+def _changed(before, after):
+    """Whether any store committed between the first and the last snapshot."""
+    return before != after
+
+
+def _snapshot(suite, target, attempts):
+    """Copy every store as of one instant; returns {relative: version}."""
+    for _ in range(attempts):
+        stores = audit(suite)['stores']
+        relatives = sorted(stores)
+        probes, sources = [], []
+        try:
+            probes = [_connect(suite / relative) for relative in relatives]
+            before = [probe.execute('PRAGMA data_version').fetchone()[0] for probe in probes]
+            for index, relative in enumerate(relatives):
+                source = _connect(suite / relative)
+                sources.append(source)
+                source.execute('BEGIN')
+                source.execute('SELECT count(*) FROM sqlite_master').fetchone()
+                _acquired(index)
+            after = [probe.execute('PRAGMA data_version').fetchone()[0] for probe in probes]
+            if _changed(before, after) or sorted(audit(suite)['stores']) != relatives:
+                continue
+            versions = {}
+            for relative, source in zip(relatives, sources):
+                path = target / relative
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                copy = sqlite3.connect(path)
+                try:
+                    source.backup(copy)
+                    # A self-contained file: no WAL sidecar travels with the backup.
+                    copy.execute('PRAGMA journal_mode=DELETE')
+                finally:
+                    copy.close()
+                os.chmod(path, 0o600)
+                versions[relative] = check_store(path, stores[relative], relative)
+            return versions
+        finally:
+            for connection in sources + probes:
+                connection.close()
+    raise RecoveryError('retained state kept changing during the backup; retry or pause writers')
+
+
+# -- Backup ------------------------------------------------------------------------------------
+
+def installation(install=dk_pr_fix.INSTALL):
+    """The installed release: descriptor version, closure digest and helper-manifest digest."""
+    closure = dk_pr_fix.verify_installation(install)
+    version = re.search(r'(?m)^version: (\S+)$', (Path(install) / 'plugin.yaml').read_text())
+    helpers = {path[len('workflows/helpers/'):]: value for path, value in dk_pr_fix.closure_digests(install).items()
+               if path.startswith('workflows/helpers/')}
+    return {'version': version[1] if version else None, 'closure': closure, 'helpers': admission.digest(helpers)}
+
+
+def _configuration(path):
+    """The saved configuration bytes, read under its writer lock; only this suite's document."""
+    path = Path(path)
+    if not path.exists():
+        return None
+    import fcntl
+    with open(path.with_name(path.name + '.lock'), 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        data = path.read_bytes()
+    _check_configuration(data)
+    return data
+
+
+def _check_configuration(data):
+    try:
+        document = admission.load_json(data)
+    except (ValueError, admission.AdmissionError) as error:
+        raise RecoveryError('unreadable saved configuration: ' + str(error)) from error
+    if not isinstance(document, dict) or (document.get('suite'), document.get('kind')) != (admission.SUITE,
+                                                                                          'configuration'):
+        raise RecoveryError('saved configuration is not a cf-workflows configuration; settings are never imported')
+    if document.get('schema_version') != 1:
+        raise RecoveryError('unsupported configuration schema version ' + repr(document.get('schema_version')))
+    return document
+
+
+def backup(home, destination, *, engine=None, configuration=None, install=dk_pr_fix.INSTALL, attempts=5,
+           _allow_upgrade=False):
+    """Write a consistent backup of the suite state home (and the engine bundle) to a new directory.
+
+    engine is the adapter for the engine's own backup: status(), backup(path) and
+    bundle(path). Without it the backup holds this suite's state only, and an
+    unfinished claim later needs its engine run or an explicit continuation.
+    """
+    suite, destination = Path(home) / SUITE_DIR, Path(destination)
+    if os.path.lexists(destination):
+        raise RecoveryError('backup destination already exists')
+    journal = suite / JOURNAL
+    if not _allow_upgrade and journal.is_file() and _json(journal).get('status') != 'applied':
+        raise RecoveryError('an upgrade is in progress; finish it before taking a backup')
+    destination.mkdir(parents=True, mode=0o700)
+    try:
+        manifest = {'format': FORMAT, 'suite': admission.SUITE, 'installation': installation(install),
+                    'engine': None, 'configuration': None, 'stores': {}, 'files': {}}
+        if engine is not None:
+            status = engine.status()
+            if status.get('controller') != 'stopped':
+                raise RecoveryError('stop the engine controller before backing up its database and bundle')
+            (destination / 'engine').mkdir(mode=0o700)
+            engine.backup(destination / 'engine' / 'database')
+            engine.bundle(destination / 'engine' / 'bundle')
+            manifest['engine'] = {'version': status.get('version'),
+                                  **{name: _sha256(destination / 'engine' / name) for name in ('database', 'bundle')}}
+        state = destination / 'state'
+        state.mkdir(mode=0o700)
+        versions = _snapshot(suite, state, attempts) if suite.exists() else {}
+        for relative, version in versions.items():
+            manifest['stores'][relative] = {'store': classify(relative)[1], 'schema_version': version,
+                                            'sha256': _sha256(state / relative)}
+        # Checkpoints before the immutable artifacts they reference, which are written first.
+        files = audit(suite)['files'] if suite.exists() else {}
+        order = ('marker', 'journal', 'preparation', 'request', 'artifact')
+        for relative in sorted(files, key=lambda item: (order.index(files[item]), item)):
+            source, target = suite / relative, state / relative
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copyfile(source, target)
+            os.chmod(target, 0o600)
+            check_file(target, files[relative], relative)
+            manifest['files'][relative] = {'file': files[relative], 'sha256': _sha256(target)}
+        for relative, name in audit(suite)['files'].items() if suite.exists() else ():
+            if name == 'artifact' and relative not in manifest['files']:
+                shutil.copyfile(suite / relative, state / relative)
+                check_file(state / relative, name, relative)
+                manifest['files'][relative] = {'file': name, 'sha256': _sha256(state / relative)}
+        if configuration is not None:
+            data = _configuration(configuration)
+            if data is not None:
+                _atomic(destination / 'configuration.json', data)
+                manifest['configuration'] = {'sha256': hashlib.sha256(data).hexdigest()}
+        # The manifest is written last: a backup without one is incomplete.
+        _atomic(destination / 'manifest.json', admission.canonical(manifest))
+        return manifest
+    except BaseException:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+
+
+# -- Restore -----------------------------------------------------------------------------------
+
+def verify(source):
+    """Check a backup completely, read-only: manifest, every digest, every store and file."""
+    source = Path(source)
+    if not (source / 'manifest.json').is_file():
+        raise RecoveryError('incomplete backup: no manifest')
+    manifest = _json(source / 'manifest.json')
+    if not isinstance(manifest, dict) or (manifest.get('format'), manifest.get('suite')) != (FORMAT, admission.SUITE):
+        raise RecoveryError('not a cf-workflows state backup; another suite\'s state is never imported')
+    state = source / 'state'
+    listed = {**manifest['stores'], **manifest['files']}
+    found = audit(state)
+    present = set(found['stores']) | set(found['files'])
+    if present != set(listed) or found['skipped']:
+        raise RecoveryError('backup files differ from its manifest: '
+                            + ', '.join(sorted(present ^ set(listed) | set(found['skipped']))[:8]))
+    for relative, record in listed.items():
+        if _sha256(state / relative) != record['sha256']:
+            raise RecoveryError('backup file differs from its recorded digest: ' + relative)
+    for relative, record in manifest['stores'].items():
+        if found['stores'][relative] != record['store']:
+            raise RecoveryError('backup store kind differs: ' + relative)
+        with tempfile.TemporaryDirectory() as scratch:  # Never let a check touch the backup itself.
+            copy = Path(scratch) / Path(relative).name
+            shutil.copyfile(state / relative, copy)
+            if check_store(copy, record['store'], relative) != record['schema_version']:
+                raise RecoveryError('backup store version differs from its manifest: ' + relative)
+    for relative, record in manifest['files'].items():
+        check_file(state / relative, record['file'], relative)
+    if manifest['configuration'] is not None:
+        data = (source / 'configuration.json').read_bytes()
+        if hashlib.sha256(data).hexdigest() != manifest['configuration']['sha256']:
+            raise RecoveryError('backup configuration differs from its recorded digest')
+        _check_configuration(data)
+    if manifest['engine'] is not None:
+        for name in ('database', 'bundle'):
+            if _sha256(source / 'engine' / name) != manifest['engine'][name]:
+                raise RecoveryError('engine ' + name + ' differs from its recorded digest')
+    return manifest
+
+
+def _plans(state):
+    """Admitted plans in the retained artifacts: logical run, execution and helper-manifest digest."""
+    plans = []
+    for path in sorted(Path(state).glob('repositories/*/artifacts/*.json')):
+        value = admission.load_json(path.read_bytes())
+        if isinstance(value, dict) and {'logical_run', 'execution_fingerprint', 'helper_manifest'} <= set(value):
+            plans.append({'namespace': path.parents[1].name, 'logical_run': value['logical_run'],
+                          'execution': value['execution_fingerprint'],
+                          'helpers': admission.digest(value['helper_manifest'])})
+    return plans
+
+
+def unsettled(state):
+    """Unfinished original work per logical run: open claims and unsettled publications."""
+    result = {}
+    for path in sorted(Path(state).glob('repositories/*/runs/*.sqlite')):
+        if classify(path.relative_to(state).as_posix())[1] != 'run':
+            continue
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = Path(scratch) / path.name
+            shutil.copyfile(path, copy)
+            db = _connect(copy)
+            try:
+                tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                [run] = [row[0] for row in db.execute('SELECT id FROM groups')]
+                marks = ', '.join('?' * len(UNSETTLED_CLAIMS))
+                claims = [row[0] for row in db.execute(f'SELECT id FROM claims WHERE state IN ({marks}) ORDER BY id',
+                                                       UNSETTLED_CLAIMS)] if 'claims' in tables else []
+                states = ('prepared', 'pending', 'uncertain')
+                marks = ', '.join('?' * len(states))
+                intents = [row[0] for row in db.execute(
+                    f'SELECT id FROM publication_intents WHERE state IN ({marks}) ORDER BY id',
+                    states)] if 'publication_intents' in tables else []
+            finally:
+                db.close()
+        if claims or intents:
+            result[(path.parents[1].name, run)] = {'claims': claims, 'publications': intents, 'operations': []}
+    for path in sorted(Path(state).glob('repositories/*/runs/*.splitting.sqlite')):
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = Path(scratch) / path.name
+            shutil.copyfile(path, copy)
+            db = _connect(copy)
+            try:
+                run = dict(db.execute('SELECT key, value FROM meta').fetchall())['logical_run']
+                applying = [row[0] for row in db.execute("SELECT id FROM operations WHERE state = 'applying'")]
+            finally:
+                db.close()
+        if applying:
+            entry = result.setdefault((path.parents[1].name, run), {'claims': [], 'publications': [], 'operations': []})
+            entry['operations'] = applying
+    return result
+
+
+def assets(state, install, retained):
+    """Whether each retained plan's admitted helpers are available: installed, retained by the engine, or missing."""
+    current = installation(install)['helpers'] if install is not None and Path(install).exists() else None
+    report = {}
+    for plan in _plans(state):
+        where = ('installed' if plan['helpers'] == current
+                 else 'retained' if plan['helpers'] in retained else 'missing')
+        report.setdefault((plan['namespace'], plan['logical_run']), {})[plan['execution']] = where
+    return report
+
+
+def restore(source, home, *, engine=None, configuration=None, install=dk_pr_fix.INSTALL):
+    """Restore a verified backup into an empty suite state home; never merges or imports.
+
+    The engine's database and bundle go back through engine.restore(database,
+    bundle) first. A logical run with unfinished original work can resume only with
+    its original admitted helpers, installed or retained by the engine; otherwise
+    it is reported blocked rather than run with replacement resources.
+    """
+    source = Path(source)
+    manifest = verify(source)
+    suite = Path(home) / SUITE_DIR
+    if os.path.lexists(suite) and (suite.is_symlink() or not suite.is_dir() or any(suite.iterdir())):
+        raise RecoveryError('the suite state home is not empty; move it aside first, restore never merges')
+    saved = source / 'configuration.json'
+    if manifest['configuration'] is not None:
+        if configuration is None:
+            raise RecoveryError('the backup holds a saved configuration; name its location')
+        current = Path(configuration)
+        if current.exists() and current.read_bytes() != saved.read_bytes():
+            raise RecoveryError('a different saved configuration exists; restore never overwrites it')
+    if manifest['engine'] is not None and engine is None:
+        raise RecoveryError('the backup holds the engine recovery bundle; restore it together')
+    database, bundle = source / 'engine' / 'database', source / 'engine' / 'bundle'
+    retained = set(engine.retained(bundle)) if manifest['engine'] is not None else set()
+    report = {'installation': manifest['installation'], 'current': installation(install) if install else None,
+              'engine': None, 'runs': {}, 'blocked': [],
+              'upgrade': sorted(relative for relative, record in manifest['stores'].items()
+                                if record['schema_version'] != STORES[record['store']]['version'])}
+    open_work = unsettled(source / 'state')
+    plans = assets(source / 'state', install, retained)
+    for namespace, run in sorted(set(plans) | set(open_work)):
+        executions = plans.get((namespace, run), {})
+        entry = {'assets': executions,
+                 **open_work.get((namespace, run), {'claims': [], 'publications': [], 'operations': []})}
+        report['runs'][namespace + '/' + run] = entry
+        if entry['claims'] and 'missing' in executions.values():
+            report['blocked'].append(namespace + '/' + run)
+    if manifest['engine'] is not None:
+        report['engine'] = engine.restore(database, bundle)
+    if manifest['configuration'] is not None and not Path(configuration).exists():
+        _atomic(Path(configuration), saved.read_bytes())
+    suite.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staging = Path(tempfile.mkdtemp(prefix='.cf-workflows-restore-', dir=suite.parent))
+    try:
+        shutil.copytree(source / 'state', staging / SUITE_DIR)
+        if os.path.lexists(suite):
+            suite.rmdir()
+        os.rename(staging / SUITE_DIR, suite)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return report
+
+
+# -- Upgrade -----------------------------------------------------------------------------------
+
+def _migrated(relative):
+    """Called after each migrated store (a seam for interruption fixtures)."""
+
+
+MIGRATE = """
+import os, sys, tempfile
+sys.dont_write_bytecode = True
+helpers, namespace, run = sys.argv[1:4]
+sys.path.insert(0, helpers)
+os.environ['CF_WORKFLOWS_STATE'] = namespace
+from prfix.core import Ledger
+with tempfile.TemporaryDirectory() as root:
+    Ledger(root, run).close()
+"""
+
+
+def _migrate_run(path, install):
+    """Open a logical-run ledger with the installed helpers, which migrate it in one transaction."""
+    db = _connect(path)
+    try:
+        [run] = [row[0] for row in db.execute('SELECT id FROM groups')]
+    finally:
+        db.close()
+    namespace = Path(path).parents[1]
+    completed = subprocess.run([sys.executable, '-I', '-B', '-c', MIGRATE,
+                                str(Path(install) / 'workflows' / 'helpers'), str(namespace), run],
+                               capture_output=True, timeout=120, env={'PATH': os.environ.get('PATH', '')})
+    if completed.returncode:
+        raise RecoveryError('ledger migration failed: ' + completed.stderr.decode(errors='replace')[-2000:])
+
+
+def upgrade(home, *, install=dk_pr_fix.INSTALL, configuration=None):
+    """Migrate every store to this release under a journal; resumable, with one retained backup.
+
+    Every store and the saved configuration are checked before anything changes:
+    a newer or unsupported version refuses the whole upgrade.
+    """
+    suite = Path(home) / SUITE_DIR
+    target = installation(install)
+    path = suite / JOURNAL
+    journal = _json(path) if path.is_file() else None
+    if journal is not None and journal.get('format') != UPGRADE_FORMAT:
+        raise RecoveryError('unsupported upgrade journal')
+    if journal is not None and journal['status'] == 'applied' and journal['to'] == target:
+        return journal
+    if journal is None or journal['status'] == 'applied':
+        stores = audit(suite)['stores']
+        versions = {relative: check_store(suite / relative, name, relative) for relative, name in stores.items()}
+        if configuration is not None and Path(configuration).exists():
+            _check_configuration(Path(configuration).read_bytes())
+        previous = journal['to'] if journal else None
+        ident = admission.digest([previous, target, versions])[:16]
+        journal = {'format': UPGRADE_FORMAT, 'from': previous, 'to': target, 'status': 'prepared',
+                   'backup': UPGRADES + '/' + ident, 'stores': versions}
+        _atomic(path, admission.canonical(journal))
+    elif journal['to'] != target:
+        raise RecoveryError('an interrupted upgrade to another release must finish with that release')
+    retained = suite / journal['backup']
+    if journal['status'] == 'prepared':
+        if not (retained / 'manifest.json').is_file():
+            shutil.rmtree(retained, ignore_errors=True)  # An interrupted backup is incomplete.
+            backup(home, retained, install=install, _allow_upgrade=True)
+        journal['status'] = 'migrating'
+        _atomic(path, admission.canonical(journal))
+    for relative, version in sorted(journal['stores'].items()):
+        name = classify(relative)[1]
+        if check_store(suite / relative, name, relative) != STORES[name]['version']:
+            _migrate_run(suite / relative, install)
+            if check_store(suite / relative, name, relative) != STORES[name]['version']:
+                raise RecoveryError('store did not reach this release\'s schema: ' + relative)
+        _migrated(relative)
+    journal['status'] = 'applied'
+    _atomic(path, admission.canonical(journal))
+    return journal
+
+
+# -- Cost --------------------------------------------------------------------------------------
+
+def cost(proxies, usage=()):
+    """Deterministic proxies and provider-reported dollar cost, never mixed.
+
+    usage holds the engine's per-run usage summaries (`run_id`, nullable
+    `cost_usd`, `known_cost_usd`, `complete`) for the original and every later
+    session. A total is measured only when every run reported a complete cost;
+    otherwise it is null and only the known subtotal is shown. Nothing is priced
+    or estimated here.
+    """
+    runs = {}
+    for record in usage:
+        if record['run_id'] in runs and runs[record['run_id']] != record:
+            raise RecoveryError('conflicting usage for run ' + record['run_id'])
+        runs[record['run_id']] = record
+    known = sum(record.get('known_cost_usd') or 0 for record in runs.values())
+    complete = bool(runs) and all(record.get('cost_usd') is not None and record.get('complete') for record in runs.values())
+    return {'proxies': dict(proxies), 'measured': {
+        'runs': sorted(runs), 'cost_usd': sum(record['cost_usd'] for record in runs.values()) if complete else None,
+        'known_cost_usd': known, 'complete': complete}}

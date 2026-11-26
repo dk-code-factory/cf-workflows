@@ -45,6 +45,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [PR description, commit-message and issue entries](docs/drafting.md)
 - [Exact-head CI, issue-backed flakes and fork-CI approval entries](docs/ci-skills.md)
 - [Commit organization and PR splitting entries](docs/splitting.md)
+- [Upgrades, backup and restore of retained state](docs/recovery.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 
