@@ -419,6 +419,37 @@ class Description(Fixture):
         self.assertEqual((resumed['session'], resumed['result_ref']), (False, report['result_ref']))
         self.calls()
 
+    def test_edits_after_the_draft_are_never_overwritten(self):
+        admitted = self.admit('dk-pr-description', authorize=('edit_pr',))
+        ledger = self.ledger(admitted)
+        report = self.draft('dk-pr-description', admitted, ledger, session(output()))
+        self.assertEqual((report['seen'], report['fields']),
+                         ({'title': 'WIP', 'body': 'Old description'}, ['title', 'body']))
+        self.github.ev['metadata']['body'] = 'The author rewrote the description.'
+        publisher = self.publisher('dk-pr-description', admitted, ledger)
+        stale = drafting.publish('dk-pr-description', admitted, report, publisher=publisher, audience=self.audience)
+        self.assertEqual((stale['status'], stale['error']['message']), ('stale', 'changed since the draft: body'))
+        self.assertEqual((self.github.ev['metadata']['body'], self.writes()),
+                         ('The author rewrote the description.', []))
+        redrafted = self.draft('dk-pr-description', admitted, ledger, session(output()))
+        self.assertTrue(redrafted['session'])
+        self.assertEqual(drafting.publish('dk-pr-description', admitted, redrafted, publisher=publisher,
+                                          audience=self.audience)['status'], 'applied')
+        self.assertEqual(len(self.writes()), 1)
+
+    def test_a_disabled_field_changed_after_the_draft_is_left_alone(self):
+        admitted = self.admit('dk-pr-description', authorize=('edit_pr',), options={'update_title': False})
+        ledger = self.ledger(admitted)
+        report = self.draft('dk-pr-description', admitted, ledger, session(output(None)))
+        self.assertEqual(report['fields'], ['body'])
+        self.github.ev['metadata']['title'] = 'Retitled by the author'
+        published = drafting.publish('dk-pr-description', admitted, report,
+                                     publisher=self.publisher('dk-pr-description', admitted, ledger),
+                                     audience=self.audience)
+        self.assertEqual(published['status'], 'applied', published)
+        self.assertEqual([call[2] for call in self.writes()], [{'body': DESCRIPTION_BODY}])
+        self.assertEqual(self.github.ev['metadata']['title'], 'Retitled by the author')
+
     def test_lost_request_before_the_effect_stays_pending_and_is_never_resent(self):
         admitted = self.admit('dk-pr-description', authorize=('edit_pr',))
         ledger = self.ledger(admitted)
@@ -733,7 +764,7 @@ class Issue(Fixture):
         self.assertNotIn('labels', report['draft'])  # Unrequested metadata is left alone.
         self.assertIn('issue:100', {item['id'] for item in self.fake.tasks[0]['context']['sources']})
         publisher = self.publisher('dk-issue', admitted, ledger)
-        planned = drafting.propose('dk-issue', admitted, report)
+        planned = drafting.propose('dk-issue', admitted, report, current=copy.deepcopy(existing))
         self.assertEqual(planned['proposal']['kind'], 'edit_issue')
         intent = publisher.prepare(planned['proposal'])
         existing['body'] = 'Someone else edited this.'
@@ -749,6 +780,42 @@ class Issue(Fixture):
         self.assertEqual((existing['title'], existing['body'], existing['labels']),
                          ('Uploads fail on transient network errors', ISSUE_BODY, [{'name': 'bug'}]))
         self.assertEqual([call[:2] for call in self.writes()], [('PATCH', 'repos/o/r/issues/100')])
+
+    def test_an_edit_between_draft_and_publication_is_never_overwritten(self):
+        existing = self.github.add_issue('Uploads flaky', 'Old text.')
+        admitted, ledger = self.admitted('Update #100 with what we know.', authorize=('edit_issue',))
+        report = self.draft('dk-issue', admitted, ledger, session(issue()), facts=[OUTAGE], issue=100)
+        self.assertEqual(report['seen'], {'title': 'Uploads flaky', 'body': 'Old text.'})
+        existing['body'] = 'A maintainer added a workaround after the draft.'
+        publisher = self.publisher('dk-issue', admitted, ledger)
+        stale = drafting.publish('dk-issue', admitted, report, publisher=publisher, audience=self.audience)
+        self.assertEqual((stale['status'], stale['error']['path']), ('stale', 'publication'))
+        self.assertIn('body', stale['error']['message'])
+        self.assertEqual((existing['body'], self.writes()), ('A maintainer added a workaround after the draft.', []))
+        # The edit is new evidence: drafting again reads it, and that draft publishes.
+        redrafted = self.draft('dk-issue', admitted, ledger, session(issue()), facts=[OUTAGE], issue=100)
+        self.assertTrue(redrafted['session'])
+        self.assertIn('workaround', next(item['text'] for item in self.fake.tasks[0]['context']['sources']
+                                         if item['id'] == 'issue:100'))
+        published = drafting.publish('dk-issue', admitted, redrafted, publisher=publisher, audience=self.audience)
+        self.assertEqual(published['status'], 'applied', published)
+        self.assertEqual([call[:2] for call in self.writes()], [('PATCH', 'repos/o/r/issues/100')])
+
+    def test_an_edit_inside_preparation_never_becomes_the_baseline(self):
+        existing = self.github.add_issue('Uploads flaky', 'Old text.')
+        admitted, ledger = self.admitted('Update #100 with what we know.', authorize=('edit_issue',))
+        report = self.draft('dk-issue', admitted, ledger, session(issue()), facts=[OUTAGE], issue=100)
+        publisher = self.publisher('dk-issue', admitted, ledger)
+        prepare = publisher.prepare
+
+        def edited_first(proposal):  # The maintainer edits after the live check, before preparation reads.
+            existing['body'] = 'Edited in between.'
+            return prepare(proposal)
+        publisher.prepare = edited_first
+        stale = drafting.publish('dk-issue', admitted, report, publisher=publisher, audience=self.audience)
+        self.assertEqual(stale['status'], 'stale', stale)
+        self.assertEqual(publisher.events(stale['intent'])[-1]['event'], 'prepared')  # Never dispatched.
+        self.assertEqual((existing['body'], self.writes()), ('Edited in between.', []))
 
     def test_composed_pr_occurrence_shares_the_pr_run_journal(self):
         document = {**configuration.empty_configuration(), 'scopes': [{

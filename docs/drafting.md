@@ -122,6 +122,15 @@ is written.
 - **Commit message.** Never published or committed. `handoff(report)` gives
   the message and scope to the committing procedure that consumes it.
 
+A draft records the fields it may write and the title and body it saw. A
+description writes only its enabled fields that differ, so a disabled field is
+never reverted. When a field the draft would write changed after the draft,
+`propose` returns `stale` and nothing is prepared. After preparation, the
+intent's baseline must also equal what the draft saw; otherwise `publish`
+returns `stale` and the intent is never dispatched. Drafting again reads the
+new text as evidence. After dispatch begins, the shared publisher refuses any
+field changed since preparation.
+
 The intent ID binds the logical run and the draft. A pending intent is only
 reconciled from the service and never sent again. An applied one returns its
 receipt with no write. Issue kinds share the journal, lock, audience and
@@ -153,8 +162,9 @@ writes. It covers:
 - **Description.** A private fallback draft and unchanged reuse, template
   sections, fabricated and supported validation, disabled title, quoted
   wording, the kept Decisions section, an authorized edit with response loss
-  before and after the effect and one write, reuse after publication, and a
-  dk-pr-fix occurrence.
+  before and after the effect and one write, reuse after publication, edits
+  after the draft (stale, no write), a disabled title changed after the draft
+  (kept), and a dk-pr-fix occurrence.
 - **Unsupported claims.** Unknown and closing references, unpinned links,
   `path:line`, banners, template comments and unknown sources reject. The
   author's existing sections are kept.
@@ -165,7 +175,9 @@ writes. It covers:
 - **Issue.** Verified, dropped and missing labels and assignees with listing
   counts, no live fallback, issue forms and reproduction evidence, creation with
   response loss before and after the effect, an identical existing issue, a
-  label removed after preparation, an update with a concurrent edit, and one
+  label removed after preparation, an update with a concurrent edit, edits
+  between the draft and preparation or inside preparation (stale, never
+  dispatched, then re-drafted and published once), and one
   journal for a composed PR run. At unit level it covers issue payloads,
   permissions, repository plans and duplicate receipts.
 

@@ -703,7 +703,7 @@ def check_result(name, output, evidence, governing):
                 'every changed path is included or excluded with a reason, and no other path')
         final = {'message': message, 'scope': {'included': sorted(included),
                                                'excluded': sorted(excluded, key=lambda item: item['path'])}}
-        combined = message
+        combined, writable = message, []
     else:
         current = evidence['current']
         title, body = output['title'], output['body']
@@ -733,10 +733,12 @@ def check_result(name, output, evidence, governing):
             final.update(number=evidence['number'],
                          **{key: value['value'] for key, value in evidence['metadata'].items()},
                          metadata={key: value['source'] for key, value in evidence['metadata'].items()})
-        combined = title + '\n' + body
+        combined, writable = title + '\n' + body, [key for key in ('title', 'body') if not fixed[key]]
     for phrase in evidence['constraints']:
         require(phrase in combined, 'constraints', f'the exact requested wording is missing: "{phrase}"')
-    return {'draft': final, 'template': output.get('template'), 'omitted': output.get('omitted', []),
+    # The fields the draft may write and the values it saw: publication refuses a field edited since.
+    return {'draft': final, 'fields': writable, 'seen': copy.deepcopy(evidence['current']),
+            'template': output.get('template'), 'omitted': output.get('omitted', []),
             'claims': output['claims'], 'questions': output['questions'], 'summary': output['summary']}
 
 
@@ -910,7 +912,8 @@ def _report(name, row, evidence, *, session):
     cited = sorted({ident for claim in value['claims'] for ident in claim['sources']})
     known = {item['id']: item for item in evidence['sources']}
     return {'skill': ENTRIES[name]['skill'], 'status': 'drafted', 'result_ref': row['result_ref'],
-            'claim': row['claim'], 'session': session, 'draft': value['draft'], 'template': value['template'],
+            'claim': row['claim'], 'session': session, 'draft': value['draft'], 'fields': value['fields'],
+            'seen': value['seen'], 'template': value['template'],
             'omitted': value['omitted'], 'claims': value['claims'], 'questions': value['questions'],
             'summary': value['summary'], 'notes': list(evidence['notes']),
             'sources': [{key: known[ident].get(key) for key in ('id', 'kind', 'public', 'url')}
@@ -1015,8 +1018,19 @@ def publication_plan(name, admitted):
     return plan
 
 
-def propose(name, admitted, report, *, capture=None):
-    """The exact proposal for an accepted draft, or why there is none. Writes nothing."""
+def _stale(report, live):
+    """Fields the draft would write that someone changed after the draft read them."""
+    return [key for key in report['fields'] if (live.get(key) or '') != (report['seen'].get(key) or '')]
+
+
+def propose(name, admitted, report, *, capture=None, current=None):
+    """The exact proposal for an accepted draft, or why there is none. Writes nothing.
+
+    capture is the live PR capture (dk-pr-description); current is the live
+    issue an update targets (dk-issue). A draft writes only its enabled fields,
+    and only while each still holds the value the draft saw; otherwise it is
+    stale and must be drafted again from the new text.
+    """
     snapshot = admitted['snapshot']
     permissions = snapshot['permissions']
     final = report['draft']
@@ -1029,7 +1043,11 @@ def propose(name, admitted, report, *, capture=None):
         if not permissions['edit_pr']['effective']:
             return {'status': 'not_authorized', 'id': ident, 'draft': final}
         meta = capture['metadata']
-        payload = {key: final[key] for key in ('title', 'body') if final[key] != (meta.get(key) or '')}
+        changed = _stale(report, meta)
+        if changed:
+            return {'status': 'stale', 'id': ident, 'draft': final, 'error': {
+                'path': 'publication', 'message': 'changed since the draft: ' + ', '.join(changed)}}
+        payload = {key: final[key] for key in report['fields'] if final[key] != (meta.get(key) or '')}
         if not payload:
             return {'status': 'unchanged', 'id': ident, 'draft': final}
         return {'status': 'proposed', 'id': ident, 'draft': final, 'proposal': {
@@ -1041,6 +1059,13 @@ def propose(name, admitted, report, *, capture=None):
     if kind == 'create_issue':
         payload = {key: final[key] for key in ('title', 'body', 'labels', 'assignees')}
     else:
+        require(isinstance(current, dict) and current.get('number') == final['number'], 'current',
+                'an issue update needs the live issue')
+        changed = _stale(report, current)
+        if changed:
+            return {'status': 'stale', 'id': ident, 'draft': final, 'error': {
+                'path': 'publication', 'message': f"#{final['number']} changed since the draft: "
+                                                  + ', '.join(changed)}}
         payload = {'number': final['number'], 'title': final['title'], 'body': final['body'],
                    **{key: final[key] for key in ('labels', 'assignees') if key in final}}
     return {'status': 'proposed', 'id': ident, 'draft': final,
@@ -1059,7 +1084,9 @@ def publish(name, admitted, report, *, publisher, audience):
         return {'status': 'blocked', 'error': {'path': 'report', 'message': 'no accepted draft'}}
     try:
         capture = publisher.provider.capture(publisher.pr) if name == 'dk-pr-description' else None
-        planned = propose(name, admitted, report, capture=capture)
+        number = report['draft'].get('number') if name == 'dk-issue' else None
+        current = publisher.provider.request('GET', f'{publisher.repo}/issues/{number}') if number else None
+        planned = propose(name, admitted, report, capture=capture, current=current)
     except Exception as error:
         return {'status': 'blocked', 'error': {'path': 'publication', 'message': str(error) or type(error).__name__}}
     retained = decisions._journal_state(publisher, planned['id']) if planned['id'] else None
@@ -1076,6 +1103,13 @@ def publish(name, admitted, report, *, publisher, audience):
     intent = None
     try:
         intent = publisher.prepare(planned['proposal'])
+        # The intent's baseline is what the service showed at preparation; it must be what the draft saw.
+        before = intent['intent']['before']
+        changed = [key for key in report['fields'] if key in before
+                   and (before[key] or '') != (report['seen'].get(key) or '')]
+        if changed:
+            return {'status': 'stale', 'draft': planned['draft'], 'intent': intent['id'], 'error': {
+                'path': 'publication', 'message': 'changed since the draft: ' + ', '.join(changed)}}
         receipt = publisher.execute(intent['id'], audience(intent))
     except Exception as error:
         # The journal, not the exception type, says whether the write may have happened.
