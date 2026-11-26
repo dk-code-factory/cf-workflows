@@ -173,7 +173,7 @@ def preflight(name, *, request, deployment, repository, transport, configuration
         merged['permissions'] = copy.deepcopy(permissions)
     result = dk_pr_fix.preflight(request=request, configuration=configuration, invocation=merged,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
-                                 home=home, install=install, workflow=entry['skill'], entry=entry['entry'])
+                                 home=home, install=install, workflow=entry['skill'], entry=entry['entry'], custom=False)
     result['entry'] = {'name': name, 'skill': entry['skill'], 'options': entry_options}
     if result['preflight'] != 'admitted':
         return result

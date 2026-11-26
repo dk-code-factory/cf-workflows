@@ -21,7 +21,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from cf_workflows import admission, dk_pr_fix  # noqa: E402
+sys.path.insert(0, str(ROOT / 'tests'))
+from cf_workflows import admission, dk_pr_fix, validator_binding  # noqa: E402
+from test_semantic import Engine, verdict  # noqa: E402
 
 sys.dont_write_bytecode = True  # Importing the helpers must not add caches to the installed closure.
 
@@ -100,7 +102,8 @@ class InstalledClosure(unittest.TestCase):
         self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml'])
-        reachable, pending = set(), list(entries)
+        # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
+        reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:
             name = pending.pop()
             if name in reachable:
@@ -247,7 +250,7 @@ class Preflight(PreflightFixture):
         self.assertTrue(Path(state['namespace']).is_relative_to(self.home / 'cf-workflows' / 'repositories'))
         self.assertEqual(result['installation']['closure_digest'], dk_pr_fix.verify_installation(self.clean))
 
-    def test_custom_prompts_and_supplied_skills_reject_at_preflight(self):
+    def test_supplied_skills_reject_at_preflight(self):
         skills = self.base / 'skills'
         (skills / 'lint').mkdir(parents=True)
         body = b'---\nname: lint\ndescription: Lint the change.\n---\nLint.\n'
@@ -260,21 +263,15 @@ class Preflight(PreflightFixture):
         skilled = {**self.deployment, 'agents': {'task': {'provider': 'claude-sdk', 'execution': {'mode': 'local'}}}}
         offered = copy.deepcopy(CAPABILITIES)
         offered['providers']['claude-sdk'] = ['admitted_roles', 'native_session', admission.CLAUDE_SKILL_PROFILE]
-        for invocation, transport, deployment in (
-                ({'prompts': [{'id': 'local', 'slot': 'additional', 'text': '$lint Keep the diff small.'}]}, None,
-                 self.deployment),
-                ({'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}]}}, None,
-                 self.deployment),
-                ({'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
-                  'skills': [skill]}, FakeTransport(offered), skilled)):
-            with self.subTest(invocation=invocation):
-                result = self.preflight(invocation=invocation, transport=transport, roots={'skills': skills},
-                                        deployment=deployment)
-                self.assertEqual((result['preflight'], result['structural'], result['semantic']),
-                                 ('rejected', 'accepted', 'blocked'))
-                self.assertTrue(result['error']['path'].startswith('custom'), result['error'])
-                self.assertNotIn('inputs', result)
-                self.assertNotIn('state', result)
+        # Rejected structurally, before any gate read or validator session (asserted by preflight()).
+        result = self.preflight(invocation={'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}],
+                                                        'finalizers': []}, 'skills': [skill]},
+                                transport=FakeTransport(offered), roots={'skills': skills}, deployment=skilled)
+        self.assertEqual((result['preflight'], result['structural'], result['semantic']),
+                         ('rejected', 'accepted', 'blocked'))
+        self.assertEqual(result['error']['path'], 'custom.skills')
+        self.assertNotIn('inputs', result)
+        self.assertNotIn('state', result)
 
     def test_publication_needs_enabled_permission_and_explicit_authorization(self):
         grant = {'request_id': 'r1', 'instruction': 'Push the fix and answer the review.', 'source': 'chat:1'}
@@ -399,6 +396,176 @@ class Preflight(PreflightFixture):
         self.assertEqual(os.listdir(namespace), ['.pr-fix-state'])
 
 
+class SemanticPreflight(PreflightFixture):
+    """Custom inputs pass one engine validator task and durable gates before anything is mapped."""
+
+    CUSTOM = {'prompts': [{'id': 'tone', 'slot': 'additional', 'text': 'Keep the diff small.'}],
+              'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}],
+                          'requirements': ['Every fix gets a regression test.'],
+                          'prohibitions': ['merge', 'Never edit vendored code.'],
+                          'adapters': {'check-docs': {'kind': 'inspection', 'writes': False, 'definition': 'leaf',
+                                                      'assignment': 'Check that docs match the change.'}},
+                          'finalizers': ['check-docs']}}
+
+    def setUp(self):
+        super().setUp()
+        self.engine = Engine()
+
+    def assess(self, *sessions, invocation=None, **changes):
+        """One preflight against a fake engine: scripted validator tasks and a durable gate store."""
+        self.transport = FakeTransport()
+        script = list(sessions)
+        self.assignments = []
+
+        def session(task):
+            self.assignments.append(task)
+            if not script:
+                raise AssertionError('unscripted validator session')
+            return script.pop(0)(task)
+        self.transport.configured.update(
+            validator_session=session, open_input_gate=self.engine.open,
+            input_gates=lambda request_id: copy.deepcopy([gate for gate in self.engine.gates
+                                                          if gate['request_id'] == request_id]))
+        arguments = {'request': self.request, 'configuration': None,
+                     'invocation': self.CUSTOM if invocation is None else invocation,
+                     'deployment': self.deployment, 'repository': self.repo, 'home': self.home, **changes}
+        result = dk_pr_fix.preflight(transport=self.transport, install=self.clean, **copy.deepcopy(arguments))
+        self.assertLessEqual(set(self.transport.calls),
+                             {'capabilities', 'input_gates', 'validator_session', 'open_input_gate'})
+        self.assertFalse(self.home.exists(), 'preflight writes nothing')
+        self.assertEqual(git(self.repo, 'status', '--porcelain', '--ignored'), '')
+        return result
+
+    def test_default_plan_runs_no_validator_task(self):
+        result = self.assess(invocation={})
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', None))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1))
+        self.assertNotIn('prompts', result['inputs'])
+        self.assertNotIn('policy', result['inputs'])
+
+    def test_accepted_custom_inputs_reach_the_declared_inputs(self):
+        structural = admission.admit(**{key: copy.deepcopy(value) for key, value in (
+            ('request', self.request), ('configuration', None), ('invocation', self.CUSTOM),
+            ('deployment', self.deployment))}, roles=dk_pr_fix.role_catalog(self.clean),
+            roots={'repository': self.repo, dk_pr_fix.INSTALL_ROOT: self.clean}, transport=FakeTransport())
+        self.assertEqual(structural['preflight'], 'semantic_required')
+        result = self.assess(verdict('accepted'))
+        self.assertEqual((result['preflight'], result['structural'], result['semantic']),
+                         ('admitted', 'accepted', 'accepted'), result.get('error'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1, input_gates=1, validator_session=1))
+        [task] = self.assignments
+        self.assertEqual(task['input'], structural['admission_input'])
+        self.assertEqual(sorted(task['subjects']), sorted(
+            ['invocation.prompts[0]', 'invocation.options.tasks[0].instructions',
+             'invocation.options.adapters.check-docs', 'invocation.options.requirements[0]',
+             'invocation.options.prohibitions[1]']))
+        inputs = result['inputs']
+        self.assertEqual(inputs['prompts'], [{'id': 'tone', 'slot': 'additional', 'target': None,
+                                              'text': 'Keep the diff small.'}])
+        # Action prohibitions stay permissions; only free text is policy.
+        self.assertEqual(inputs['policy'], {'requirements': ['Every fix gets a regression test.'],
+                                            'prohibitions': ['Never edit vendored code.']})
+        self.assertEqual(inputs['tasks'], self.CUSTOM['options']['tasks'])
+        self.assertEqual(inputs['finalizers'], ['check-docs'])
+        self.assertEqual(inputs['adapters']['check-docs']['assignment'], 'Check that docs match the change.')
+        self.assertEqual(result['admission']['evidence_refs'][-1], 'native:result-' + task['claim'])
+        # Acceptance grants nothing: permissions and the staged request are the structural ones.
+        self.assertFalse(any(inputs['permissions'].values()))
+        self.assertEqual(result['snapshot'], structural['snapshot'])
+
+    def test_clarification_waits_then_the_answered_revision_is_assessed_again(self):
+        question = [{'id': 'u1', 'paths': ['invocation.prompts[0]'], 'question': 'Small enough to skip tests?'}]
+        result = self.assess(verdict('needs_clarification', uncertainties=question))
+        self.assertEqual((result['preflight'], result['semantic']), ('waiting', 'needs_clarification'))
+        self.assertEqual(result['gate']['status'], 'waiting')
+        self.assertNotIn('inputs', result)
+        self.assertNotIn('state', result)
+        # Interrupted: the same proposal keeps waiting on the same gate, with no new session.
+        self.assertEqual(self.assess()['preflight'], 'waiting')
+        self.assertEqual(self.transport.calls, Counter(capabilities=1, input_gates=1))
+        self.engine.answer('gate-1', 'answer-1', {'action': 'supplement', 'text': 'Tests still apply.'})
+        result = self.assess(verdict('accepted', resolved=[{'id': 'r1', 'paths': ['invocation.prompts[0]'],
+                                                            'detail': 'Answered.'}]))
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'), result.get('error'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=2, input_gates=1, validator_session=1))
+        self.assertEqual([item['text'] for item in result['inputs']['prompts']],
+                         ['Keep the diff small.', 'Tests still apply.'])
+        self.assertEqual(result['clarifications'][0]['answer_id'], 'answer-1')
+
+    def test_rejection_or_a_blocked_validator_maps_nothing(self):
+        conflict = [{'id': 'c1', 'paths': ['invocation.prompts[0]', 'invocation.options.prohibitions[1]'],
+                     'detail': 'Contradiction.'}]
+        for response, outcome in ((verdict('rejected', conflicts=conflict), 'rejected'),
+                                  (verdict('accepted', operations=[{'kind': 'write', 'target': 'repository:x'}]),
+                                   'blocked'),
+                                  (verdict('accepted', operations=None, skills_loaded=['lint']), 'blocked')):
+            with self.subTest(outcome=outcome):
+                self.engine = Engine()
+                result = self.assess(response)
+                self.assertEqual(result['preflight'], outcome)
+                self.assertNotIn('inputs', result)
+                self.assertEqual(self.transport.calls['validator_session'], 1)
+
+    def test_installed_workflow_limits_reject_before_any_gate_read_or_session(self):
+        cases = [
+            ({'request': {'repository': 'github.com/owner/repo', 'instructions': 'Fix it.'}}, 'request.pr'),
+            ({'invocation': {**self.CUSTOM, 'prompts': [{'id': 'all', 'slot': 'behavior_replacement',
+                                                          'text': 'Do something else.'}]}}, 'prompts'),
+            ({'invocation': {**self.CUSTOM, 'options': {**self.CUSTOM['options'], 'tasks': ['draft-issue']}}},
+             'options.tasks'),
+        ]
+        for changes, path in cases:
+            with self.subTest(path=path):
+                result = self.assess(**changes)
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path), result)
+                self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
+    def test_resource_bearing_custom_inputs_reject_before_any_gate_read_or_session(self):
+        # The workflow carries no configured resource, so an adapter's resources or a prompt's
+        # files would reach no occurrence; they reject instead of running without them.
+        guidance = self.base / 'guidance'
+        (guidance / 'prompts').mkdir(parents=True)
+        files = {'guide.md': b'See [notes](prompts/notes.md).\n', 'prompts/notes.md': b'Prefer small diffs.\n'}
+        for rel, body in files.items():
+            (guidance / rel).write_bytes(body)
+        configuration = {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',
+                         'scopes': [], 'resources': [{'root': 'configuration', 'path': rel,
+                                                      'sha256': hashlib.sha256(body).hexdigest(),
+                                                      'purpose': 'Guidance.', 'owner': 'maintainers'}
+                                                     for rel, body in files.items()],
+                         'admission': {'structural': 'pending', 'semantic': None, 'request_id': None,
+                                       'context_digest': None, 'resource_digest': None,
+                                       'capability_digest': None, 'evidence_refs': []}}
+        adapter = self.CUSTOM['options']['adapters']['check-docs']
+        cases = [
+            ({**self.CUSTOM, 'options': {**self.CUSTOM['options'], 'adapters': {
+                'check-docs': {**adapter, 'resources': ['configuration:prompts/notes.md']}}}},
+             'options.adapters.check-docs.resources'),
+            ({**self.CUSTOM, 'prompts': [{**self.CUSTOM['prompts'][0], 'resources': ['configuration:prompts/notes.md']}]},
+             'invocation.prompts[0].resources'),
+            ({**self.CUSTOM, 'prompts': [{'id': 'tone', 'slot': 'additional', 'resource': 'configuration:guide.md'}]},
+             'invocation.prompts[0].resource'),
+            ({**self.CUSTOM, 'preferences': [{'id': 'small', 'text': 'Keep it small.',
+                                              'resources': ['configuration:prompts/notes.md']}]},
+             'invocation.preferences[0].resources'),
+        ]
+        for invocation, path in cases:
+            with self.subTest(path=path):
+                result = self.assess(invocation=invocation, configuration=configuration,
+                                     roots={'configuration': guidance})
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path), result)
+                self.assertNotIn('inputs', result)
+                self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
+    def test_preset_entries_keep_rejecting_custom_inputs_before_any_gate_read(self):
+        self.transport = FakeTransport()
+        result = dk_pr_fix.preflight(request=self.request, configuration=None, invocation=copy.deepcopy(self.CUSTOM),
+                                     deployment=self.deployment, repository=self.repo, home=self.home,
+                                     transport=self.transport, install=self.clean, custom=False)
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'custom'))
+        self.assertEqual(self.transport.calls, Counter(capabilities=1))
+
+
 class RelocatedReadOnlyRun(PreflightFixture):
     """Admit, stage and run preparation and a first claim from a relocated read-only install."""
 
@@ -479,6 +646,42 @@ class RelocatedReadOnlyRun(PreflightFixture):
         self.assertEqual((tasks['finding_verification']['definition'], tasks['finding_verification']['required']),
                          ('verifier', True))
         self.assertEqual({task['definition'] for task in plan['tasks'] if task['kind'] == 'review'}, {'reviewer'})
+        # Without accepted custom inputs no occurrence carries prompts or policy, so fingerprints are unchanged.
+        self.assertFalse([task['id'] for task in plan['tasks'] if {'prompts', 'policy', 'behavior'} & set(task)])
+
+    def test_accepted_custom_inputs_reach_the_first_claim(self):
+        engine = Engine()
+        transport = FakeTransport()
+        transport.configured.update(validator_session=verdict('accepted'), open_input_gate=engine.open,
+                                    input_gates=lambda request_id: [])
+        invocation = {'prompts': [{'id': 'scope', 'slot': 'behavior_replacement', 'target': 'read-feedback',
+                                   'text': 'Capture only threads on tests/.'},
+                                  {'id': 'tone', 'slot': 'additional', 'text': 'Quote each source exactly.'},
+                                  {'id': 'reviews', 'slot': 'reviewer', 'text': 'Check the test names.'}],
+                      'options': {'tasks': [{'task': 'read-feedback', 'instructions': 'Skip bot comments.'}],
+                                  'finalizers': [], 'requirements': ['Keep every source ID.']}}
+        prepared = dk_pr_fix.preflight(request=self.request, configuration=None, invocation=invocation,
+                                       deployment=self.deployment, repository=self.repo, home=self.home,
+                                       transport=transport, install=self.install)
+        self.assertEqual((prepared['preflight'], prepared['semantic']), ('admitted', 'accepted'), prepared.get('error'))
+        self.assertEqual(transport.calls['validator_session'], 1)
+        dk_pr_fix.stage_request(prepared)
+        controls = {key: value for key, value in prepared['inputs'].items() if key != 'request'}
+        steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}},
+                 {'name': 'prepare', 'operation': 'prepare', 'input': {'controls': controls},
+                  'refs': {'snapshot': ['request', 'result', 'output', 'snapshot']}},
+                 {'name': 'claim', 'operation': 'claim', 'input': {'cycle': 1, 'publication': ''},
+                  'refs': {'plan': ['prepare', 'result', 'output', 'plan'],
+                           'task': ['prepare', 'result', 'output', 'stages', 0, 'groups', 0, 'tasks', 0, 'id']}}]
+        completed = self.run_driver(prepared, steps)
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode()[-4000:])
+        task = json.loads(completed.stdout)['results']['claim']['result']['output']['task_input']['task']
+        # The accepted replacement stands in for the adapter assignment; the instructions still follow it.
+        self.assertEqual(task['assignment'], 'Capture only threads on tests/.\nSkip bot comments.')
+        self.assertEqual(task['behavior'], 'prompt:scope')
+        # A reviewer-slot prompt reaches review occurrences only.
+        self.assertEqual(task['prompts'], [{'id': 'tone', 'slot': 'additional', 'text': 'Quote each source exactly.'}])
+        self.assertEqual(task['policy'], {'requirements': ['Keep every source ID.']})
 
     def test_unconfigured_github_operation_fails_without_fallback(self):
         prepared = self.preflight(install=self.install)

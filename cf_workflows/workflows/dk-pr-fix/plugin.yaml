@@ -40,5 +40,8 @@ skills:
 resources:
   - LICENSE
   - agents.yml
+  # Preflight's semantic assessment of custom inputs (cf_workflows.validator_binding).
+  - workflows/assess.yml
+  - workflows/validator/configuration-validator.yaml
   - closure.json
   - request.example.json

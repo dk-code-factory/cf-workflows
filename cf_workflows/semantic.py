@@ -175,6 +175,10 @@ def check_session(session, task, answers):
             'validator.observation', 'session did not run the fixed bundled validator role')
     require(observed['agent'] == task['agent'], 'validator.observation.agent', 'session ran on another agent')
     require(observed['skills_loaded'] == [], 'validator.observation.skills_loaded', 'the validator loads no skills')
+    # An engine that records no operations for the session leaves its read-only boundary unverified.
+    require(observed['operations'] is not None, 'validator.observation.operations',
+            'the engine recorded no operation receipt for the validator session, so its read-only boundary '
+            'is unverified')
     require(isinstance(observed['operations'], list), 'validator.observation.operations', 'must be an array')
     for number, operation in enumerate(observed['operations']):
         at = f'validator.observation.operations[{number}]'
@@ -381,18 +385,26 @@ def assess(admitted, proposal, request_id, clarifications, transport, ledger=Non
     return outcome(admitted, proposal, request_id, verdict, clarifications, validator, split=split)
 
 
-def admit(*, request, configuration, invocation, deployment, roles, roots, transport, ledger=None):
+def admit(*, request, configuration, invocation, deployment, roles, roots, transport, ledger=None, defaults=None,
+          check=None):
     """Structural admission followed, for custom inputs only, by semantic assessment.
 
     transport offers capabilities(), validator_session(assignment), input_gates(request_id)
     and open_input_gate(request). The default plan calls only capabilities().
     ledger, an acceptance.Ledger, enables reuse of current acceptances; a fully
-    current proposal also calls only capabilities().
+    current proposal also calls only capabilities(). defaults is admission's
+    preset defaults. check(admitted) returns (path, message) when a structurally
+    admitted proposal cannot run where it is headed (such as the installed
+    workflow); it applies before any gate read or session, and to every revision.
     """
     fixed = {'request': request, 'deployment': deployment, 'roles': roles, 'roots': roots}
 
     def structural(proposal):
-        return admission.admit(**copy.deepcopy(fixed | proposal), transport=transport)
+        result = admission.admit(**copy.deepcopy(fixed | proposal), transport=transport, defaults=defaults)
+        failure = check(result) if check is not None and result['preflight'] == 'semantic_required' else None
+        if failure:
+            result = {**result, 'preflight': 'rejected', 'error': {'path': failure[0], 'message': failure[1]}}
+        return result
     proposal = {'configuration': copy.deepcopy(configuration), 'invocation': copy.deepcopy(invocation)}
     admitted = structural(proposal)
     if admitted['preflight'] != 'semantic_required':

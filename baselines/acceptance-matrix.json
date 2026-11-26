@@ -1177,7 +1177,8 @@
       "case": "default_plan_structural_only",
       "tests": [
         "test_admission.DefaultPlan.test_default_plan_is_admitted_structurally_without_semantic_stage",
-        "test_semantic.Routing.test_default_plan_incurs_no_validator_session"
+        "test_semantic.Routing.test_default_plan_incurs_no_validator_session",
+        "test_dk_pr_fix.SemanticPreflight.test_default_plan_runs_no_validator_task"
       ]
     },
     {
@@ -1200,7 +1201,10 @@
         "test_semantic.Verdicts.test_accepted_runs_one_fixed_role_session_without_skills",
         "test_semantic.Verdicts.test_rejected_preserves_concrete_conflicts",
         "test_semantic.Verdicts.test_needs_clarification_opens_one_durable_gate_with_the_verdict",
-        "test_semantic.Verdicts.test_blocked_verdict_and_session_failure_block_preflight"
+        "test_semantic.Verdicts.test_blocked_verdict_and_session_failure_block_preflight",
+        "test_dk_pr_fix.SemanticPreflight.test_accepted_custom_inputs_reach_the_declared_inputs",
+        "test_dk_pr_fix.SemanticPreflight.test_rejection_or_a_blocked_validator_maps_nothing",
+        "test_validator_binding.ValidatorTask.test_without_an_operation_receipt_the_session_blocks"
       ]
     },
     {
@@ -1208,7 +1212,9 @@
       "tests": [
         "test_semantic.Clarification.test_interrupted_clarification_resumes_and_validates_the_revised_proposal",
         "test_acceptance.Clarified.test_lost_gate_response_neither_loses_the_question_nor_repeats_the_session",
-        "test_semantic.Clarification.test_changed_proposal_is_a_new_request_and_ignores_old_answers"
+        "test_semantic.Clarification.test_changed_proposal_is_a_new_request_and_ignores_old_answers",
+        "test_dk_pr_fix.SemanticPreflight.test_clarification_waits_then_the_answered_revision_is_assessed_again",
+        "test_validator_binding.Gates.test_clarification_opens_one_pinned_gate_and_its_answer_revises_the_proposal"
       ]
     },
     {
@@ -1232,13 +1238,14 @@
       "tests": [
         "test_admission.Rejections.test_unavailable_provider_rejects_after_one_probe",
         "test_admission.DefaultPlan.test_merge_grant_requires_engine_merge_guard",
-        "test_dk_pr_fix.Preflight.test_unavailable_publication_actions_reject"
+        "test_dk_pr_fix.Preflight.test_unavailable_publication_actions_reject",
+        "test_validator_binding.Capabilities.test_engine_contract_names_map_to_suite_capabilities"
       ]
     },
     {
       "case": "supplied_skills_rejected_until_supported",
       "tests": [
-        "test_dk_pr_fix.Preflight.test_custom_prompts_and_supplied_skills_reject_at_preflight",
+        "test_dk_pr_fix.Preflight.test_supplied_skills_reject_at_preflight",
         "test_semantic.Routing.test_supplied_skills_stay_rejected_before_any_session",
         "test_skills.Bindings.test_supplied_skills_stay_rejected_until_the_workflow_is_wired"
       ]
@@ -1269,7 +1276,8 @@
       "case": "bootstrap_boundary",
       "tests": [
         "test_admission.Bootstrap.test_bundled_validator_is_structural_only",
-        "test_admission.Bootstrap.test_changed_validator_definition_rejects_instead_of_recursing"
+        "test_admission.Bootstrap.test_changed_validator_definition_rejects_instead_of_recursing",
+        "test_validator_binding.Definition.test_installed_definition_is_the_conversion_of_the_pinned_bootstrap"
       ]
     },
     {

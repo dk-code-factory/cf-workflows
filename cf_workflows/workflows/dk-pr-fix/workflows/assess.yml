@@ -1,0 +1,114 @@
+# Semantic assessment of custom configuration inputs (docs/semantic.md#engine-binding).
+# Preflight (cf_workflows.dk_pr_fix) runs it before the first dispatch of the shared
+# workflow, through cf_workflows.validator_binding: `validate` is one native task on
+# the bundled configuration-validator role with no skill; `clarify` is one durable
+# input gate pinned to the proposal's evidence ID. It never runs a target task.
+name: cf-workflows:dk-pr-fix assessment
+'on':
+  workflow_call:
+    inputs:
+      mode:
+        # validate or clarify.
+        type: string
+        required: true
+      prompt:
+        type: string
+        required: true
+      input:
+        # validate: {assignment, files}; the validator reads nothing else.
+        type: object
+        default: {}
+      evidence_id:
+        # clarify: the proposal's evidence ID (cfg_<admission input digest>).
+        type: string
+        default: ''
+      payload:
+        # clarify: request_id, verdict, validator reference, editable paths and answer actions.
+        type: object
+        default: {}
+    outputs:
+      agent:
+        value: ${{ jobs.validate.outputs.agent }}
+      verdict:
+        value: ${{ jobs.validate.outputs.verdict }}
+      provider:
+        value: ${{ jobs.validate.outputs.provider }}
+      answer:
+        value: ${{ jobs.clarify.outputs.answer }}
+      answer_id:
+        value: ${{ jobs.clarify.outputs.answer_id }}
+      gate_id:
+        value: ${{ jobs.clarify.outputs.gate_id }}
+schemas:
+  verdict:
+    type: object
+    required: [verdict, summary, conflicts, uncertainties, resolved]
+    properties:
+      verdict:
+        type: string
+        enum: [accepted, needs_clarification, rejected, blocked]
+      summary:
+        type: string
+      conflicts:
+        type: array
+        items:
+          type: object
+          required: [id, paths, detail]
+          properties:
+            id: {type: string}
+            paths: {type: array, items: {type: string}}
+            detail: {type: string}
+          additionalProperties: false
+      uncertainties:
+        type: array
+        items:
+          type: object
+          required: [id, paths, question]
+          properties:
+            id: {type: string}
+            paths: {type: array, items: {type: string}}
+            question: {type: string}
+          additionalProperties: false
+      resolved:
+        type: array
+        items:
+          type: object
+          required: [id, paths, detail, answers]
+          properties:
+            id: {type: string}
+            paths: {type: array, items: {type: string}}
+            detail: {type: string}
+            answers: {type: array, items: {type: string}}
+          additionalProperties: false
+    additionalProperties: false
+jobs:
+  validate:
+    if: ${{ inputs.mode == 'validate' }}
+    steps:
+    - id: validator
+      uses: agent/run
+      with:
+        agent: validator/configuration-validator.yaml
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: verdict
+    outputs:
+      agent: ${{ steps.validator.outputs.agent }}
+      verdict: ${{ steps.validator.outputs.structured }}
+      provider: ${{ steps.validator.outputs.provider }}
+  clarify:
+    if: ${{ inputs.mode == 'clarify' }}
+    steps:
+    - id: question
+      uses: input/wait
+      with:
+        prompt: ${{ inputs.prompt }}
+        evidence-id: ${{ inputs.evidence_id }}
+        payload: ${{ inputs.payload }}
+    outputs:
+      answer: ${{ steps.question.outputs.answer }}
+      answer_id: ${{ steps.question.outputs.answer_id }}
+      gate_id: ${{ steps.question.outputs.gate_id }}

@@ -238,8 +238,10 @@ publication helpers list only verified findings and the final merge there.
   The [alternatives entries](alternatives.md) drive its stages as library
   procedures; the installed review workflow rejects their adapters.
 - A profile built from an installed code-review-ad package uses custom adapters.
-  These need semantic admission (#12/#13) and workflow inputs for accepted
-  custom inputs. Supplied reviewer skills need #16 and Agent Workflow #139.
+  `dk-pr-review` preflight routes them through semantic assessment and maps them
+  once accepted, but through a real engine the validator task blocks until the
+  engine records its operations ([engine binding](semantic.md#engine-binding)).
+  The profile itself is #13. Supplied reviewer skills need #16 and Agent Workflow #139.
 - Finding publication runs through the installed graph only once Agent
   Workflow #129 and #130 land. The fixtures prove the helper and ledger
   behavior, not GitHub's acceptance of these payloads (for example an empty

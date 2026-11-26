@@ -2,15 +2,19 @@
 
 This module prepares one run of the installed YAML workflow. It verifies the
 immutable installed closure, admits the configuration structurally against the
-installed role catalog, rejects capabilities this release does not provide and
-maps the admitted options onto the workflow's declared inputs. It stages the
-private request in the suite's state namespace, outside the target checkout.
+installed role catalog, assesses custom inputs semantically (cf_workflows.semantic),
+rejects capabilities this release does not provide and maps the admitted options
+onto the workflow's declared inputs. It stages the private request in the suite's
+state namespace, outside the target checkout.
 
-It never starts a provider session, runs the workflow, schedules tasks or
-writes to the target checkout or the installation. Agent Workflow runs the
+It never runs the workflow, a target task or a local provider session, and never
+writes to the target checkout or the installation. Custom inputs only ask the
+engine, through the transport, for one validator task and durable input gates
+(cf_workflows.validator_binding). Agent Workflow runs the
 workflow; until it can resolve an installed package and mount the state
 namespace (Agent Workflow #130), the result is a validated input set only.
 """
+from collections import Counter
 import hashlib
 import json
 import os
@@ -19,7 +23,7 @@ import re
 import stat
 import tempfile
 
-from . import admission
+from . import admission, semantic
 
 WORKFLOW = 'cf-workflows:dk-pr-fix'
 INSTALL = Path(__file__).resolve().parent / 'workflows' / 'dk-pr-fix'
@@ -165,9 +169,95 @@ def _adapter(record):
                                          'history', 'head_sensitive', 'cacheable')}
 
 
+def _constraints(result, mode):
+    """(path, message) when an admitted proposal cannot run in the installed workflow, else None.
+
+    It applies to the structural result before any semantic session and again
+    to the final admitted proposal.
+    """
+    snapshot = result['snapshot']
+    if snapshot['request']['pr'] is None:
+        return 'request.pr', 'dk-pr-fix maintains one pull request; a repository target has none'
+    if any(task['kind'] == admission.CONFIGURATION_KIND for task in snapshot['plan']['tasks']):
+        # Their proposals are applied only by the configuration entries (cf_workflows.entries).
+        return 'options.tasks', ('configuration adapters run only in cf-workflows:dk-config '
+                                 'and cf-workflows:dk-preferences')
+    # Prose finalizers (plain-english, asd-ste100) run as ordinary task occurrences; the installed
+    # helpers bound their sessions to changed prose and check their edits (helpers/prfix/prose.py).
+    if any(task['kind'] == admission.ALTERNATIVES_KIND for task in snapshot['plan']['tasks']):
+        # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
+        return 'options.tasks', ('alternatives adapters run only through their staged procedure; '
+                                 'the installed workflow does not run alternatives stages yet')
+    entry_only = [task['adapter'] for task in snapshot['plan']['tasks'] if task['adapter'] in ENTRY_ONLY]
+    if entry_only:
+        # Its result is meaningful only with the entry's evidence collection and checks
+        # (cf_workflows.approvers, cf_workflows.drafting, cf_workflows.ci_flakes).
+        return 'options.tasks', (entry_only[0] + ' runs only through its entry procedure; the '
+                                 'installed workflow runs it as a generic task')
+    # The workflow mounts only the repository and its own installation; a declared resource
+    # (and a resource-backed prompt's link closure) would reach no occurrence.
+    resourced = [task['adapter'] for task in snapshot['plan']['tasks'] if task['resources']]
+    if resourced:
+        return (f'options.adapters.{resourced[0]}.resources',
+                'the installed workflow does not carry adapter resources yet; remove them or inline the guidance')
+    for entry in snapshot['prompts'] + snapshot['preferences']:
+        if entry['applicable'] and entry['resources']:
+            return (entry['path'] + ('.resource' if entry['resource'] is not None else '.resources'),
+                    'the installed workflow does not carry prompt or preference resources yet; '
+                    'use inline text without resources')
+    replacements =Counter(prompt['target'] for prompt in snapshot['prompts']
+                           if prompt['applicable'] and prompt['slot'] == 'behavior_replacement')
+    if None in replacements:
+        return 'prompts', 'a behavior replacement prompt must target one adapter in the installed workflow'
+    if any(count > 1 for count in replacements.values()):
+        return 'prompts', 'at most one behavior replacement prompt applies to an adapter'
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', snapshot['request']['logical_run']):
+        return 'request.logical_run', 'the workflow ledger accepts [A-Za-z0-9_-]{1,100} only'
+    # Every remote write needs an enabled permission and an explicit request
+    # authorization; the guarded publication helpers recheck both at dispatch.
+    permissions = snapshot['permissions']
+    if mode == 'review':
+        rejected = _review_plan(snapshot)
+        if rejected:
+            return rejected
+    for action in sorted(snapshot['request']['authorizations']):
+        if action in UNAVAILABLE_ACTIONS:
+            return 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action]
+        if mode != 'review' and action == 'approve_pr':
+            return ('request.authorizations.' + action,
+                    'approval belongs to incoming review (dk-pr-review, dk-pr-review-post); '
+                    'a maintained PR is never approved by its maintainer run')
+        if mode != 'review' and action == 'approve_fork_ci':
+            return ('request.authorizations.' + action,
+                    'fork workflow approval belongs to incoming review (dk-pr-review, dk-ci-approve); '
+                    'dk-pr-fix never approves fork workflows')
+        if mode == 'review' and action not in REVIEW_ACTIONS:
+            return ('request.authorizations.' + action,
+                    'incoming review never writes the PR branch, description or discussion')
+        if not permissions[action]['effective']:
+            return ('request.authorizations.' + action,
+                    'the authorized action is not enabled by accepted configuration; '
+                    'enable it in a scoped configuration or remove the authorization')
+    return None
+
+
+def _custom_inputs(snapshot):
+    """The accepted custom prompts, preferences and free-text policy, as workflow inputs.
+
+    Per-task instructions travel in the task selections and custom adapters in
+    `adapters`; both are already declared inputs.
+    """
+    prompts = [{**{key: entry[key] for key in ('id', 'slot', 'target', 'text')},
+                **({'scope': entry['scope']} if entry['scope'] is not None else {})}
+               for entry in snapshot['prompts'] + snapshot['preferences'] if entry['applicable']]
+    policy = {key: [item['text'] for item in snapshot['options'][key]['value'] if item['text'] not in admission.ACTIONS]
+              for key in admission.ACCUMULATED}
+    return prompts, {key: value for key, value in policy.items() if value}
+
+
 def preflight(*, request, configuration, invocation, deployment, repository, transport,
               roots=None, home=None, install=INSTALL, maintain_other=None, mode='fix', defaults=None,
-              workflow=WORKFLOW, entry=ENTRY):
+              workflow=WORKFLOW, entry=ENTRY, custom=True):
     """Admit one run of the installed workflow and return its declared inputs.
 
     Writes nothing. A rejected or blocked result carries the admission error.
@@ -175,6 +265,13 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     ({request_id, instruction, source}); it is staged with the private request.
     mode, defaults, workflow and entry select an entry-point preset over the
     shared workflow, such as incoming review (cf_workflows.dk_pr_review).
+
+    Custom inputs (prompts, preferences, per-task instructions, custom adapters
+    and free-text policy) go through semantic assessment (cf_workflows.semantic)
+    before anything is mapped: the transport then also runs at most one
+    validator task and reads or opens durable input gates (see
+    cf_workflows.validator_binding). An entry whose preset workflow does not
+    carry them passes custom=False and rejects them before any gate read.
     """
     failure = {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None}
     try:
@@ -193,66 +290,21 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
                 or not all(isinstance(value, str) and value.strip() for value in maintain_other.values())):
             return _reject(failure, 'maintain_other', 'maintaining another author\'s PR needs an exact '
                            '{request_id, instruction, source} request and the fix workflow')
-    result = admission.admit(request=request, configuration=configuration, invocation=invocation,
-                             deployment=deployment, roles=role_catalog(install),
-                             roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport,
-                             defaults=defaults)
-    if result['preflight'] == 'semantic_required':
-        # The installed workflow does not consume semantically admitted prompts,
-        # instructions, adapters or policy text yet; never run without them.
-        return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
-                       'dk-pr-fix workflow yet; remove them or wait for their workflow inputs')
+    result = semantic.admit(request=request, configuration=configuration, invocation=invocation,
+                            deployment=deployment, roles=role_catalog(install),
+                            roots={**roots, 'repository': repository, INSTALL_ROOT: install}, transport=transport,
+                            defaults=defaults,
+                            check=lambda admitted: _constraints(admitted, mode) if custom else (
+                                'custom', 'custom configuration inputs are not supported by the installed ' + workflow
+                                + ' entry; run them through cf-workflows:dk-pr-fix or cf-workflows:dk-pr-review'))
     if result['preflight'] != 'admitted':
+        # Rejected, blocked, or waiting on a durable clarification gate: nothing is mapped or staged.
         return result
+    rejected = _constraints(result, mode)
+    if rejected:
+        return _reject(result, *rejected)
     snapshot = result['snapshot']
-    if snapshot['request']['pr'] is None:
-        return _reject(result, 'request.pr', 'dk-pr-fix maintains one pull request; a repository target has none')
-    if any(task['kind'] == admission.CONFIGURATION_KIND for task in snapshot['plan']['tasks']):
-        # Their proposals are applied only by the configuration entries (cf_workflows.entries).
-        return _reject(result, 'options.tasks', 'configuration adapters run only in cf-workflows:dk-config '
-                       'and cf-workflows:dk-preferences')
-    # Prose finalizers (plain-english, asd-ste100) run as ordinary task occurrences; the installed
-    # helpers bound their sessions to changed prose and check their edits (helpers/prfix/prose.py).
-    if any(task['kind'] == admission.ALTERNATIVES_KIND for task in snapshot['plan']['tasks']):
-        # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
-        return _reject(result, 'options.tasks', 'alternatives adapters run only through their staged procedure; '
-                       'the installed workflow does not run alternatives stages yet')
-    entry_only = [task['adapter'] for task in snapshot['plan']['tasks'] if task['adapter'] in ENTRY_ONLY]
-    if entry_only:
-        # Its result is meaningful only with the entry's evidence collection and checks
-        # (cf_workflows.approvers, cf_workflows.drafting, cf_workflows.ci_flakes).
-        return _reject(result, 'options.tasks', entry_only[0] + ' runs only through its entry procedure; the '
-                       'installed workflow runs it as a generic task')
-    if any(snapshot['custom'].values()):
-        return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
-                       'dk-pr-fix workflow yet')
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', snapshot['request']['logical_run']):
-        return _reject(result, 'request.logical_run', 'the workflow ledger accepts [A-Za-z0-9_-]{1,100} only')
-    # Every remote write needs an enabled permission and an explicit request
-    # authorization; the guarded publication helpers recheck both at dispatch.
     permissions = snapshot['permissions']
-    if mode == 'review':
-        rejected = _review_plan(snapshot)
-        if rejected:
-            return _reject(result, *rejected)
-    for action in sorted(snapshot['request']['authorizations']):
-        if action in UNAVAILABLE_ACTIONS:
-            return _reject(result, 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action])
-        if mode != 'review' and action == 'approve_pr':
-            return _reject(result, 'request.authorizations.' + action,
-                           'approval belongs to incoming review (dk-pr-review, dk-pr-review-post); '
-                           'a maintained PR is never approved by its maintainer run')
-        if mode != 'review' and action == 'approve_fork_ci':
-            return _reject(result, 'request.authorizations.' + action,
-                           'fork workflow approval belongs to incoming review (dk-pr-review, dk-ci-approve); '
-                           'dk-pr-fix never approves fork workflows')
-        if mode == 'review' and action not in REVIEW_ACTIONS:
-            return _reject(result, 'request.authorizations.' + action,
-                           'incoming review never writes the PR branch, description or discussion')
-        if not permissions[action]['effective']:
-            return _reject(result, 'request.authorizations.' + action,
-                           'the authorized action is not enabled by accepted configuration; '
-                           'enable it in a scoped configuration or remove the authorization')
     effective = sorted(action for action, value in permissions.items() if value['effective'])
     namespace = state_namespace(home, snapshot['request']['pr']['repository'])
     for other, name in ((repository, 'repository'), (install, 'installation')):
@@ -260,6 +312,7 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
             return _reject(result, 'state', 'state namespace must be disjoint from the ' + name)
     options = {key: value['value'] for key, value in snapshot['options'].items()}
     selected = {task['adapter'] for task in snapshot['plan']['tasks']}
+    prompts, policy = _custom_inputs(snapshot)
     staged = {'pr': snapshot['request']['pr']['url'],
               'instructions': snapshot['request']['original_instructions'],
               'logical_run': snapshot['request']['logical_run'],
@@ -278,6 +331,9 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         'merge_method': options['merge_method'], 'accounts': options['accounts'],
         'settings': options['settings'], 'resources': [], 'turns': options['turns'],
     }
+    # Declared by main.yml and review.yml; present only for accepted custom inputs, so every
+    # other entry's input set and the default plan's are unchanged.
+    inputs.update({key: value for key, value in (('prompts', prompts), ('policy', policy)) if value})
     request_bytes = admission.canonical(staged)
     reference = 'requests/' + hashlib.sha256(request_bytes).hexdigest() + '.json'
     inputs['request'] = reference

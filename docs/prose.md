@@ -250,8 +250,8 @@ references, two composed finalizers, and the verbatim copy of the edit checks.
 - A user-supplied prose skill, such as an external replacement finalizer, needs
   a released [#139](https://github.com/dk-code-factory/agent-workflow/issues/139)
   and #16.
-- The installed workflow has no input for ASD-STE100 references or custom
-  prompts and preferences, so it runs `asd-ste100` without references and
-  rejects custom inputs; the library procedure covers both.
+- The prose entry workflows have no input for ASD-STE100 references or custom
+  prompts and preferences, so they run `asd-ste100` without references and
+  reject custom inputs; the library procedure covers both.
 - The edit checks are deterministic proxies. Real session adherence and
   meaning preservation need separately authorized live evidence.

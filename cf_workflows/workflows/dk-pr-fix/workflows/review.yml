@@ -88,6 +88,14 @@ name: cf-workflows:dk-pr-review
       turns:
         type: number
         default: 8
+      prompts:
+        # Semantically accepted custom prompts and preferences (docs/semantic.md#installed-workflow).
+        type: array
+        default: []
+      policy:
+        # Semantically accepted free-text requirements and prohibitions.
+        type: object
+        default: {}
     secrets:
       github_token:
         required: true
@@ -117,6 +125,8 @@ jobs:
       settings: ${{ inputs.settings }}
       resources: ${{ inputs.resources }}
       turns: ${{ inputs.turns }}
+      prompts: ${{ inputs.prompts }}
+      policy: ${{ inputs.policy }}
       mode: review
     secrets:
       github_token: ${{ secrets.github_token }}

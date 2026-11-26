@@ -216,7 +216,8 @@ def preflight(name, *, request, deployment, repository, transport, configuration
     if permissions:
         merged['permissions'] = copy.deepcopy(permissions)
     arguments = dict(request=request, configuration=configuration, invocation=merged, deployment=deployment,
-                     repository=repository, transport=transport, roots=roots, home=home, install=install)
+                     repository=repository, transport=transport, roots=roots, home=home, install=install,
+                     custom=False)
     if preset['mode'] == 'review':
         result = dk_pr_review.preflight(**arguments)
         configured = result.get('snapshot', {}).get('options', {}).get('settings', {}).get('value')

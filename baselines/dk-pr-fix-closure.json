@@ -384,6 +384,14 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/decisions.yml",
       "reason": "Sourced PR decisions preset over main.yml (#28); no upstream counterpart (docs/decisions.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/assess.yml",
+      "reason": "Semantic assessment of custom inputs before the first dispatch (#12): one validator task and one durable input gate; no upstream counterpart (docs/semantic.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/validator/configuration-validator.yaml",
+      "reason": "Canonical YAML conversion of the bundled cf_workflows/bootstrap/configuration-validator.toml (#12); no upstream counterpart (docs/semantic.md)."
     }
   ],
   "corrections": [
