@@ -16,7 +16,18 @@ from cf_workflows import admission  # noqa: E402
 
 PR = 'https://github.com/Owner/Repo/pull/7'
 CAPABILITIES = {'engine': {'version': 'fixture-engine', 'capabilities': ['durable_input']},
-                'providers': {'fixture-provider': ['admitted_roles', 'native_session']}}
+                'providers': {'fixture-provider': ['admitted_roles', 'native_session'],
+                              'claude-sdk': ['admitted_roles', 'native_session'],
+                              'codex-app-server': ['admitted_roles', 'native_session']}}
+SKILL_MD = '---\nname: lint\ndescription: Lint the change.\n---\nUse [rules](refs/rules.md).\n'
+
+
+def skill_offering(provider='claude-sdk', *profiles):
+    """Engine capabilities whose provider offers the given supplied-skill profiles (Agent Workflow #139)."""
+    offered = copy.deepcopy(CAPABILITIES)
+    offered['providers'][provider].extend(profiles or [admission.CLAUDE_SKILL_PROFILE if provider == 'claude-sdk'
+                                                      else admission.CODEX_SKILL_PROFILE])
+    return offered
 
 
 class FakeTransport:
@@ -59,7 +70,7 @@ class Fixture(unittest.TestCase):
             self.write(self.roles_root, name + '.yaml', body)
             self.roles[name] = {'root': 'roles', 'path': name + '.yaml', 'sha256': sha(body)}
         self.skills_root = self.base / 'skills'
-        self.write(self.skills_root, 'lint/SKILL.md', 'Use [rules](refs/rules.md).\n')
+        self.write(self.skills_root, 'lint/SKILL.md', SKILL_MD)
         self.write(self.skills_root, 'lint/refs/rules.md', 'Rule one.\n')
         self.roots = {'repository': self.repo, 'configuration': self.config_root,
                       'roles': self.roles_root, 'skills': self.skills_root}
@@ -85,6 +96,10 @@ class Fixture(unittest.TestCase):
                   'sha256': admission.skill_digest(files),
                   'files': [{'path': path, 'sha256': digest} for path, digest in sorted(files.items())]}
         return {**record, **overrides}
+
+    def skill_deployment(self, provider='claude-sdk'):
+        """A deployment whose one runtime is a provider that admits supplied skills."""
+        return {**self.deployment, 'agents': {'task': {'provider': provider, 'execution': {'mode': 'local'}}}}
 
     def configuration(self, scopes=(), resources=()):
         return {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',
@@ -229,10 +244,11 @@ class CustomInputs(Fixture):
         tasks = [['read-feedback', 'assess-scope'],
                  {'stage': 'reviews', 'reviewers': [[{'task': 'review', 'skill': 'lint-skill'}, 'review']]}]
         invocation = {'options': {'tasks': tasks, 'finalizers': []}, 'skills': [self.skill()]}
-        self.assertRejected(self.admit(invocation=invocation), 'unsupported capability: observed_skill_evidence, session_scoped_skills', probed=True)
-        offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
-        result = self.admit(invocation=invocation, transport=FakeTransport(offered))
+        self.assertRejected(self.admit(invocation=invocation), 'unsupported supplied-skill provider')
+        self.assertRejected(self.admit(invocation=invocation, deployment=self.skill_deployment()),
+                            'unsupported capability: ' + admission.CLAUDE_SKILL_PROFILE, probed=True)
+        result = self.admit(invocation=invocation, transport=FakeTransport(skill_offering()),
+                            deployment=self.skill_deployment())
         self.assertEqual((result['structural'], result['semantic']), ('accepted', 'blocked'))
         plan = result['snapshot']['plan']
         self.assertEqual(plan['stages'][0]['groups'], [['task_1', 'task_2']])
@@ -323,7 +339,7 @@ class Rejections(Fixture):
             ('skill missing file', {'invocation': {'skills': [self.skill(files=self.skill()['files'][:1])]}}, 'declared files differ'),
             ('skill escaping dir', {'invocation': {'skills': [self.skill(path='../config')]}}, 'normalized relative'),
             ('skill missing dir', {'invocation': {'skills': [self.skill(path='absent')]}}, 'missing skill directory'),
-            ('skill entry', {'invocation': {'skills': [self.skill(entry='README.md')]}}, 'entry is not a declared'),
+            ('skill entry', {'invocation': {'skills': [self.skill(entry='README.md')]}}, 'skill entry must be SKILL.md'),
         ]
 
     def test_invalid_inputs_fail_before_any_engine_operation(self):

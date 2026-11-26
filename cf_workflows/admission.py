@@ -27,7 +27,7 @@ MAX_FILE = 4 << 20
 MAX_TEXT = 64 << 10
 MAX_CLOSURE = 256
 MAX_SKILL_FILES = 512
-MAX_SKILL_CHILDREN = 8
+MAX_SKILL_CHILDREN = 1  # Upstream admits exactly one required custom child, on Claude only.
 MAX_TASKS = 40
 MAX_ADMISSION_INPUT = 1 << 20
 SHA256 = re.compile(r'[0-9a-f]{64}')
@@ -78,14 +78,22 @@ LIMIT_BOUNDS = {'review_cycles': (1, 10), 'retries_per_task': (0, 1),
                 # Scheduling only: concurrently launched reviewers per parallel group; 0 adds no cap (#29).
                 'max_parallel_reviewers': (0, 64)}
 BASE_CAPABILITIES = ('native_session', 'admitted_roles')
-SKILL_CAPABILITY = 'session_scoped_skills'
-# Engine-observed evidence of the skill invocation and terminal outcome, and of child agents with their parents.
-SKILL_EVIDENCE_CAPABILITY = 'observed_skill_evidence'
-CHILD_CAPABILITY = 'observed_child_agents'
-AGENT_TYPE = re.compile(r'[A-Za-z][A-Za-z0-9_.:-]{0,63}')
+# Supplied-skill capability profiles, named exactly as Agent Workflow #139 pins them
+# (pkg/clirunner/skill.go): each provider runtime admits a selected skill only under its profile.
+CLAUDE_PROVIDER, CODEX_PROVIDER = 'claude-sdk', 'codex-app-server'
+CLAUDE_SKILL_PROFILE = 'claude-sdk@0.3.322/local-skill-v1'
+CLAUDE_CHILD_PROFILE = 'claude-sdk@0.3.322/sonnet46-one-read-child-v1'
+CODEX_SKILL_PROFILE = 'codex-app-server@0.167.1/local-skill-no-delegation-v1'
+SKILL_PROVIDERS = (CLAUDE_PROVIDER, CODEX_PROVIDER)
+SKILL_NAME = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')  # Upstream skillNamePattern, at most 64 bytes.
+MAX_SKILL_INSTRUCTION = 64 << 10  # Upstream bound on SKILL.md after Go JSON string escaping.
+MAX_SKILL_RESOURCES = 128
+MAX_SKILL_CHILD_RESOURCES = 32
 MERGE_CAPABILITY = 'merge_guard'
 INPUT_CAPABILITY = 'durable_input'  # Engine-level: request-bound clarification gates.
-SUPPLIED_SKILL_EXECUTION = False  # Needs session-scoped plugin loading from Agent Workflow #139.
+# Agent Workflow #139 admits skill selections only in an entry workflow with one literal agent; the
+# installed workflow dispatches occurrences through a reusable workflow, and no release contains #139.
+SUPPLIED_SKILL_EXECUTION = False
 
 VALIDATOR_ROLE = 'configuration-validator'
 BOOTSTRAP_DEFINITION = Path(__file__).resolve().parent / 'bootstrap' / 'configuration-validator.toml'
@@ -522,14 +530,22 @@ def resource_ref(value, resources, path):
 
 
 def resolve_skill(record, roots, path):
-    """Hash a user-supplied skill's declared files; never parse it as instructions or run it."""
+    """Hash a user-supplied skill's declared files; never run it or follow its instructions.
+
+    The accepted shape is the subset Agent Workflow #139 admits as a `type: skill`
+    directory input: a symlink-free directory whose only skill entry is a
+    top-level SKILL.md with portable name/description frontmatter. SKILL.md is
+    read only to check that metadata and its bounds.
+    """
     for field in ('host', 'installed_version', 'qualified_name'):
         require(not isinstance(record, dict) or field not in record, path,
                 'host-installed skills are never discovered or supported; supply files pinned by digest')
-    fields(record, path, ('id', 'name', 'root', 'path', 'sha256', 'files'), ('entry', 'children'))
+    fields(record, path, ('id', 'name', 'root', 'path', 'sha256', 'files'), ('entry', 'arguments', 'children'))
     require(isinstance(record['id'], str) and IDENT.fullmatch(record['id']), path + '.id', 'invalid identifier')
-    require(isinstance(record['name'], str) and NAME.fullmatch(record['name']), path + '.name',
-            'must be an unqualified skill name')
+    require(isinstance(record['name'], str) and len(record['name']) <= 64 and SKILL_NAME.fullmatch(record['name']),
+            path + '.name', 'must be an unqualified portable skill name')
+    # Agent Workflow's directory input has a fixed entry; no other entry can be selected.
+    require(record.get('entry', 'SKILL.md') == 'SKILL.md', path + '.entry', 'the skill entry must be SKILL.md')
     require(record['root'] in roots, path + '.root', 'unknown skill root')
     base = relative(record['path'], path + '.path')
     root = roots[record['root']]
@@ -560,8 +576,10 @@ def resolve_skill(record, roots, path):
     require(set(actual) == set(expected), path + '.files',
             'declared files differ from the skill directory: ' +
             ', '.join(sorted(set(actual) ^ set(expected))))
-    entry = record.get('entry', 'SKILL.md')
-    require(entry in expected, path + '.entry', 'entry is not a declared skill file')
+    entry = 'SKILL.md'
+    require(entry in expected, path + '.files', 'a skill directory needs a top-level SKILL.md')
+    nested = sorted(rel for rel in expected if rel != entry and PurePosixPath(rel).name == entry)
+    require(not nested, path + '.files', 'a skill directory has exactly one skill entry: ' + ', '.join(nested))
     closure = follow(current, [entry], path, allowed=set(expected))
     files = {}
     for rel in sorted(expected):
@@ -569,29 +587,174 @@ def resolve_skill(record, roots, path):
         require(files[rel] == expected[rel], path + '.files', 'skill file digest mismatch: ' + rel)
     tree = skill_digest(files)
     require(record['sha256'] == tree, path + '.sha256', 'skill content digest mismatch')
+    content = read_file(current, entry, path)
+    require(hashlib.sha256(content).hexdigest() == files[entry], path + '.files', 'skill file digest mismatch: ' + entry)
+    metadata = skill_metadata(content, path + '.files.SKILL.md')
+    require(metadata['name'] == record['name'], path + '.name', 'differs from the SKILL.md frontmatter name')
+    # The occurrence receives the entry and every other declared file as its selected resources.
+    resources = sorted(rel for rel in files if rel != entry)
+    require(len(resources) <= MAX_SKILL_RESOURCES, path + '.files',
+            f'a skill selects at most {MAX_SKILL_RESOURCES} resources besides SKILL.md')
+    arguments = record.get('arguments', '')
+    require(isinstance(arguments, str) and '\0' not in arguments and len(arguments.encode('utf-8', 'surrogatepass'))
+            <= MAX_TEXT, path + '.arguments', 'must be a string of at most 64 KiB without NUL')
+    require('${{' not in arguments, path + '.arguments', 'skill arguments are literal; expressions are not admitted')
     return {'id': record['id'], 'name': record['name'], 'root': record['root'], 'path': base,
-            'entry': entry, 'sha256': tree, 'files': files,
-            'children': skill_children(record.get('children', []), path + '.children')}
+            'entry': entry, 'sha256': tree, 'files': files, 'resources': resources, 'arguments': arguments,
+            'children': skill_children(record.get('children', []), resources, path + '.children')}
 
 
-def skill_children(declared, path):
-    """Child agents a supplied skill must run: exact counts of explicitly permitted agent types.
+FRONTMATTER_KEY = re.compile(r'(name|description):(?: (.*))?')
+# How yaml.v3 (v3.0.1 resolve.go) resolves a plain scalar that is not a string: its map of
+# reserved words, strconv.ParseFloat for a leading '.', and for a leading digit or sign a
+# timestamp, then strconv.ParseInt/ParseUint (base 0: sign, case-insensitive 0x/0o/0b
+# prefixes, leading-0 octal) or its float pattern, all after removing every '_'.
+YAML_RESERVED = frozenset(('~', 'null', 'Null', 'NULL', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE',
+                           '.nan', '.NaN', '.NAN', '.inf', '.Inf', '.INF', '+.inf', '+.Inf', '+.INF',
+                           '-.inf', '-.Inf', '-.INF', '<<'))
+# strconv.ParseFloat takes '_' only between digits.
+YAML_DOT_FLOAT = re.compile(r'\.[0-9]+(?:_[0-9]+)*(?:[eE][-+]?[0-9]+(?:_[0-9]+)*)?')
+YAML_NUMBER = re.compile(r'[-+]?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
+                         r'|(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)'
+                         # Its 0b/0o fallback parses the rest with its own sign.
+                         r'|0b[-+]?[01]+|0o[-+]?[0-7]+')
 
-    The default (no declaration) permits no child agents at all.
+
+def yaml_non_string(raw):
+    """Whether yaml.v3 tags this plain scalar other than `!!str` (conservatively: any YYYY- prefix rejects)."""
+    if raw in YAML_RESERVED:
+        return True
+    if raw[0] == '.':
+        return bool(YAML_DOT_FLOAT.fullmatch(raw))
+    if raw[0] not in '+-0123456789':
+        return False
+    # yaml.v3 tries a timestamp for any plain scalar starting YYYY-; reject them all.
+    return bool(re.match(r'[0-9]{4}-', raw) or YAML_NUMBER.fullmatch(raw.replace('_', '')))
+
+
+def go_json_size(value):
+    """Byte length of Go's json.Marshal of a string (HTML-safe escaping), as Agent Workflow bounds it."""
+    size = 2
+    for char in value:
+        if char in '"\\\n\r\t\b\f':
+            size += 2
+        elif char < ' ' or char in '<>&\u2028\u2029':
+            size += 6
+        else:
+            size += len(char.encode('utf-8'))
+    return size
+
+
+def frontmatter_value(raw, path):
+    """One single-line YAML string scalar; a conservative subset of what Agent Workflow accepts."""
+    require(raw is not None and raw.strip() and raw == raw.strip(), path, 'metadata values are single-line strings')
+    if raw[0] == '"':
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            raise AdmissionError(path, 'unsupported quoted metadata value') from None
+        require(isinstance(value, str), path, 'unsupported quoted metadata value')
+        return value
+    if raw[0] == "'":
+        require(len(raw) >= 2 and raw[-1] == "'" and "'" not in raw[1:-1].replace("''", ''), path,
+                'unsupported quoted metadata value')
+        return raw[1:-1].replace("''", "'")
+    require(raw[0] not in '-?:,[]{}#&*!|>%@`' and ': ' not in raw and ' #' not in raw and not raw.endswith(':'),
+            path, 'unsupported plain metadata value; quote it')
+    require(not yaml_non_string(raw), path, 'metadata values must be strings; quote it')
+    return raw
+
+
+def skill_metadata(content, path):
+    """SKILL.md frontmatter limited to name and description, as Agent Workflow #139 admits it.
+
+    Authority-changing metadata (tools, agents, hooks, models) and anything but
+    two single-line string values reject. The instruction must be valid UTF-8
+    and at most 64 KiB after Go JSON string escaping.
+    """
+    try:
+        body = content.decode('utf-8')
+    except UnicodeDecodeError:
+        raise AdmissionError(path, 'skill instruction must be valid UTF-8') from None
+    require(go_json_size(body) <= MAX_SKILL_INSTRUCTION, path,
+            'skill instruction exceeds the 64 KiB JSON evidence bound')
+    require(body.startswith('---\n'), path, 'SKILL.md needs name/description frontmatter')
+    end = body.find('\n---\n', 3)
+    require(end >= 0, path, 'unterminated SKILL.md frontmatter')
+    metadata = {}
+    for line in body[4:end].split('\n') if end > 3 else []:
+        match = FRONTMATTER_KEY.fullmatch(line)
+        require(match is not None and match[1] not in metadata, path,
+                'unsupported or duplicate skill metadata; only name and description are admitted')
+        metadata[match[1]] = frontmatter_value(match[2], f'{path}.{match[1]}')
+    require(set(metadata) == {'name', 'description'}, path, 'SKILL.md frontmatter needs name and description')
+    require(metadata['description'].strip(), path + '.description', 'must be a nonempty string')
+    require(len(metadata['name']) <= 64 and SKILL_NAME.fullmatch(metadata['name']), path + '.name',
+            'must be a portable skill name')
+    return metadata
+
+
+def skill_children(declared, resources, path):
+    """The child agent a supplied skill must run, in Agent Workflow #139's constrained profile.
+
+    The default (no declaration) permits no child agents. At most one custom
+    child may be declared; it is required, runs in the foreground with Read
+    only, the inherited model, two turns and one call, and reads only literal
+    files the parent selected. Only the Claude runtime admits it.
     """
     require(isinstance(declared, list) and len(declared) <= MAX_SKILL_CHILDREN, path,
-            f'must be an array of at most {MAX_SKILL_CHILDREN} child declarations')
-    result = {}
+            f'must be an array of at most {MAX_SKILL_CHILDREN} child declaration')
+    result = []
     for index, item in enumerate(declared):
         where = f'{path}[{index}]'
-        fields(item, where, ('agent_type', 'count'))
-        kind = item['agent_type']
-        require(isinstance(kind, str) and AGENT_TYPE.fullmatch(kind), where + '.agent_type', 'invalid agent type')
-        require(kind not in result, where + '.agent_type', 'duplicate agent type')
-        require(type(item['count']) is int and 1 <= item['count'] <= MAX_SKILL_CHILDREN, where + '.count',
-                f'must be an integer in 1..{MAX_SKILL_CHILDREN}')
-        result[kind] = item['count']
-    return [{'agent_type': kind, 'count': count} for kind, count in sorted(result.items())]
+        fields(item, where, ('name', 'prompt', 'description', 'resources'))
+        name = item['name']
+        require(isinstance(name, str) and len(name) <= 48 and SKILL_NAME.fullmatch(name), where + '.name',
+                'must be a portable child name of at most 48 bytes')
+        prompt = text(item['prompt'], where + '.prompt')
+        description = text(item['description'], where + '.description', 512)
+        for key, value in (('prompt', prompt), ('description', description)):
+            require('${{' not in value, f'{where}.{key}', 'child controls are literal; expressions are not admitted')
+        files = item['resources']
+        require(isinstance(files, list) and 1 <= len(files) <= MAX_SKILL_CHILD_RESOURCES, where + '.resources',
+                f'must be a nonempty array of at most {MAX_SKILL_CHILD_RESOURCES} files')
+        seen = []
+        for number, rel in enumerate(files):
+            rel = relative(rel, f'{where}.resources[{number}]')
+            require(rel in resources and rel not in seen, f'{where}.resources[{number}]',
+                    'must be a distinct declared skill file other than SKILL.md')
+            seen.append(rel)
+        result.append({'name': name, 'type': 'aw-child-' + name, 'prompt': prompt, 'description': description,
+                       'tools': ['Read'], 'resources': seen, 'model': 'inherit', 'max_turns': 2, 'max_calls': 1,
+                       'background': False})
+    return result
+
+
+def skill_profiles(agent, selected, path):
+    """The Agent Workflow #139 capability profiles a runtime needs to run the selected skills.
+
+    Only the Claude SDK and Codex app-server runtimes admit supplied skills,
+    and only with an explicit `execution: {mode: local}`: an agent without
+    its own execution inherits the deployment's container execution upstream. Codex disables native delegation and
+    typed skill arguments and needs a read-only (or unset) sandbox, so a child
+    declaration, nonempty arguments or a writable sandbox reject there before
+    any claim.
+    """
+    provider = agent['provider']
+    require(provider in SKILL_PROVIDERS, path + '.provider',
+            'unsupported supplied-skill provider; use ' + ' or '.join(SKILL_PROVIDERS))
+    # An agent without its own execution inherits the deployment's (container) execution upstream,
+    # so a skill runtime must state local execution explicitly.
+    require(agent.get('execution', {}).get('mode') == 'local', path + '.execution.mode',
+            'supplied skills need explicit local execution; an agent without one inherits the container execution')
+    if provider == CODEX_PROVIDER:
+        require(agent.get('sandbox', 'read-only') == 'read-only', path + '.sandbox',
+                'Codex supplied skills need a read-only sandbox')
+        for skill in selected:
+            require(not skill['children'], path + '.provider', f'Codex native children are not supported (skill {skill["id"]})')
+            require(skill['arguments'] == '', path + '.provider', f'Codex skill arguments must be empty (skill {skill["id"]})')
+        return {CODEX_SKILL_PROFILE}
+    return {CLAUDE_CHILD_PROFILE if skill['children'] else CLAUDE_SKILL_PROFILE for skill in selected}
 
 
 def skill_digest(files):
@@ -1272,12 +1435,11 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         'skills': sorted({entry['skill'] for entry in tasks if entry['skill'] is not None}),
     }
     required = set(BASE_CAPABILITIES)
-    if custom['skills']:
-        required |= {SKILL_CAPABILITY, SKILL_EVIDENCE_CAPABILITY}
-        if any(skills[key]['children'] for key in custom['skills']):
-            required.add(CHILD_CAPABILITY)
     if effective_permissions['merge']['effective']:
         required.add(MERGE_CAPABILITY)
+    # Any deployed runtime may run a selected occurrence, so each must admit every selected skill.
+    profiles = {name: skill_profiles(agent, [skills[key] for key in custom['skills']], f'deployment.agents.{name}')
+                for name, agent in sorted(deployment['agents'].items())} if custom['skills'] else {}
     semantic_required = any(custom.values())
     engine_required = {INPUT_CAPABILITY} if semantic_required else set()
     # The bundled validator check is local and structural, so it also precedes the engine query.
@@ -1301,7 +1463,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         offered = capabilities['providers'].get(provider)
         require(isinstance(offered, list) and all(isinstance(item, str) for item in offered),
                 f'deployment.agents.{agent}.provider', 'provider is not available from the engine')
-        missing = sorted(required - set(offered))
+        missing = sorted((required | profiles.get(agent, set())) - set(offered))
         require(not missing, f'deployment.agents.{agent}.provider', 'unsupported capability: ' + ', '.join(missing))
         bindings[agent] = {'provider': provider, 'capabilities': sorted(set(offered))}
     engine = text(capabilities['engine']['version'], 'capabilities.engine.version', 128)
@@ -1313,6 +1475,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         request_record['repository'] = original['repository']
     capability_record = {'engine': engine, 'engine_required': sorted(engine_required),
                          'required': sorted(required), 'bindings': bindings}
+    if profiles:
+        capability_record['skill_profiles'] = {agent: sorted(value) for agent, value in sorted(profiles.items())}
     resource_record = {'configured': resources, 'guidance': guidance, 'roles': catalog,
                        'skills': {key: {k: v for k, v in skill.items() if k != 'path_ref'} for key, skill in skills.items()}}
     snapshot = {
@@ -1355,7 +1519,7 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
                                 'path': f"{locations[options['adapters']['source']]}.options.adapters.{name}"}
                          for name in custom['adapters']},
             'skills': {key: {**{k: skills[key][k] for k in ('name', 'root', 'path', 'entry', 'sha256', 'files',
-                                                            'children', 'source')},
+                                                            'resources', 'arguments', 'children', 'source')},
                              'record': skills[key]['path_ref'],
                              'references': [entry['path'] + '.skill' for entry in tasks if entry['skill'] == key]}
                        for key in custom['skills']},
@@ -1378,8 +1542,10 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     }
     if custom['skills'] and not SUPPLIED_SKILL_EXECUTION:
         result['preflight'] = 'rejected'
-        result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution '
-                           '(Agent Workflow #139), which is not available yet'}
+        result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution: '
+                           'Agent Workflow #139 does not admit skill selections in reusable workflows, '
+                           'which the installed workflow dispatches occurrences through, and no released '
+                           'engine contains it'}
     elif semantic_required:
         # Structural success never substitutes for semantic acceptance of custom inputs.
         result['preflight'] = 'semantic_required'

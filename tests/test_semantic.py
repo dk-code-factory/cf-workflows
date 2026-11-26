@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cf_workflows import admission, semantic  # noqa: E402
-from test_admission import CAPABILITIES, FakeTransport, Fixture  # noqa: E402
+from test_admission import CAPABILITIES, FakeTransport, Fixture, skill_offering  # noqa: E402
 
 PROMPT = 'invocation.prompts[0]'
 
@@ -124,8 +124,8 @@ class Routing(Semantic):
         self.calls(gate_reads=0)
 
     def test_supplied_skills_stay_rejected_before_any_session(self):
-        offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
+        offered = skill_offering()
+        self.deployment = self.skill_deployment()
         invocation = {'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
                       'skills': [self.skill()]}
         result = self.run_semantic(verdict('accepted'), invocation=invocation, capabilities=offered)
@@ -255,8 +255,8 @@ class Authority(Semantic):
                 self.assertEqual(self.engine.gates, [])
 
     def test_supplied_skill_files_are_readable_but_never_run(self):
-        offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
+        offered = skill_offering()
+        self.deployment = self.skill_deployment()
         invocation = {'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
                       'skills': [self.skill()]}
         with patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):

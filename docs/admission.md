@@ -54,12 +54,15 @@ Admission reads and hashes these inputs:
 - Ordered task and stage selections, including parallel groups and nested
   reviewer groups.
 
-A user-supplied skill is a directory. Its file list and per-file digests must
-match exactly, and its content digest is the SHA-256 of the canonical JSON `{path: sha256}`.
-Admission hashes the files and checks Markdown links from the entry. It never
-loads or runs the skill. Host-installed skill fields reject. An optional
-`children` array declares the permitted child agent types and their exact
-counts ([skills.md](skills.md)).
+A user-supplied skill is a symlink-free directory whose only skill entry is a
+top-level `SKILL.md`. Its file list and per-file digests must match exactly,
+and its content digest is the SHA-256 of the canonical JSON `{path: sha256}`.
+Admission hashes the files and checks Markdown links from the entry. It reads
+`SKILL.md` only to check the Agent Workflow #139 limits: `name` and
+`description` frontmatter only, the record's `name`, valid UTF-8 and at most
+64 KiB after JSON escaping. It never loads or runs the skill. Host-installed
+skill fields reject. Optional literal `arguments` and at most one `children`
+declaration follow the same upstream profile ([skills.md](skills.md)).
 
 Link closure covers inline links (including balanced parentheses), reference
 definitions (not footnotes) and `<...>` targets. It ignores fenced code and code
@@ -74,8 +77,8 @@ the engine is contacted. An authorization for a prohibited action also rejects.
 After every local check passes, admission makes one read-only `capabilities()`
 call. If that query fails, the result is `preflight: blocked` with structural
 status `accepted`, not a structural rejection. Each deployed provider must offer `native_session` and `admitted_roles`,
-plus `session_scoped_skills` and `observed_skill_evidence` when a supplied skill
-is applicable, `observed_child_agents` when it declares children, and
+plus the Agent Workflow #139 skill profile its runtime needs when a supplied
+skill is applicable (see [skills.md](skills.md#runtime-profiles)), and
 `merge_guard` when merge is effectively granted. When custom inputs apply, the
 engine must also offer `durable_input` in `engine.capabilities` for
 clarification gates. Admission calls no other transport operation.
