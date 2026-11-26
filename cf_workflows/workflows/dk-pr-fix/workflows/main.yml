@@ -105,6 +105,7 @@ name: cf-workflows:dk-pr-fix
           retries_per_task: 1
           ci_repairs_per_cycle: 5
           ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
       permissions:
         type: object
         default:

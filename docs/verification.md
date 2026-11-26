@@ -130,6 +130,11 @@ exhausted allowances.
 from their preflight inputs through the installed helpers. They use a paginated
 fake behind the real gh capture and fail-closed capture and publication fakes,
 and count sessions, pages, commits and writes across resume and composed runs.
+[Reviewer entry](reviewer-skills.md#verification) tests
+(`tests/test_reviewer_skills.py`) drive dk-pr-reviewers-run and dk-code-simplify
+through the installed helpers at capacity one and uncapped, and dk-pr-approvers
+with a disposable repository, a fake GitHub transport and a fake engine. They
+count native dispatches, sessions and GitHub reads.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

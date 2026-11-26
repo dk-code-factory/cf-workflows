@@ -849,7 +849,8 @@ def task_status(root, provider, ledger, plan, inputs):
     return {"complete": claim["state"] == "complete", "claim": claim["id"], "report": claim["report"]}
 
 
-SIMPLIFIER = "simplify"
+# The bundled simplification reviewers (cf_workflows.admission.SIMPLIFIERS).
+SIMPLIFIERS = ("simplify", "simplify-code-first", "simplify-related-code", "simplify-code-first-related-code")
 
 
 def review_outcome(ledger, plan, snapshot, originals, verification, missing):
@@ -874,7 +875,7 @@ def review_outcome(ledger, plan, snapshot, originals, verification, missing):
             status = "failed" if latest and latest["state"] == "optional_failed" else "missing"
         occurrences.append({"id": task["id"], "adapter": task["skill"], "required": task["required"],
                             "role": "verification" if task["kind"] == "verification" else
-                            "simplification" if task["skill"] == SIMPLIFIER else "ordinary",
+                            "simplification" if task["skill"] in SIMPLIFIERS else "ordinary",
                             "status": status, "agent": current["agent"] if current else None})
     required = [item["id"] for item in occurrences if item["required"] and item["status"] != "covered"]
     optional = [{"id": item["id"], "status": item["status"]} for item in occurrences

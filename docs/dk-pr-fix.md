@@ -166,7 +166,9 @@ settings, the task's own resources, role definition, helper implementation and
 admitted execution (workflow, roles and policy). History-scoped tasks (commit
 inspection) also bind the commit history. Head-sensitive tasks also bind the
 heads. CI controls bind only `ci_repair`. Task and finalizer selections, limits,
-the merge method and whether an occurrence is required bind nothing. So a
+the merge method and whether an occurrence is required bind nothing. The limit
+`max_parallel_reviewers` (0–64; 0 adds no cap) only caps each reviewer group's
+concurrency, so changing it reuses every result. So a
 governing resource change refreshes only the reviewer that reads it, and a
 rewrite that keeps the tree keeps tree-scoped reviews while commit inspection
 refreshes. A review round is keyed by the reviewers' current fingerprints, ordered

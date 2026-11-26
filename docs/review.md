@@ -60,6 +60,12 @@ Approval and fork-CI approval stay denied extension kinds. Capture reads
 another author's PR without `maintain_other`, and the plan adds
 `finding_verification` but no `finding_fix`.
 
+The standalone entries `cf-workflows:dk-pr-reviewers-run` and
+`cf-workflows:dk-code-simplify` are presets over the same review mode and logical
+run ([reviewer skills](reviewer-skills.md)). Every bundled simplification
+reviewer (`admission.SIMPLIFIERS`) counts as simplification, never as ordinary
+coverage.
+
 Each reviewer and the verifier is an engine-managed session with the admitted
 `reviewer` or `verifier` role and no skills. A profile such as the
 code-review-ad passes (Toolkit, Standards, Spec) is a parallel group of

@@ -208,7 +208,7 @@ def run_session(transport, task):
             task['role'], task['definition_sha256'], task['agent']):
         raise Blocked('session.observation', 'session did not run the admitted role on the assigned agent')
     if observed['skills_loaded'] != []:
-        raise Blocked('session.observation.skills_loaded', 'configuration entries load no skills')
+        raise Blocked('session.observation.skills_loaded', 'entry sessions load no skills')
     if not isinstance(observed['operations'], list):
         raise Blocked('session.observation.operations', 'must be an array')
     for number, operation in enumerate(observed['operations']):
