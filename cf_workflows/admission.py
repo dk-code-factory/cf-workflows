@@ -242,6 +242,16 @@ ENTRY_ADAPTERS.update({
             {'id': 'assignment', 'text': 'Prefer appropriate existing requests and earlier human reviewers.'},
             {'id': 'evidence', 'text': 'Cite the evidence of every selected recipient.'},
             {'id': 'scope', 'text': 'Select only eligible candidates; grant no authority.'}]},
+    # cf-workflows:dk-ci-flakes (#35, docs/ci-skills.md): read-only report over helper-collected evidence.
+    'inspect-flakes': {'kind': 'inspection', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Report flaky-test evidence only from the observations and issue evidence in the assignment: each named '
+        'failed test with its workflow, job and observations, whether a verified open issue declares exactly that '
+        'context, and every limit and gap. Never mark a test linked without that verified issue evidence. Create no '
+        'issue, rerun nothing and change no exception.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Account for every observed test context in the evidence.'},
+            {'id': 'evidence', 'text': 'Cite the observations and verified issue of every reported test.'},
+            {'id': 'scope', 'text': 'Report limits and gaps; a flake record waives no failure and grants no authority.'}]},
 })
 # Drafting entries (#32, docs/drafting.md); dk-pr-description runs the baseline describe-pr.
 # Drafts are read-only: the commit-message entry never commits, and issue writes are exact
@@ -828,9 +838,15 @@ def check_option(name, value, path, resources):
             low, high = LIMIT_BOUNDS[key]
             require(type(item) is int and low <= item <= high, f'{path}.{key}', f'must be an integer in {low}..{high}')
     elif name == 'ci':
-        fields(value, path, (), ('timeout_seconds',))
+        fields(value, path, (), ('timeout_seconds', 'pending_extension_seconds', 'max_pending_extensions'))
         timeout = value.get('timeout_seconds', 1800)
         require(type(timeout) is int and 1 <= timeout <= 86400, path + '.timeout_seconds', 'must be 1..86400')
+        # One pending-only extension of the retained window (cf-workflows:dk-ci, docs/ci-skills.md).
+        extension = value.get('pending_extension_seconds', 1800)
+        require(type(extension) is int and 0 <= extension <= 86400, path + '.pending_extension_seconds',
+                'must be 0..86400')
+        extensions = value.get('max_pending_extensions', 0)
+        require(type(extensions) is int and extensions in (0, 1), path + '.max_pending_extensions', 'must be 0 or 1')
     elif name == 'settings':
         # String settings could carry instructions; they need a typed declaration first.
         for key, item in value.items():

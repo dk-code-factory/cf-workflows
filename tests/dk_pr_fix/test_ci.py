@@ -54,6 +54,12 @@ class Provider:
             return copy.deepcopy(self.issue)
         raise AssertionError("unexpected route " + route)
 
+    def pages(self, route, key=None):
+        # Issue search of automatic flake learning; none is configured here.
+        if not route.startswith("search/issues?q=") or key != "items":
+            raise AssertionError("unexpected pages route " + route)
+        return []
+
     def failure_logs(self, pr, run, job, attempt):
         if (pr, run, job, attempt) != (PR, "2", "3", 4):
             raise AssertionError("wrong log identity")
@@ -81,8 +87,10 @@ class CITests(unittest.TestCase):
                 plan = {"pr": PR, "options": options}
                 self.assertEqual(ci.classify_current(provider, plan, observation())["status"], "success")
                 provider.issue["state"] = "closed"
-                with self.assertRaisesRegex(ValueError, "issue does not affirm"):
-                    ci.classify_current(provider, plan, observation())
+                # Unaffirmed evidence leaves the check failed and is reported; it never raises past it.
+                result = ci.classify_current(provider, plan, observation())
+                self.assertEqual(result["status"], "failed")
+                self.assertRegex(result["rejected"][0]["reason"], "issue does not affirm")
                 self.assertEqual(provider.observations, 0)
 
     def test_explicit_empty_classifications_override_legacy_candidates(self):

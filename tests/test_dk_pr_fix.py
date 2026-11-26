@@ -287,7 +287,7 @@ class Preflight(PreflightFixture):
         offered = copy.deepcopy(CAPABILITIES)
         offered['providers']['fixture-provider'].append('merge_guard')
         for action, owner in (('approve_pr', 'incoming review'), ('create_issue', '#32'),
-                              ('edit_issue', '#32'), ('approve_fork_ci', '#35')):
+                              ('edit_issue', '#32'), ('approve_fork_ci', 'incoming review')):
             with self.subTest(action=action):
                 result = self.preflight(request={**self.request, 'authorizations': {action: grant}},
                                         invocation={'permissions': {action: True}}, transport=FakeTransport(offered))

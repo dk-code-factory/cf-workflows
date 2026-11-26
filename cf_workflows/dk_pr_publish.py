@@ -1,7 +1,7 @@
-"""Publication and review-posting entries as thin presets over the shared workflow (contract v1).
+"""Publication, review-posting and fork-CI approval entries as thin presets (contract v1).
 
-cf-workflows:dk-pr-publish and cf-workflows:dk-pr-review-post add no orchestration
-and no second publication journal. Each is a preset selection for the installed
+cf-workflows:dk-pr-publish, cf-workflows:dk-pr-review-post and
+cf-workflows:dk-ci-approve add no orchestration and no second publication journal. Each is a preset selection for the installed
 workflow, the admitted adapter procedure that selection runs (roles, assignments
 and the helper operations in the installed prfix/publishing.py, findings.py and
 publication.py) and the entry's original options. Preflight is the shared
@@ -18,6 +18,10 @@ dk-pr-fix or dk-pr-review preflight. No skill is loaded.
   shares the PR's incoming-review logical run, so current review is reused.
 - dk-pr-review-post (review.yml, review mode): verified findings inline or in
   the body, and a separately authorized approval of a clean review.
+- dk-ci-approve (review.yml, review mode, #35): one exact fork workflow
+  approval per eligible run attempt of the reviewed head, after complete
+  current incoming review (main.yml fork_ci job, publishing.fork_ci). Finding
+  publication, PR approval and merge authority never imply it.
 
 Every public action has one declared capability below. Undeclared actions, and
 actions owned by another entry or issue, reject before any effect. A configured
@@ -37,6 +41,7 @@ PRESETS = {
     'changes': {'mode': 'fix', 'workflow': dk_pr_fix.ENTRY, 'options': CHANGES},
     'merge': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
     'review-post': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
+    'fork-ci': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
 }
 # Every public action: its entry and preset, the publication kinds it dispatches and its workflow input.
 CAPABILITIES = {
@@ -56,6 +61,8 @@ CAPABILITIES = {
                       'permission': 'post_findings'},
     'approve_pr': {'entry': 'dk-pr-review-post', 'preset': 'review-post', 'kinds': ('approve_pr',),
                    'permission': 'approve_pr'},
+    'approve_fork_ci': {'entry': 'dk-ci-approve', 'preset': 'fork-ci', 'kinds': ('approve_fork_ci',),
+                        'permission': 'approve_fork_ci'},
 }
 # Exact baseline role prompts (prompts/default.md at the pinned commit; digests in baselines/inventory.json).
 ENTRIES = {
@@ -75,6 +82,15 @@ ENTRIES = {
         'options': {'include_summary': False, 'blocking_event': 'REQUEST_CHANGES', 'nonblocking_event': 'COMMENT'},
         'operations': ('publication_list', 'publication_prepare', 'publication_execute', 'publication_record',
                        'publication_recover', 'approval_proposal'),
+    },
+    'dk-ci-approve': {
+        'skill': 'cf-workflows:dk-ci-approve',
+        'role_prompt': 'Approve fork workflow runs after complete incoming review, with current evidence and '
+                       'journaled recovery.\n',
+        'baseline_prompt': 'claude/skills/dk-ci-approve/prompts/default.md',
+        'options': {},
+        'operations': ('publication_list', 'publication_prepare', 'publication_execute', 'publication_record',
+                       'publication_recover', 'fork_ci'),
     },
 }
 OWNERS = {action: dk_pr_fix.UNAVAILABLE_ACTIONS[action] for action in dk_pr_fix.UNAVAILABLE_ACTIONS}
@@ -198,7 +214,7 @@ def preflight(name, *, request, deployment, repository, transport, configuration
         return result
     snapshot = result['snapshot']
     expected = {'changes': ['tasks', 'publication'], 'merge': ['tasks', 'reviews'],
-                'review-post': ['tasks', 'reviews']}[selected]
+                'review-post': ['tasks', 'reviews'], 'fork-ci': ['tasks', 'reviews']}[selected]
     if ([stage['kind'] for stage in snapshot['plan']['stages']] != expected
             or any(stage['phase'] != 'tasks' for stage in snapshot['plan']['stages'])):
         return {**dk_pr_fix._reject(result, 'plan', f"{entry['skill']} runs exactly its {selected} preset"),

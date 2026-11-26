@@ -119,7 +119,7 @@
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci.py",
       "upstream": "examples/pr-fix/workflows/helpers/prfix/ci.py",
       "upstream_sha256": "2c97779f1525b61f58a60b2e57d62ced098fee9b2f38c4738441a5fca4b367c7",
-      "change": "verbatim"
+      "change": "adapted"
     },
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/core.py",

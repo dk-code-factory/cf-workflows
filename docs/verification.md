@@ -147,6 +147,12 @@ shared plans, with repositories with and without templates. They use the fake
 engine and a fail-closed fake GitHub with issue, label and assignee routes. They
 count sessions, listings and writes across fabricated claims, unchanged Git
 state, metadata validation and uncertain issue creation and PR edits.
+[CI entry](ci-skills.md#verification) tests (`tests/test_ci_skills.py`) cover
+dk-ci deadlines and the pending-only extension across direct, composed and
+resumed observations, issue-backed flake matches and mismatches per exact
+attempt, dk-ci-approve fork approvals with denied, uncertain and lost effects,
+and dk-ci-flakes discovery. They use the real ledger and fail-closed fake
+GitHub and engine transports, and count reads, writes and sessions.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

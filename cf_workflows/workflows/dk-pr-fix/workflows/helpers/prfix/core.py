@@ -361,12 +361,15 @@ class Ledger:
             self.db.execute("INSERT INTO reservations VALUES(?,?,?,?)", (name, operation, amount, limit))
             return used + amount
 
-    def deadline(self, name, seconds):
+    def deadline(self, name, seconds, start=None):
         """Return a retained absolute deadline, bounded by a narrower duration.
 
         The first call fixes the window's start and end. A later run or
         configuration never moves the end later or restarts the window; a
         smaller duration ends it earlier, measured from the original start.
+        ``start`` anchors a new window at a retained instant (a pending-only
+        CI extension starts where the original window ended), never later
+        than now.
         """
         if type(seconds) not in {int, float} or seconds <= 0 or seconds > 86400:
             raise ValueError("deadline duration out of bounds")
@@ -374,7 +377,9 @@ class Ledger:
             row = self.db.execute("SELECT value,started FROM deadlines WHERE name=?", (name,)).fetchone()
             if row:
                 return row["value"] if row["started"] is None else min(row["value"], row["started"] + seconds)
-            started = time.time()
+            if start is not None and (type(start) not in {int, float} or start > time.time()):
+                raise ValueError("deadline start must be a retained past instant")
+            started = time.time() if start is None else start
             self.db.execute("INSERT INTO deadlines(name,value,started) VALUES(?,?,?)",
                             (name, started + seconds, started))
             return started + seconds

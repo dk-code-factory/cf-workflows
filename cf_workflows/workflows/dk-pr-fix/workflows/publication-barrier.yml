@@ -11,7 +11,8 @@ name: Sequential publication barrier
         type: number
         default: 8
       selector:
-        # ordinary proposals, or findings: incoming review's verified findings (findings.py).
+        # ordinary proposals, findings: incoming review's verified findings (findings.py),
+        # or fork_ci: incoming review's authorized fork workflow approvals (#35).
         type: string
         default: ordinary
     secrets:

@@ -110,8 +110,8 @@ starts no session and runs nothing.
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission
-   rejects, and so do approval (incoming review only), issue and fork-CI actions (see
-   [exact-intent publication](publication.md)). Merge also needs the engine's
+   rejects, and so do approval and fork-CI approval (incoming review only) and issue
+   actions (see [exact-intent publication](publication.md)). Merge also needs the engine's
    `merge_guard` capability ([merge readiness](publication.md#merge-readiness)).
    Every other input is `false`.
 4. It maps the effective options onto the declared inputs: tasks, finalizers,
@@ -187,7 +187,8 @@ but never widen it. A zero allowance disables the attempt.
 **Deadlines.** The CI window (default 1,800 seconds) is absolute. Its start and
 end are recorded on the first observation and kept across polls, head refreshes,
 sessions and runs. A larger timeout never moves the end. A smaller timeout ends
-the window earlier, measured from the original start.
+the window earlier, measured from the original start. A configured pending-only
+extension is granted at most once per run (see [CI entries](ci-skills.md#deadlines-and-allowances)).
 
 **Explicit continuation.** Only an explicit continuation adds capacity. The
 `extend` helper operation, or `action.py continue`, records a grant of 1 to 10

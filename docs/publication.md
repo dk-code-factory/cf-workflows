@@ -20,6 +20,7 @@ helper sends a write. This implements the exact-intent part of the
 | `ci_rerun` | `rerun_ci` | `rerun_ci` |
 | `submit_review` (`COMMENT` or `REQUEST_CHANGES`) | `post_findings` | `post_findings` |
 | `approve_pr` (`APPROVE`, incoming review only) | `approve_pr` | `approve_pr` |
+| `approve_fork_ci` (incoming review only) | `approve_fork_ci` | `approve_fork_ci` |
 | `merge` | `merge` | `merge` |
 
 A write needs both the permission input and an explicit request authorization
@@ -35,7 +36,6 @@ at preflight, and their kinds deny at preparation:
 | Action | Owner |
 | --- | --- |
 | `create_issue`, `edit_issue` | `cf-workflows:dk-issue` (#32); the installed workflow declares no issue input |
-| `approve_fork_ci` | #35 |
 
 **Extension contract.** A new kind needs all of the following before it is
 supported: its contract action and permission input, an exact payload schema,
@@ -62,6 +62,13 @@ the exact head. Dispatch rechecks that through the `approval` callback and never
 approves the actor's own PR. It shares the review kinds' pending-review checks,
 and its receipt is the actor's exact `APPROVED` review. See
 [publication entries](publication-skills.md#approval).
+
+`approve_fork_ci` follows it too (#35). Its proposals come only from the
+`fork_ci` listing: one per run attempt of the exact head that still waits for
+fork approval, after complete current incoming review. Dispatch rechecks that
+review through the `fork_ci` callback and the attempt's gate, jobs and
+deployments. Its receipt is the same attempt executing jobs, and its effect key
+is the run and attempt. See [fork workflow approval](ci-skills.md#fork-workflow-approval).
 
 Replies to feedback sources and thread resolutions come from the selected
 [response stage](responses.md) through the `responses` listing. Incoming
@@ -286,9 +293,10 @@ upstream #138 fixtures for the guard itself.
 - The pending-review classifier matches the exact 422 body reported
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.
-- Fork-CI kinds: #35. Approval (#31) and issue kinds (#32) are supported; see
-  [publication entries](publication-skills.md#approval) and
-  [drafting entries](drafting.md#publication).
+- Approval (#31), issue kinds (#32) and fork-CI approval (#35) are supported;
+  see [publication entries](publication-skills.md#approval),
+  [drafting entries](drafting.md#publication) and
+  [CI entries](ci-skills.md#fork-workflow-approval).
 - While analysis is [provisional](provisional.md), nothing is listed, prepared
   or dispatched.
 - GitHub publication conformance needs separate authorization; these fixtures

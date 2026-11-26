@@ -55,8 +55,9 @@ following:
 - a call with no authorization: a configured permission never supplies one;
 - an action of the other entry: findings and approval belong to
   dk-pr-review-post, merge and branch or PR writes to dk-pr-publish;
-- `approve_fork_ci` (#35), `create_issue` and `edit_issue` (written only by
-  [dk-issue](drafting.md), #32), and any undeclared action;
+- `approve_fork_ci`, which belongs to `dk-ci-approve` ([CI entries](ci-skills.md));
+- `create_issue` and `edit_issue` (written only by [dk-issue](drafting.md), #32),
+  and any undeclared action;
 - `merge` together with any other action.
 
 An authorization without the enabled permission rejects, as in dk-pr-fix. A
@@ -174,7 +175,8 @@ dispatches and writes are counted. It covers:
 - **Local commits.** A direct dk-pr-publish does not publish local controlled
   commits made by another plan, because their source belongs to that plan.
   Resuming that dk-pr-fix plan with push authority publishes them.
-- **Owned elsewhere.** Fork-CI approval belongs to #35 and issue writes to
+- **Owned elsewhere.** Fork-CI approval is the `dk-ci-approve` entry
+  ([CI entries](ci-skills.md)), and issue writes belong to
   [dk-issue](drafting.md) (#32).
 - **Live evidence.** Live provider adherence and GitHub publication conformance
   need separate authorization. For example, these fixtures do not prove that

@@ -33,29 +33,30 @@ ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_RO
 # The workflow's permission inputs; each defaults to false.
 PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
                      'resolve_threads', 'create_draft_prs', 'request_review', 'post_findings',
-                     'rerun_ci', 'approve_pr', 'merge')
+                     'rerun_ci', 'approve_pr', 'approve_fork_ci', 'merge')
 # Contract actions the exact-intent publication path supports, mapped to the
 # inputs they enable. History rewrites have no contract action yet, so
 # rewrite_commits stays false.
 PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'reply_to_feedback',
                        'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
                        'request_review': 'request_review', 'post_findings': 'post_findings',
-                       'rerun_ci': 'rerun_ci', 'approve_pr': 'approve_pr', 'merge': 'merge'}
+                       'rerun_ci': 'rerun_ci', 'approve_pr': 'approve_pr', 'approve_fork_ci': 'approve_fork_ci',
+                       'merge': 'merge'}
 # Actions this release denies, with the work that owns them.
 UNAVAILABLE_ACTIONS = {
     # The shared publisher supports them for cf-workflows:dk-issue (#32); the installed
     # workflow declares no issue input, so a dk-pr-fix plan cannot authorize them.
     'create_issue': 'issue creation belongs to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
     'edit_issue': 'issue edits belong to cf-workflows:dk-issue (#32); dk-pr-fix declares no issue input',
-    'approve_fork_ci': 'fork-CI approval is an extension kind owned by #35',
 }
 
 
 # Bundled adapters whose procedure is an entry's helper side, never a plain workflow task.
-ENTRY_ONLY = ('discover-approvers', 'draft-commit-message', 'draft-issue')
-# Incoming review publishes only its verified findings and a separately authorized
-# approval of a clean review; merge keeps its own grant and readiness.
-REVIEW_ACTIONS = {'post_findings', 'approve_pr', 'merge'}
+ENTRY_ONLY = ('discover-approvers', 'draft-commit-message', 'draft-issue', 'inspect-flakes')
+# Incoming review publishes only its verified findings, a separately authorized
+# approval of a clean review and separately authorized fork workflow approvals
+# (#35); merge keeps its own grant and readiness.
+REVIEW_ACTIONS = {'post_findings', 'approve_pr', 'approve_fork_ci', 'merge'}
 
 
 def _review_plan(snapshot):
@@ -67,7 +68,7 @@ def _review_plan(snapshot):
     for stage in snapshot['plan']['stages']:
         if stage['kind'] in ('publication', 'responses', 'ci'):
             return 'plan.stages', ('incoming review supports task and reviewer stages only; verified findings '
-                                   'publish after them, and CI approval is #35')
+                                   'and fork workflow approvals publish after them')
     if not any(stage['kind'] == 'reviews' for stage in snapshot['plan']['stages']):
         return 'plan.stages', 'incoming review requires a selected reviewer stage'
     return None
@@ -222,7 +223,7 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     entry_only = [task['adapter'] for task in snapshot['plan']['tasks'] if task['adapter'] in ENTRY_ONLY]
     if entry_only:
         # Its result is meaningful only with the entry's evidence collection and checks
-        # (cf_workflows.approvers, cf_workflows.drafting).
+        # (cf_workflows.approvers, cf_workflows.drafting, cf_workflows.ci_flakes).
         return _reject(result, 'options.tasks', entry_only[0] + ' runs only through its entry procedure; the '
                        'installed workflow runs it as a generic task')
     if any(snapshot['custom'].values()):
@@ -244,6 +245,10 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
             return _reject(result, 'request.authorizations.' + action,
                            'approval belongs to incoming review (dk-pr-review, dk-pr-review-post); '
                            'a maintained PR is never approved by its maintainer run')
+        if mode != 'review' and action == 'approve_fork_ci':
+            return _reject(result, 'request.authorizations.' + action,
+                           'fork workflow approval belongs to incoming review (dk-pr-review, dk-ci-approve); '
+                           'dk-pr-fix never approves fork workflows')
         if mode == 'review' and action not in REVIEW_ACTIONS:
             return _reject(result, 'request.authorizations.' + action,
                            'incoming review never writes the PR branch, description or discussion')
@@ -270,7 +275,9 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         'limits': snapshot['limits'],
         'permissions': {name: name in {PUBLICATION_ACTIONS[action] for action in effective}
                         for name in PERMISSION_INPUTS},
-        'ci': {'timeout_seconds': options['ci'].get('timeout_seconds', 1800)},
+        'ci': {'timeout_seconds': options['ci'].get('timeout_seconds', 1800),
+               **{key: options['ci'][key] for key in ('pending_extension_seconds', 'max_pending_extensions')
+                  if key in options['ci']}},
         'merge_method': options['merge_method'], 'accounts': options['accounts'],
         'settings': options['settings'], 'resources': [], 'turns': options['turns'],
     }

@@ -1,7 +1,18 @@
 """One-shot CI observation and exact-attempt exception verification.
 
+Adapted from Agent Workflow's portable PR-fix example (MIT; see LICENSE).
+
 Polling, repair selection and repetition live in YAML. Unknown failures remain
 blocking; an agent's classification is a candidate, never authority by itself.
+
+Issue-backed flakes (#35) are learned only from a failed check's own exact
+attempt: the tests its failed-step logs name, and open issues of the PR
+repository that declare exactly that workflow, job, test and signature. Each
+failed check is verified on its own. Evidence that is unavailable, ambiguous or
+does not affirm the exact attempt leaves that check failed and is reported in
+``rejected``; it never waives a failure, and one check's evidence never exempts
+another. The observation window is an absolute retained deadline with at most
+one pending-only extension; neither restarts on resume.
 """
 
 from __future__ import annotations
@@ -11,7 +22,7 @@ from datetime import datetime
 import json
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from .core import bounded_json, digest, text
 
@@ -22,6 +33,11 @@ NAMED_FAILURE = re.compile(r"^(?:--- FAIL: |FAILED )([^\s(]+)")
 GO_SUMMARY = re.compile(r"^(?:FAIL(?:\s+\S+(?:\s+[0-9.]+s)?)?|PASS|ok\s+\S+\s+(?:[0-9.]+s|\(cached\))|\?\s+\S+\s+\[no test files\]|exit status [1-9][0-9]*)$")
 MAKE_FAILURE = re.compile(r"^(?:make(?:\[[0-9]+\])?: \*\*\* \[[^\]]+: test\] Error [1-9][0-9]*|(?:##\[error\])?(?:Error: )?Process completed with exit code [1-9][0-9]*\.)$")
 GO_LOCATION = re.compile(r"^\s+[^\s]+\.go:[0-9]+:\s*")
+# Bounds of automatic flake learning for one failed check (baseline dk-ci-flakes max_issues).
+LEARN_TESTS = 20
+LEARN_ISSUES = 500
+# Evidence failures that leave a check failed; anything else (a programming or fixture error) propagates.
+EVIDENCE_ERRORS = (ValueError, KeyError, TypeError, OSError, RuntimeError)
 
 
 def _integer(value, label):
@@ -85,13 +101,23 @@ def _configured_rule(value):
 def configuration(options):
     """Validate declared controls before admission or any CI observation."""
     selected = options.get("ci", {})
-    if not isinstance(selected, dict) or set(selected) - {"timeout_seconds", "classifications", "exceptions"}:
-        raise ValueError("unsupported CI controls; expected timeout_seconds/classifications/exceptions object")
+    if not isinstance(selected, dict) or set(selected) - {"timeout_seconds", "classifications", "exceptions",
+                                                          "pending_extension_seconds", "max_pending_extensions"}:
+        raise ValueError("unsupported CI controls; expected timeout_seconds/pending_extension_seconds/"
+                         "max_pending_extensions/classifications/exceptions object")
     for values, key in ((selected, "timeout_seconds"), (options, "ci_timeout_seconds")):
         if key in values:
             timeout = values[key]
             if type(timeout) is not int or not 1 <= timeout <= 86400:
                 raise ValueError("CI timeout must be an integer in 1..86400 seconds")
+    if "pending_extension_seconds" in selected:
+        value = selected["pending_extension_seconds"]
+        if type(value) is not int or not 0 <= value <= 86400:
+            raise ValueError("CI pending extension must be an integer in 0..86400 seconds")
+    if "max_pending_extensions" in selected:
+        value = selected["max_pending_extensions"]
+        if type(value) is not int or value not in (0, 1):
+            raise ValueError("CI max_pending_extensions must be 0 or 1")
     for values, classification_key, exception_key in (
             (selected, "classifications", "exceptions"), (options, "ci_classifications", "ci_exceptions")):
         if classification_key in values:
@@ -122,6 +148,9 @@ def _selection(options):
     selected = options.get("ci", {})
     rules = selected.get("exceptions", options.get("ci_exceptions", []))
     return {"timeout_seconds": selected.get("timeout_seconds", options.get("ci_timeout_seconds", 1800)),
+            # Off unless configured; cf-workflows:dk-ci passes its baseline one-extension default.
+            "pending_extension_seconds": selected.get("pending_extension_seconds", 1800),
+            "max_pending_extensions": selected.get("max_pending_extensions", 0),
             "classifications": selected.get("classifications", options.get("ci_classifications", [])),
             "exceptions": rules.get("entries", []) if isinstance(rules, dict) else rules}
 
@@ -161,7 +190,12 @@ def classify(observation, exceptions=None):
         else:
             used.append(proof)
     status = "failed" if failed else "pending" if pending else "success"
-    return {"head": head, "status": status, "checks": checks,
+    outcome = {"failed": "failure", "pending": "pending"}.get(status, "success")
+    if status == "success" and used:
+        # Baseline result names: only success, known_flakes and accepted_exceptions satisfy CI.
+        flakes = all(c.get("kind") == "flake" for proof in used for c in proof.get("classifications", []))
+        outcome = "known_flakes" if flakes else "accepted_exceptions"
+    return {"head": head, "status": status, "outcome": outcome, "checks": checks,
             "evidence": observation.get("evidence"), "classifications": used}
 
 
@@ -355,26 +389,147 @@ def _timestamp(value):
     return value
 
 
+def _declarations(issue):
+    content = str(issue.get("title", "")) + "\n" + str(issue.get("body") or "")
+    for block in re.findall(r"```dk-flaky\s*\n(.*?)\n```", content, re.S):
+        try:
+            value = bounded_json(block)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(value, dict) and value.get("flaky") is True:
+            yield value
+
+
+def learn(provider, pr, check):
+    """Issue-backed flake candidates for one failed Actions check, from its exact attempt only.
+
+    Reads the attempt's run, job and failed-step logs, takes the tests those
+    logs name and looks up open issues of the PR repository that mention each
+    test. A candidate needs an explicit ``dk-flaky`` declaration of exactly this
+    workflow, job and test whose signature occurs in these logs. Candidates
+    are never authority: ``verify_exceptions`` rereads everything and requires
+    every failed test and diagnostic line to be covered.
+    """
+    for key in ("run_id", "job_id"):
+        if not str(check.get(key, "")).isdigit() or int(check[key]) < 1:
+            return []  # Not an Actions check: nothing to learn from.
+    attempt = _integer(check.get("attempt"), "Actions attempt")
+    prefix = "repos/" + pr["owner"] + "/" + pr["name"]
+    run = provider.request("GET", prefix + "/actions/runs/" + str(check["run_id"]))
+    job = provider.request("GET", prefix + "/actions/jobs/" + str(check["job_id"]))
+    workflow, name = str(run.get("path", "")).split("@", 1)[0], job.get("name")
+    if not workflow or not isinstance(name, str) or not name:
+        raise ValueError("exact workflow/job identity unavailable for flake learning")
+    logs = provider.failure_logs(pr, str(check["run_id"]), str(check["job_id"]), attempt)
+    tests = []
+    for line in logs.splitlines():
+        match = NAMED_FAILURE.match(TIMESTAMP.sub("", line.split("\t", 2)[-1]).strip())
+        if match and match[1] not in tests:
+            tests.append(match[1])
+    if len(tests) > LEARN_TESTS:
+        raise ValueError("too many failed tests to learn flakes from one check")
+    candidates = []
+    for test in tests:
+        query = quote(f'repo:{pr["owner"]}/{pr["name"]} is:issue is:open "{test}"', safe="")
+        issues = provider.pages("search/issues?q=" + query, key="items")
+        if len(issues) > LEARN_ISSUES:
+            raise ValueError("flake issue lookup exceeds its bound")
+        matched = []
+        for issue in issues:
+            url = str(issue.get("html_url", ""))
+            if issue.get("pull_request") or issue.get("state") != "open" or not url:
+                continue
+            for declared in _declarations(issue):
+                signature = declared.get("signature")
+                if (declared.get("workflow") == workflow and declared.get("job") == name
+                        and declared.get("test") == test and isinstance(signature, str) and signature.strip()
+                        and "\n" not in signature and signature in logs):
+                    matched.append((str(issue.get("number", "")).zfill(20), url, signature))
+        if matched:
+            _, url, signature = min(matched)
+            candidates.append({"check_id": check["id"], "run_id": str(check["run_id"]),
+                               "job_id": str(check["job_id"]), "attempt": attempt, "kind": "flake",
+                               "workflow": workflow, "job": name, "test": test, "signature": signature,
+                               "issue": url})
+    return candidates
+
+
 def classify_current(provider, plan, observation):
     """Classify one supplied observation with freshly verified exception proofs.
 
     The caller owns capture freshness and any retained observation deadline.
     Preparation validates options; readiness can also read older admitted plans.
+    Each failed check is verified separately from configured classifications
+    and issue-backed flakes learned from its exact attempt. A check whose
+    evidence is unavailable or incomplete stays failed and is reported in
+    ``rejected``; it never fails or exempts another check.
     """
     selected = _selection(plan.get("options", {}))
-    candidates = selected["classifications"]
-    proofs = verify_exceptions(provider, plan["pr"], observation, candidates,
-                              selected["exceptions"]) if candidates else []
-    return classify(observation, proofs)
+    configured = selected["classifications"]
+    checks = observation.get("checks")
+    checks = checks if isinstance(checks, list) else []
+    failed = [check for check in checks if isinstance(check, dict) and check.get("status") == "completed"
+              and check.get("conclusion") not in SUCCESS]
+    known = {check.get("id") for check in failed}
+    proofs, rejected = [], []
+    for candidate in configured:
+        if not isinstance(candidate, dict) or candidate.get("check_id") not in known:
+            rejected.append({"check_id": str(candidate.get("check_id", "")) if isinstance(candidate, dict) else "",
+                             "reason": "classification names no failed check of this observation"})
+    for check in failed:
+        group = [candidate for candidate in configured
+                 if isinstance(candidate, dict) and candidate.get("check_id") == check.get("id")]
+        try:
+            # Configured candidates are explicit; learning is the default for a check without them.
+            group = group or learn(provider, plan["pr"], check)
+            if group:
+                proofs.extend(verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"]))
+        except EVIDENCE_ERRORS as error:
+            rejected.append({"check_id": str(check.get("id", "")), "reason": str(error)[:500]})
+    result = classify(observation, proofs)
+    result["rejected"] = rejected
+    return result
+
+
+def _extension(ledger, run, selected, original, create):
+    """The retained end of the one pending-only extension, or None.
+
+    The grant is a durable reservation, so a resumed, direct or composed
+    observation of the same logical run never receives a second one. Its
+    window starts where the original ended. Configuration can disable or
+    shorten it later, never lengthen or renew it.
+    """
+    seconds, allowed = selected["pending_extension_seconds"], selected["max_pending_extensions"]
+    if not allowed or not seconds:
+        return None
+    name = "ci-pending-extension:" + run
+    granted = ledger.db.execute("SELECT 1 FROM reservations WHERE name=? LIMIT 1", (name,)).fetchone()
+    if not granted:
+        if not create:
+            return None
+        try:
+            ledger.reserve(name, "pending-extension", allowed)
+        except ValueError:
+            return None
+    return _timestamp(ledger.deadline(name, seconds, start=original))
 
 
 def observe(provider, plan, ledger, operation):
-    """Observe once. A new process or head never silently renews the clock."""
+    """Observe once. A new process or head never silently renews the clock.
+
+    After the retained window ends, one more observation may decide the
+    pending-only extension: it is granted only while checks are still pending,
+    at most once per logical run, and never after a failure or success.
+    """
     selected = configuration(plan.get("options", {}))
     timeout = selected["timeout_seconds"]
     text(operation, "CI observation operation")
-    deadline = _timestamp(ledger.deadline("ci:" + plan["logical_run"], timeout))
-    if time.time() >= deadline:
+    run = plan["logical_run"]
+    original = _timestamp(ledger.deadline("ci:" + run, timeout))
+    extended = _extension(ledger, run, selected, original, create=False)
+    deadline = original if extended is None else extended
+    eligible = bool(extended is None and selected["max_pending_extensions"] and selected["pending_extension_seconds"])
+    if time.time() >= deadline and not eligible:
         raise TimeoutError("retained CI deadline exhausted")
     evidence = provider.capture(plan["pr"])
     head = evidence["metadata"]["head"]["sha"]
@@ -383,9 +538,14 @@ def observe(provider, plan, ledger, operation):
         raise ValueError("CI observer returned another head")
     result = classify_current(provider, plan, observation)
     if time.time() >= deadline:
-        raise TimeoutError("retained CI deadline exhausted during observation")
-    result.update(deadline=deadline, operation=operation,
-                  ready=result["status"] == "success", pending=result["status"] == "pending",
+        if not eligible or result["status"] != "pending":
+            raise TimeoutError("retained CI deadline exhausted during observation")
+        extended = _extension(ledger, run, selected, original, create=True)
+        if extended is None or time.time() >= extended:
+            raise TimeoutError("retained CI deadline and pending extension exhausted")
+        deadline = extended
+    result.update(deadline=deadline, original_deadline=original, extended=extended is not None,
+                  operation=operation, ready=result["status"] == "success", pending=result["status"] == "pending",
                   failed=result["status"] == "failed", repair=False)
     return result
 

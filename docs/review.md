@@ -176,7 +176,7 @@ The event is `REQUEST_CHANGES` only when the review outcome is `findings`
 as in [routing](#routing)) and the setting `request_changes` is not false. Otherwise, including every
 partial review, it is `COMMENT`. Both are boolean `settings` options. Publishing findings never changes the review
 record: `clean_review`, `approve` and `ready` stay false, merge keeps its own
-authorization and readiness, approval keeps its own grant, and fork-CI approval remains denied.
+authorization and readiness, and approval and [fork-CI approval](ci-skills.md#fork-workflow-approval) keep their own grants.
 `include_summary` and `request_changes` shape only the review text, so changing
 them never makes review coverage stale.
 
@@ -241,4 +241,4 @@ publication helpers list only verified findings and the final merge there.
 - The standalone `cf-workflows:dk-pr-review-post` entry and approval are in
   [publication entries](publication-skills.md). Historical finding follow-ups
   (reusing an earlier equivalent thread) remain open there. Fork-CI approval is
-  #35.
+  in [CI entries](ci-skills.md).

@@ -55,8 +55,8 @@ While analysis is provisional:
   `prepared` intent and leaves it `prepared`; it is neither sent nor blocked.
   Reconciling an already `pending` intent stays read-only and allowed.
 - `readiness` reports a blocker and skips live CI and repository checks, so
-  `merge_proposal` never invokes. Approval and fork-CI approval stay extension
-  kinds that deny (#31, #35).
+  `merge_proposal` never invokes. Approval and fork-CI approval readiness
+  report the same blocker, so neither proposes.
 - The CI stage asks `alignment` first and neither observes CI nor starts the
   retained CI window. `coverage` reports `current_head_ci` as `withheld`, so
   `complete` stays false, and a CI repair claim refuses.

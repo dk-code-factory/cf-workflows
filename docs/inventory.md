@@ -23,11 +23,12 @@ installed workflow. The same holds for `dk-pr-decisions` (#28,
 the four alternatives rows (#27, [alternatives](alternatives.md)) and the two
 publication rows (#31, [publication entries](publication-skills.md)).
 
-The three feedback rows (#30, [feedback skills](feedback-skills.md)) and the
-three reviewer rows (#29, [reviewer skills](reviewer-skills.md)) are likewise
-presets over the installed `dk-pr-fix` workflow with deterministic direct and
-composed fixtures, and stay `not_implemented` for the same reason. So do the
-three drafting rows (#32, [drafting entries](drafting.md)).
+The three feedback rows (#30, [feedback skills](feedback-skills.md)), the
+three reviewer rows (#29, [reviewer skills](reviewer-skills.md)) and the three
+CI rows (#35, [CI entries](ci-skills.md)) are likewise presets over the
+installed `dk-pr-fix` workflow with deterministic direct and composed
+fixtures, and stay `not_implemented` for the same reason. So do the three
+drafting rows (#32, [drafting entries](drafting.md)).
 
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |

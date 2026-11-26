@@ -69,6 +69,16 @@ ENTRIES = {
         'options': {}, 'operations': ('override', 'collect', 'codeowners', 'check_selection', 'recheck_head'),
         'domains': (),
     },
+    # Read-only flaky-test discovery (#35); its helper side is cf_workflows.ci_flakes.
+    'dk-ci-flakes': {
+        'skill': 'cf-workflows:dk-ci-flakes', 'adapter': 'inspect-flakes', 'saves': False,
+        'role_prompt': 'Actively scan CI history and GitHub issues for flaky-test evidence, or inspect saved '
+                       'observations for a failed PR check.\n',
+        'baseline_prompt': 'claude/skills/dk-ci-flakes/prompts/default.md',
+        'options': {'lookback_days': 30, 'max_runs': 100, 'max_issues': 500},
+        'rules': {'lookback_days': range(1, 366), 'max_runs': range(1, 1001), 'max_issues': range(1, 10001)},
+        'operations': ('collect', 'link', 'check_report'), 'domains': (),
+    },
 }
 
 # Options of both alternatives skills (their baseline config.json defaults, identical for issue and
