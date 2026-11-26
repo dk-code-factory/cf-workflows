@@ -378,6 +378,14 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             "head revision, {kind:commit_message,commit} for a PR commit's message, or {kind:pr_title} / "
             "{kind:pr_description}. Use null for fields a kind does not use. Never name a nearby changed line "
             "instead of the real location, and keep local paths and workflow diagnostics out of finding text.")
+    from .responses import context as feedback_context, role as feedback_role
+    if feedback_role(task):
+        # Feedback occurrences receive the retained assessments, so standalone and composed
+        # runs keep request IDs and settled decisions and never implement or answer twice.
+        # An address occurrence also gets the earlier controlled fixes still intact; only their
+        # paths may back a fixed decision, and a fixed decision without one is implemented again.
+        assignment["feedback"] = feedback_context(
+            root, provider, plan, feedback_fixes(root, ledger) if feedback_role(task) == "address" else None)
     reference = artifact(root, assignment)
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
@@ -476,6 +484,41 @@ def _retained_fix(root, ledger, finding_id):
     return None
 
 
+def feedback_fixes(root, ledger):
+    """{(source, request): paths} of accepted controlled feedback fixes still present.
+
+    A fixed decision of an accepted fix report counts while its controlled commit remains
+    an ancestor of the local head and no cited path that the report changed is back at its
+    pre-fix bytes. A reset or force-push that drops the commit, or a revert of a path, drops
+    the fix; a later commit that edits the fixed file further keeps it.
+    """
+    head = git(root, "rev-parse", "HEAD").decode().strip()
+    result = {}
+    for row in ledger.db.execute("SELECT reference,report FROM accepted_reports WHERE kind='fix' ORDER BY rowid"):
+        report = bounded_json(row["report"])
+        deliverables = report.get("deliverables")
+        value = deliverables.get("feedback") if isinstance(deliverables, dict) else None
+        if not report.get("changes") or not isinstance(value, dict):
+            continue
+        wrapper = read_artifact(root, row["reference"])
+        commit = ledger.db.execute("SELECT head FROM local_commits WHERE id=? AND state='completed'",
+                                   (wrapper.get("claim"),)).fetchone()
+        if not commit or git(root, "merge-base", commit["head"], head, check=False).decode().strip() != commit["head"]:
+            continue
+        intact = set()
+        for change in report["changes"]:
+            path = Path(root) / change["path"]
+            current = source_file(root, change["path"]) if path.is_file() and not path.is_symlink() else None
+            if current != change["before"]:
+                intact.add(change["path"])
+        for assessment in value.get("assessments", []):
+            for request in assessment.get("requests", []):
+                paths = set(request.get("paths", []))
+                if request.get("implementation") == "fixed" and paths and paths <= intact:
+                    result[(assessment["source"], request["id"])] = paths
+    return result
+
+
 def _dispositions(root, ledger, plan, task, report, agent, assignment):
     original = assignment["findings"]
     if task["kind"] == "verification" and any(candidate["agent"] == agent for candidate in original):
@@ -563,6 +606,9 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
+    from .feedback import FeedbackError
+    from .responses import check_feedback, retain_feedback, role as feedback_role
+    validated = None
     claim = _active(_claim(ledger, inputs["claim"]))
     task = _task(plan, claim["task"])
     agent = text(inputs.get("agent"), "opaque native agent reference")
@@ -595,12 +641,19 @@ def accept(root, provider, ledger, plan, inputs):
         _dispositions(root, ledger, plan, task, report, agent, assignment)
         if task["kind"] == "reply" and complete:
             # The responder must account for every current source and draft every owed reply.
-            from .feedback import FeedbackError
             from .responses import accept as retain_responses
             try:
                 retain_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
+        elif feedback_role(task) and complete:
+            # Reading or addressing feedback must leave every current source assessed; its
+            # assessments are retained only once the report's effects are committed below.
+            try:
+                fixes = feedback_fixes(root, ledger) if feedback_role(task) == "address" else {}
+                validated = check_feedback(root, provider, plan, task, report, fixes)
+            except FeedbackError as error:
+                raise ReportContractError("feedback assessments: " + str(error)) from error
     except ReportContractError as error:
         return _reject_report(root, provider, ledger, plan, claim, assignment,
                               report, agent, round_number, error)
@@ -633,6 +686,11 @@ def accept(root, provider, ledger, plan, inputs):
     if settled_optional and task["writes"] and (snapshot.get("local_tree") != assignment["snapshot"].get("local_tree")
             or snapshot.get("local_head") != assignment["snapshot"].get("local_head")):
         raise ValueError("incomplete optional writer has unresolved source effects")
+    if validated is not None:
+        # Exactly the assessments validated before the commit, against that observation and
+        # before the claim completes: a source that appeared since waits for the next read,
+        # and a lost response replays this acceptance (the commit is idempotent).
+        retain_feedback(root, plan, *validated)
     coverage = _fingerprint(snapshot, task, ledger)
     with ledger.transaction():
         old = ledger.db.execute("SELECT agent,report FROM submissions WHERE claim_id=? AND round=?",
@@ -890,9 +948,10 @@ def coverage(root, provider, ledger, plan, inputs):
             missing.append("current_head_ci")
     # A selected response stage completes only with every owed reply verified. An
     # unselected one is reported as such, never as settled.
-    from .responses import status as response_status
+    # Uncertain or refused replies and thread resolutions keep it unsettled.
+    from .responses import role as feedback_role, status as response_status, summary as feedback_summary
     responses = response_status(root, provider, ledger, plan)
-    if responses["selected"] and responses["status"] != "complete":
+    if responses["selected"] and not responses["settled"]:
         missing.append("feedback_responses")
     # Selected-plan coverage, current identity agreement and readiness stay
     # separate. Provisional coverage is private analysis of the pinned revision.
@@ -906,5 +965,8 @@ def coverage(root, provider, ledger, plan, inputs):
             "waiting": waits is not None and not waits["exhausted"],
             "settled": analyzed and (waits is None or waits["exhausted"]),
             "missing": missing, "withheld": withheld, "unresolved": unresolved, "responses": responses,
+            # Remaining response obligations of a plan that reads or addresses feedback.
+            "feedback": feedback_summary(root, provider, plan, feedback_fixes(root, ledger) if any(
+                feedback_role(task) in ("read", "address") for task in plan["tasks"]) else None),
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

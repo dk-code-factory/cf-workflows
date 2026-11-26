@@ -438,10 +438,12 @@ class RelocatedReadOnlyRun(PreflightFixture):
         output = json.loads(completed.stdout)
         for module in output['modules']:
             self.assertTrue(Path(module).is_relative_to(self.install), module)
-        self.assertEqual(output['calls'], {'capture': 2})
+        # Preparation, the claim's snapshot and the read-feedback occurrence's retained feedback.
+        self.assertEqual(output['calls'], {'capture': 3})
         claim = output['results']['claim']['result']['output']
         self.assertTrue(claim['invoke'])
         assignment = claim['task_input']
+        self.assertEqual(assignment['feedback'], {'sources': []})
         self.assertEqual(assignment['instructions'], self.request['instructions'])
         self.assertEqual((assignment['snapshot']['head'], assignment['snapshot']['target']), (self.head, self.target))
         self.assertEqual(assignment['task']['skill'], 'read-feedback')

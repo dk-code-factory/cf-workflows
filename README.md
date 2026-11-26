@@ -39,6 +39,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Sourced PR decisions and reconciliation](docs/decisions.md)
 - [Plain-English and ASD-STE100 prose cleanup entries](docs/prose.md)
 - [Issue and PR alternatives entries](docs/alternatives.md)
+- [Feedback read, address and reply entries](docs/feedback-skills.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

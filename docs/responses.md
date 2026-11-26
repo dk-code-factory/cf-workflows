@@ -18,7 +18,9 @@ finalizers: [inspect-commits, sync-guidance, {stage: responses}, {stage: ci}]
 
 `{stage: responses}` takes no other controls. The legacy selector
 `dk-workflows:dk-pr-feedback-reply` maps to it. Each stage runs the read-only
-`reply-feedback` adapter (kind `reply`, role `leaf`). Every response stage of a
+`reply-feedback` adapter (kind `reply`, role `leaf`). Its assignment carries the
+default `reply_prompt` of [dk-pr-feedback-reply](feedback-skills.md), which also
+runs this stage alone. Every response stage of a
 plan shares this one responder occurrence. A later stage reuses its current
 result, so the finalizer stage reruns the responder only when the discussion or
 the diff has changed. A `reply` adapter cannot write and cannot be selected as a
@@ -100,8 +102,14 @@ also adds a blocker. That happens when the reply no longer answers the source
 in its own location. A denied, uncertain or unrecordable action never counts as
 a reply.
 
+`refused` lists replies and resolutions whose latest attempt is `not_applied` or
+`blocked` while the source still needs an answer or the thread is still open.
+Each adds a blocker. `settled` is true only when the status is `complete` and
+nothing is uncertain or refused. So an uncertain or refused thread resolution
+also keeps the stage open, even after every reply is verified.
+
 With a response stage selected, `coverage` adds `feedback_responses` to
-`missing` until the status is `complete`. In that case the plan, and so
+`missing` until `settled` is true. In that case the plan, and so
 `completion`, is not complete. `coverage` and `readiness` always return the
 `responses` status. Custom and empty plans report `not_selected`, never
 `complete`.

@@ -22,6 +22,11 @@ installed workflow. The same holds for `dk-pr-decisions` (#28,
 [decisions](decisions.md)), the two prose rows (#33, [prose cleanup](prose.md))
 and the four alternatives rows (#27, [alternatives](alternatives.md)).
 
+The three feedback rows (#30) are likewise presets over the
+installed `dk-pr-fix` workflow with deterministic direct and composed fixtures
+([feedback skills](feedback-skills.md)), and stay `not_implemented` for the same
+reason.
+
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |
 | `cf-workflows:dk-pr-iter` | #24–25 | Selected fix/review invocation and identity evidence |

@@ -35,7 +35,8 @@ COLLECTIONS = {'comment': 'comments', 'review': 'reviews', 'inline': 'inline'}
 ADDRESSEES = ('author', 'participant', 'none')
 IMPLEMENTATIONS = ('fixed', 'intentional', 'rejected', 'deferred', 'none')
 NO_REPLY = {'participant': 'addressed_to_participant', 'none': 'no_author_reply_needed'}
-REQUEST_FIELDS = {'id', 'excerpt', 'addressee', 'participant', 'category', 'implementation', 'instructed', 'response'}
+REQUEST_FIELDS = {'id', 'excerpt', 'addressee', 'participant', 'category', 'implementation', 'instructed', 'response',
+                  'paths'}
 _ID = re.compile(r'^[A-Za-z0-9_.:-]{1,64}$')
 _LOGIN = re.compile(r'^[A-Za-z0-9-]{1,39}(\[bot\])?$')
 
@@ -124,7 +125,10 @@ class View:
         for item in self.items.values():
             if item['kind'] == 'inline':
                 require(f"inline:{item['root']}" in self.items, item['key'] + ' replies to an unobserved comment')
-                item['thread'] = roots.get(item['root'])
+                # Every inline comment belongs to a review thread; a missing one means a truncated enumeration.
+                require(item['root'] in roots, item['key'] + ' has no enumerated review thread; '
+                        'the thread enumeration is incomplete')
+                item['thread'] = roots[item['root']]
         # Sources are feedback by anyone other than the PR author and the publishing actor.
         self.sources = {key: item for key, item in self.items.items()
                         if item['author']['id'] not in self.responders and item['body'].strip()}
@@ -254,6 +258,13 @@ def validate(view, assessment):
         require(isinstance(request.get('instructed', False), bool), f'{ident}: instructed must be boolean')
         if 'category' in request:
             _text(request['category'], 'category')
+        if 'paths' in request:
+            # The repository paths a fixed decision changed; the address helpers verify them.
+            paths = request['paths']
+            require(request['implementation'] == 'fixed' and isinstance(paths, list) and 0 < len(paths) <= 64
+                    and all(isinstance(path, str) and path.strip() and '\0' not in path for path in paths)
+                    and len(set(paths)) == len(paths),
+                    f'{ident}: paths name the distinct repository paths of a fixed decision')
         _response(view, source, request)
     return {'source': source['key'], 'fingerprint': assessment['fingerprint'],
             'requests': sorted(requests, key=lambda request: request['id'])}
@@ -279,6 +290,39 @@ CREATE TABLE replies (
     PRIMARY KEY (source, fingerprint, reply)
 )
 """
+
+
+def check(ledger, view, assessment):
+    """Validate one assessment against the retained history without retaining it (see Ledger.assess)."""
+    value = validate(view, assessment)
+    source = view.sources[value['source']]
+    require(ledger.identity(source['key']) in (None, dumps(view.identity(source))), 'feedback source identity changed')
+    if ledger.current(source['key'], value['fingerprint']) == value:
+        return value
+    now = {request['id']: request for request in value['requests']}
+    for earlier in ledger.history(source['key']):
+        for request in earlier['requests']:
+            if request['excerpt'] not in source['body']:
+                continue
+            kept = now.get(request['id'])
+            if required(request):
+                require(kept is not None and required(kept),
+                        f"reassessment drops the response obligation of {request['id']}")
+            elif request['addressee'] == 'participant':
+                require(kept is not None and (required(kept) or (
+                    kept['addressee'] == 'participant'
+                    and kept['participant'].lower() == request['participant'].lower())),
+                        f"reassessment drops the question for {request['participant']} in {request['id']}")
+            if earlier['fingerprint'] == value['fingerprint'] and request['implementation'] != 'none':
+                require(kept is not None and kept['implementation'] == request['implementation'],
+                        f"reassessment changes the settled implementation decision of {request['id']} "
+                        f"({request['implementation']})")
+    return value
+
+
+def decided(ledger, source, request_id, implementation):
+    return any(request['id'] == request_id and request['implementation'] == implementation
+               for earlier in ledger.history(source) for request in earlier['requests'])
 
 
 def ledger_path(state_directory, logical_run):
@@ -358,6 +402,14 @@ class Ledger:
         return [json.loads(row['value']) for row in
                 self.db.execute('SELECT value FROM assessments WHERE source = ? ORDER BY seq', (source,))]
 
+    def identity(self, source):
+        row = self.db.execute('SELECT identity FROM sources WHERE key = ?', (source,)).fetchone()
+        return row['identity'] if row else None
+
+    def decided(self, source, request_id, implementation):
+        """Whether any retained version of source settled request_id with this implementation decision."""
+        return decided(self, source, request_id, implementation)
+
     def assess(self, view, assessment):
         """Retain one source's assessment. Repeating it is a no-op.
 
@@ -365,31 +417,18 @@ class Ledger:
         contains, even after an edit: a required request stays required under its ID, and a
         question for another participant stays addressed to that participant (or becomes
         required). Only an edit that removes the quoted text releases it.
+
+        A settled implementation decision (anything but ``none``), a deliberate deferral
+        included, stays as it was for the same source version; only an edited source can
+        be decided again.
         """
-        value = validate(view, assessment)
-        source = view.sources[value['source']]
         with self.transaction():
-            identity = dumps(view.identity(source))
-            old = self.db.execute('SELECT identity FROM sources WHERE key = ?', (source['key'],)).fetchone()
-            require(old is None or old['identity'] == identity, 'feedback source identity changed')
-            self.db.execute('INSERT OR IGNORE INTO sources VALUES (?, ?)', (source['key'], identity))
-            previous = self.current(source['key'], value['fingerprint'])
-            if previous == value:
+            value = check(self, view, assessment)
+            source = view.sources[value['source']]
+            self.db.execute('INSERT OR IGNORE INTO sources VALUES (?, ?)',
+                            (source['key'], dumps(view.identity(source))))
+            if self.current(source['key'], value['fingerprint']) == value:
                 return value
-            now = {request['id']: request for request in value['requests']}
-            for earlier in self.history(source['key']):
-                for request in earlier['requests']:
-                    if request['excerpt'] not in source['body']:
-                        continue
-                    kept = now.get(request['id'])
-                    if required(request):
-                        require(kept is not None and required(kept),
-                                f"reassessment drops the response obligation of {request['id']}")
-                    elif request['addressee'] == 'participant':
-                        require(kept is not None and (required(kept) or (
-                            kept['addressee'] == 'participant'
-                            and kept['participant'].lower() == request['participant'].lower())),
-                                f"reassessment drops the question for {request['participant']} in {request['id']}")
             self.db.execute('INSERT INTO assessments (source, fingerprint, value) VALUES (?, ?, ?)',
                             (source['key'], value['fingerprint'], dumps(value)))
         return value
@@ -433,6 +472,12 @@ class Unrecorded:
 
     def history(self, source):
         return []
+
+    def identity(self, source):
+        return None
+
+    def decided(self, source, request_id, implementation):
+        return False
 
     def replies(self, source_key, fingerprint):
         return []
