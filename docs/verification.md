@@ -153,6 +153,12 @@ resumed observations, issue-backed flake matches and mismatches per exact
 attempt, dk-ci-approve fork approvals with denied, uncertain and lost effects,
 and dk-ci-flakes discovery. They use the real ledger and fail-closed fake
 GitHub and engine transports, and count reads, writes and sessions.
+[Splitting entry](splitting.md#verification) tests (`tests/test_splitting.py`)
+drive dk-commit-split and dk-pr-split directly and from dk-pr-fix plans on
+disposable histories with mixed authors, a moved target, unrelated dirty files
+and a bare remote. They count sessions, ref updates, pushes and writes across
+tree-preserving reorders, collisions, interrupted local work and partial
+publication failure.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

@@ -193,8 +193,8 @@ writes. It covers:
   workflow ([packaging](packaging.md)). All three inventory rows stay
   `not_implemented`.
 - dk-commit-message drafts only. The baseline's "commit only when requested"
-  belongs to the committing procedures (local commit preparation and commit
-  organization, #34), which consume `handoff`.
+  is [`splitting.commit`](splitting.md#commit-on-request) (#34). It commits a
+  draft only while `current_report` shows the draft is still current.
 - The helper checks citations, references, sections, wording and metadata, not
   meaning. Real native-session judgment, user-supplied skills (#16, Agent
   Workflow [#139](https://github.com/dk-code-factory/agent-workflow/issues/139))
