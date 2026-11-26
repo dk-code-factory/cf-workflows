@@ -247,20 +247,26 @@ class Preflight(PreflightFixture):
     def test_custom_prompts_and_supplied_skills_reject_at_preflight(self):
         skills = self.base / 'skills'
         (skills / 'lint').mkdir(parents=True)
-        (skills / 'lint' / 'SKILL.md').write_text('Lint.\n')
-        files = {'SKILL.md': hashlib.sha256(b'Lint.\n').hexdigest()}
+        body = b'---\nname: lint\ndescription: Lint the change.\n---\nLint.\n'
+        (skills / 'lint' / 'SKILL.md').write_bytes(body)
+        files = {'SKILL.md': hashlib.sha256(body).hexdigest()}
         skill = {'id': 'lint-skill', 'name': 'lint', 'root': 'skills', 'path': 'lint',
                  'sha256': admission.skill_digest(files),
                  'files': [{'path': 'SKILL.md', 'sha256': files['SKILL.md']}]}
+        # Supplied skills run only on an Agent Workflow #139 provider profile.
+        skilled = {**self.deployment, 'agents': {'task': {'provider': 'claude-sdk'}}}
         offered = copy.deepcopy(CAPABILITIES)
-        offered['providers']['fixture-provider'].extend(['session_scoped_skills', 'observed_skill_evidence'])
-        for invocation, transport in (
-                ({'prompts': [{'id': 'local', 'slot': 'additional', 'text': '$lint Keep the diff small.'}]}, None),
-                ({'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}]}}, None),
+        offered['providers']['claude-sdk'] = ['admitted_roles', 'native_session', admission.CLAUDE_SKILL_PROFILE]
+        for invocation, transport, deployment in (
+                ({'prompts': [{'id': 'local', 'slot': 'additional', 'text': '$lint Keep the diff small.'}]}, None,
+                 self.deployment),
+                ({'options': {'tasks': [{'task': 'address-feedback', 'instructions': 'Only touch tests/.'}]}}, None,
+                 self.deployment),
                 ({'options': {'tasks': [{'task': 'review', 'skill': 'lint-skill'}], 'finalizers': []},
-                  'skills': [skill]}, FakeTransport(offered))):
+                  'skills': [skill]}, FakeTransport(offered), skilled)):
             with self.subTest(invocation=invocation):
-                result = self.preflight(invocation=invocation, transport=transport, roots={'skills': skills})
+                result = self.preflight(invocation=invocation, transport=transport, roots={'skills': skills},
+                                        deployment=deployment)
                 self.assertEqual((result['preflight'], result['structural'], result['semantic']),
                                  ('rejected', 'accepted', 'blocked'))
                 self.assertTrue(result['error']['path'].startswith('custom'), result['error'])
