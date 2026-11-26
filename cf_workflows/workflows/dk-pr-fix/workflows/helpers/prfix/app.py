@@ -382,11 +382,10 @@ def prepare_claim(root, provider, ledger, plan, inputs):
     if feedback_role(task):
         # Feedback occurrences receive the retained assessments, so standalone and composed
         # runs keep request IDs and settled decisions and never implement or answer twice.
-        assignment["feedback"] = feedback_context(root, provider, plan)
-        if feedback_role(task) == "address":
-            # Earlier controlled feedback fixes still intact; only their paths may back a fixed decision.
-            assignment["feedback"]["fixes"] = [{"source": source, "request": request, "paths": sorted(paths)}
-                                               for (source, request), paths in sorted(feedback_fixes(root, ledger).items())]
+        # An address occurrence also gets the earlier controlled fixes still intact; only their
+        # paths may back a fixed decision, and a fixed decision without one is implemented again.
+        assignment["feedback"] = feedback_context(
+            root, provider, plan, feedback_fixes(root, ledger) if feedback_role(task) == "address" else None)
     reference = artifact(root, assignment)
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
@@ -949,7 +948,7 @@ def coverage(root, provider, ledger, plan, inputs):
     # A selected response stage completes only with every owed reply verified. An
     # unselected one is reported as such, never as settled.
     # Uncertain or refused replies and thread resolutions keep it unsettled.
-    from .responses import status as response_status, summary as feedback_summary
+    from .responses import role as feedback_role, status as response_status, summary as feedback_summary
     responses = response_status(root, provider, ledger, plan)
     if responses["selected"] and not responses["settled"]:
         missing.append("feedback_responses")
@@ -966,6 +965,7 @@ def coverage(root, provider, ledger, plan, inputs):
             "settled": analyzed and (waits is None or waits["exhausted"]),
             "missing": missing, "withheld": withheld, "unresolved": unresolved, "responses": responses,
             # Remaining response obligations of a plan that reads or addresses feedback.
-            "feedback": feedback_summary(root, provider, plan),
+            "feedback": feedback_summary(root, provider, plan, feedback_fixes(root, ledger) if any(
+                feedback_role(task) in ("read", "address") for task in plan["tasks"]) else None),
             "head": snapshot["head"], "local_head": snapshot["local_head"],
             "target": snapshot["target"], "snapshot": snapshot}

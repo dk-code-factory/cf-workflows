@@ -97,7 +97,10 @@ leaves that source unassessed. Coverage then lists the read as missing.
     lists these fixes as `feedback.fixes`.
 
   A fix lost to a reset, force-push or rewrite therefore must be implemented
-  again. It is never reported as fixed. The helper checks paths, not meaning: a
+  again. It is never reported as fixed. Such a retained `fixed` decision is
+  listed as `unbacked` in the address claim's `feedback` and in
+  `coverage.feedback`. An address report must assess its source again: omitting
+  the source is rejected, even though its assessment is still current. The helper checks paths, not meaning: a
   change to a cited path backs the decision.
 - The assessments are retained after the controlled commit and before the claim
   completes. A report that is rejected or never committed leaves no decision

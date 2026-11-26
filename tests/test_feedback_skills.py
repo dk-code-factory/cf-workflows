@@ -571,13 +571,22 @@ class EntryRuns(unittest.TestCase):
         address = self.claim(plan, ledger, "address-feedback")
         self.assertTrue(address["invoke"])
         self.assertEqual(address["task_input"]["feedback"]["fixes"], [])
-        result = self.accept(plan, ledger, address, self.feedback(assessments(view, rename="fixed")))
+        lost = [{"source": "inline:30", "request": "rename"}]
+        self.assertEqual(address["task_input"]["feedback"]["unbacked"], lost)
+        covered = app.coverage(self.root, self.github, ledger, plan, {})
+        self.assertFalse(covered["complete"])
+        self.assertEqual(covered["feedback"]["unbacked"], lost)
+        # Review cycle 2: omitting the source whose fix was lost is not a way around it.
+        result = self.accept(plan, ledger, address, self.report())
+        self.assertIn("lost their controlled fix", result["feedback"]["contract_error"])
+        self.assertIn("inline:30", result["feedback"]["contract_error"])
+        result = self.accept(plan, ledger, address, self.feedback(assessments(view, rename="fixed")), 1)
         self.assertIn("must cite paths", result["feedback"]["contract_error"])
-        self.assertFalse(app.coverage(self.root, self.github, ledger, plan, {})["complete"])
         fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count again"}
         self.assertTrue(self.accept(plan, ledger, address, {**self.feedback(assessments(view, rename="fixed")), **fix},
-                                    1)["complete"])
+                                    2)["complete"])
         self.assertEqual(self.commits(), 2)
+        self.assertEqual(app.coverage(self.root, self.github, ledger, plan, {})["feedback"]["unbacked"], [])
 
     def test_an_edited_source_is_assessed_again_and_keeps_its_obligation(self):
         plan = self.plan(self.preflight("dk-pr-feedback-read"))

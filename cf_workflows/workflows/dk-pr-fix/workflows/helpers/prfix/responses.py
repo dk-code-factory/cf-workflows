@@ -108,12 +108,14 @@ def role(task):
     return entry[0] if entry and entry[1] == task["kind"] else None
 
 
-def context(root, provider, plan):
+def context(root, provider, plan, fixes=None):
     """Retained feedback for a feedback occurrence's assignment.
 
     Every current source with its stable identity, thread and current assessment, so a
     later occurrence, standalone or composed, keeps the original request IDs and settled
-    decisions instead of deciding or implementing them again.
+    decisions instead of deciding or implementing them again. With ``fixes`` (an address
+    occurrence), it also lists the earlier controlled fixes still intact and the ``fixed``
+    decisions that lost theirs (``unbacked``), which must be implemented again.
     """
     _, view = _observe(provider, plan)
     record = _record(root, plan, read_only=True)
@@ -125,9 +127,14 @@ def context(root, provider, plan):
             sources.append({"source": key, "identity": view.identity(source), "url": source["url"],
                             "thread": source.get("thread"), "fingerprint": fingerprint, "current": current,
                             "changed": current is None and bool(record.history(key))})
+        result = {"sources": sources}
+        if fixes is not None:
+            result["fixes"] = [{"source": source, "request": request, "paths": sorted(paths)}
+                               for (source, request), paths in sorted(fixes.items())]
+            result["unbacked"] = unbacked(record, view, fixes)
     finally:
         record.close()
-    return {"sources": sources}
+    return result
 
 
 def _assessments(report):
@@ -184,6 +191,12 @@ def check_feedback(root, provider, plan, task, report, fixes=None):
         missing = [key for key, source in sorted(view.sources.items()) if key not in assessed
                    and record.current(key, feedback.View.fingerprint(source)) is None]
         feedback.require(not missing, "feedback sources left unassessed: " + ", ".join(missing))
+        if kind == "address":
+            # A retained fixed decision whose controlled fix is gone (reset, force-push, rewrite)
+            # is not implemented: its source must be assessed, and so implemented, again.
+            lost = sorted({item["source"] for item in unbacked(record, view, fixes)} - assessed)
+            feedback.require(not lost, "fixed decisions lost their controlled fix; assess and implement again: "
+                             + ", ".join(lost))
     finally:
         record.close()
     return view, assessments
@@ -202,11 +215,23 @@ def retain_feedback(root, plan, view, assessments):
         record.close()
 
 
-def summary(root, provider, plan):
+def unbacked(record, view, fixes):
+    """Current retained ``fixed`` requests without an intact controlled fix in ``fixes``."""
+    result = []
+    for key, source in sorted(view.sources.items()):
+        current = record.current(key, feedback.View.fingerprint(source))
+        for request in (current or {}).get("requests", []):
+            if request["implementation"] == "fixed" and (key, request["id"]) not in fixes:
+                result.append({"source": key, "request": request["id"]})
+    return result
+
+
+def summary(root, provider, plan, fixes=None):
     """Read-only feedback obligations for a plan that reads or addresses feedback, or None.
 
     This is the private result of the read and address entries: every source with its
-    current requests and settlement, the replies still owed and the no-reply decisions.
+    current requests and settlement, the replies still owed, the no-reply decisions and
+    the ``fixed`` decisions whose controlled fix is no longer intact (``unbacked``).
     """
     if not any(role(task) in ("read", "address") for task in plan["tasks"]):
         return None
@@ -214,10 +239,11 @@ def summary(root, provider, plan):
     record = _record(root, plan, read_only=True)
     try:
         result = feedback.stage(record, view, permissions(plan))
+        lost = unbacked(record, view, fixes or {})
     finally:
         record.close()
     return {"sources": result["sources"], "unassessed": result["unassessed"],
-            "replies_needed": result["replies_needed"], "unanswered": result["unanswered"]}
+            "replies_needed": result["replies_needed"], "unanswered": result["unanswered"], "unbacked": lost}
 
 
 def _intents(ledger, plan, states):
