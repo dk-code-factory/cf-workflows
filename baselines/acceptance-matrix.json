@@ -804,7 +804,8 @@
         "test_ci_skills.ForkApproval.test_no_gated_run_is_the_verified_noop"
       ],
       "composed": [
-        "test_ci_skills.ForkApproval.test_dk_pr_fix_plans_never_list_or_prepare_fork_approval"
+        "test_ci_skills.ForkApproval.test_dk_pr_fix_plans_never_list_or_prepare_fork_approval",
+        "test_ci_skills.ForkApproval.test_merge_bridge_approves_fork_runs_then_merges_only_after_ci_succeeds"
       ],
       "recovery": [
         "test_ci_skills.ForkApproval.test_lost_responses_are_reconciled_and_an_uncertain_approval_is_never_resent",
@@ -833,7 +834,9 @@
       "direct": [
         "test_ci_skills.Observation.test_issue_backed_flake_accepts_only_its_exact_attempt",
         "test_ci_skills.Observation.test_pending_only_extension_is_granted_once_and_survives_resume",
-        "test_ci_skills.Observation.test_mismatched_issue_evidence_never_waives_the_failure"
+        "test_ci_skills.Observation.test_mismatched_issue_evidence_never_waives_the_failure",
+        "test_ci_skills.Observation.test_fail_then_pass_at_one_commit_nominates_a_flake_for_another_pr",
+        "test_ci_skills.Observation.test_poll_interval_comes_from_the_validated_plan"
       ],
       "composed": [
         "test_ci_skills.Observation.test_direct_and_composed_observation_share_one_window_and_never_renew_it",
@@ -841,7 +844,10 @@
       ],
       "recovery": [
         "test_ci_skills.Observation.test_interrupted_wait_resumes_the_original_window",
-        "test_ci_skills.Observation.test_exhausted_extension_allowance_is_not_replenished_in_a_new_run_ledger_connection"
+        "test_ci_skills.Observation.test_exhausted_extension_allowance_is_not_replenished_in_a_new_run_ledger_connection",
+        "test_ci_skills.Observation.test_absent_checks_become_no_checks_after_a_retained_grace",
+        "test_ci_skills.Observation.test_classification_window_is_retained_per_failed_attempt",
+        "test_ci_skills.Observation.test_unavailable_or_changed_history_leaves_the_failure"
       ],
       "status": {
         "parity": "not_implemented",
@@ -864,7 +870,8 @@
       "composition": "boundary",
       "direct": [
         "test_ci_skills.FlakeDiscovery.test_linked_and_candidate_contexts_come_only_from_verified_evidence",
-        "test_ci_skills.FlakeDiscovery.test_limits_targets_and_gaps_are_reported_never_coverage"
+        "test_ci_skills.FlakeDiscovery.test_limits_targets_and_gaps_are_reported_never_coverage",
+        "test_ci_skills.Observation.test_saved_observations_are_inspected_without_github_reads"
       ],
       "composed": [
         "test_ci_skills.Entries.test_flake_entry_options_and_adapter_stay_in_their_entry"
