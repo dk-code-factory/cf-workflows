@@ -225,12 +225,19 @@ SUPPORTED = {
 # Extension contract: these kinds are reserved for their owning PRs. Each needs
 # its own payload, dispatch, read-only observation, effect key and fixtures
 # before it is added to SUPPORTED; until then preparation denies it.
-EXTENSIONS = {"create_issue": "#32", "edit_issue": "#32", "approve_fork_ci": "#35"}
+EXTENSIONS = {"approve_fork_ci": "#35"}
+# Issue kinds (#32): repository writes of cf-workflows:dk-issue, each its own
+# contract action and permission. They bind the numeric repository, actor and
+# issue rather than a PR head. The installed PR workflow declares no input for
+# them, so its plans never authorize them.
+ISSUE_KINDS = {"create_issue": ("create_issue", "create_issue"), "edit_issue": ("edit_issue", "edit_issue")}
+ISSUE_FIELDS = ("title", "body", "labels", "assignees")
 # Kinds that create a pull request review; a pending review owned by the actor holds both.
 REVIEW_KINDS = {"submit_review", "approve_pr"}
 KINDS = set(SUPPORTED)
-PERMISSIONS = {kind: setting for kind, (_, setting) in SUPPORTED.items()}
-PERMISSION_INPUTS = sorted(set(PERMISSIONS.values()))
+SCOPES = {**SUPPORTED, **ISSUE_KINDS}
+PERMISSIONS = {kind: setting for kind, (_, setting) in SCOPES.items()}
+PERMISSION_INPUTS = sorted({setting for _, setting in SUPPORTED.values()})
 STATES = ("prepared", "pending", "applied", "not_applied", "blocked")
 TERMINAL = {"not_applied", "blocked"}
 FRESH_ATTEMPTS = 3
@@ -240,6 +247,7 @@ _COLUMNS = "id,fingerprint,value,state,receipt,audience"
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _BRANCH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,240}$")
+_LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 
 
 def _sha(value, label):
@@ -304,6 +312,8 @@ def effect_key(intent, receipt):
         return "review:" + str(result.get("review", {}).get("id"))
     if kind == "merge":
         return "merge:" + str(result.get("commit", {}).get("sha"))
+    if kind == "create_issue":
+        return f"issue:{intent['repository']}:{result.get('number')}"
     if kind == "ci_rerun":
         # The rerun creates the next attempt of the exact run.
         return f"run:{result.get('id', intent['payload']['run_id'])}:{result.get('run_attempt')}"
@@ -377,10 +387,14 @@ class Publication:
         self.readiness = readiness
         self.approval = approval
         self.source_validator = source_validator
-        self.pr = plan["pr"]
-        self.repo = f"repos/{self.pr['owner']}/{self.pr['name']}"
-        self.pr_path = f"{self.repo}/pulls/{self.pr['number']}"
-        self.issue_path = f"{self.repo}/issues/{self.pr['number']}"
+        # A repository plan (no PR) publishes issue kinds only.
+        self.pr = plan.get("pr")
+        target = self.pr or plan["repository"]
+        self.repo = f"repos/{target['owner']}/{target['name']}"
+        self.repository = f"{target.get('host', 'github.com')}/{target['owner']}/{target['name']}".lower()
+        if self.pr is not None:
+            self.pr_path = f"{self.repo}/pulls/{self.pr['number']}"
+            self.issue_path = f"{self.repo}/issues/{self.pr['number']}"
 
     def _request(self, method, path, payload=None):
         return self.provider.request(method, path, payload)
@@ -404,14 +418,14 @@ class Publication:
             raise PublicationError("unsupported publication operation")
         if kind in EXTENSIONS:
             raise PublicationError(f"{kind} is an extension kind owned by {EXTENSIONS[kind]}; this release denies it")
-        if kind not in SUPPORTED:
+        if kind not in SCOPES:
             raise PublicationError("unsupported publication operation")
         return kind
 
     def _authorization(self, kind):
         # Authority is per contract action. An iteration or another action's
         # grant never stands in for it.
-        action = SUPPORTED[kind][0]
+        action = SCOPES[kind][0]
         value = self.plan.get("authorizations", {}).get(action)
         if value is None:
             raise PublicationError(f"explicit user authorization required for {action}")
@@ -442,6 +456,8 @@ class Publication:
             raise PublicationError("retained publication intent changed")
         if value["intent"].get("run") != self.plan["logical_run"] or value["intent"].get("pr") != self.pr:
             raise PublicationError("publication intent belongs to another run or PR")
+        if value["intent"].get("kind") in ISSUE_KINDS and value["intent"].get("repository") != self.repository:
+            raise PublicationError("publication intent belongs to another repository")
         response = self.ledger.db.execute(
             "SELECT value FROM publication_events WHERE intent=? AND event='response' ORDER BY seq DESC LIMIT 1",
             (value["id"],)).fetchone()
@@ -529,6 +545,8 @@ class Publication:
             raise PublicationError("PR edits accept title/body only")
         if kind == "request_review" and (not payload or not set(payload) <= {"reviewers", "team_reviewers"}):
             raise PublicationError("review request requires explicit user/team lists")
+        if kind in ISSUE_KINDS:
+            return self._issue_payload(kind, payload)
         for key in ("body", "title", "reason"):
             if key in payload:
                 if kind == "submit_review" and key == "body" and payload["comments"] and payload[key] == "":
@@ -632,6 +650,10 @@ class Publication:
         for source in sources:
             if self.source_validator(source) is not True:
                 raise PublicationError("publication source is not current accepted evidence")
+        if kind in ISSUE_KINDS:
+            return self._prepare_issue(proposal, kind, authority, payload, sources)
+        if self.pr is None:
+            raise PublicationError("a repository plan publishes issue kinds only")
         head = _sha(proposal.get("head"), "intent head")
         lease = _sha(proposal.get("lease", head), "head lease")
         target = _sha(proposal.get("target"), "target")
@@ -924,7 +946,7 @@ class Publication:
             raise Drift("retained user authority was withdrawn") from error
         if authority != intent["authorization"]:
             raise Drift("retained user authority changed")
-        if SUPPORTED.get(kind) != (intent["action"], intent["permission"]):
+        if SCOPES.get(kind) != (intent["action"], intent["permission"]):
             raise Drift("retained permission scope differs from this release")
         try:
             self._permission(kind)
@@ -942,6 +964,9 @@ class Publication:
         for source in audience["evidence"]:
             if self.source_validator(source) is not True:
                 raise PublicationError("audience evidence is stale or unaccepted")
+        if kind in ISSUE_KINDS:
+            self._issue_binding(intent, ev)
+            return
         self._live_binding(intent, ev)
         if kind in ("push", "rewrite", "split_push"):
             self._check_git(intent)
@@ -990,7 +1015,7 @@ class Publication:
         if state in TERMINAL:
             raise PublicationError(f"publication intent is {state}; a later attempt needs fresh preparation")
         intent = saved["intent"]
-        ev = self._capture()
+        ev = self._current(intent)
         try:
             self._gate(intent, ev, audience)
         except Drift as error:
@@ -1155,14 +1180,22 @@ class Publication:
         if kind == "split_pr":
             payload.pop("push_operation")
             return self._request("POST", self.repo + "/pulls", payload)
+        if kind == "create_issue":
+            return self._request("POST", self.repo + "/issues", payload)
+        if kind == "edit_issue":
+            number = payload.pop("number")
+            return self._request("PATCH", f"{self.repo}/issues/{number}", payload)
         raise PublicationError("unsupported publication dispatch")
 
     def _receipt(self, saved, result):
         intent = saved["intent"]
-        return {"id": saved["id"], "fingerprint": saved["fingerprint"], "run": intent["run"],
-                "kind": intent["kind"], "pr": self.pr["url"], "head": intent["head"],
-                "actor_id": intent["actor_id"], "result": result,
-                "evidence": ["read-only exact service reconciliation"]}
+        receipt = {"id": saved["id"], "fingerprint": saved["fingerprint"], "run": intent["run"],
+                   "kind": intent["kind"], "pr": self.pr["url"] if self.pr else None, "head": intent.get("head"),
+                   "actor_id": intent["actor_id"], "result": result,
+                   "evidence": ["read-only exact service reconciliation"]}
+        if intent["kind"] in ISSUE_KINDS:
+            receipt["repository"] = intent["repository"]
+        return receipt
 
     @staticmethod
     def _known(saved):
@@ -1178,6 +1211,8 @@ class Publication:
         that a dispatched write did not happen, so there is no ``no_effect``.
         """
         intent = saved["intent"]
+        if intent["kind"] in ISSUE_KINDS:
+            return self._observe_issue(saved, ev)
         kind, payload, meta = intent["kind"], intent["payload"], ev["metadata"]
         if ev["viewer"]["id"] != intent["actor_id"]:
             return {"outcome": "unknown", "proof": {"reason": "authenticated actor differs"}}
@@ -1287,7 +1322,7 @@ class Publication:
             return {"outcome": "no_effect", "proof": {"intent": saved["fingerprint"], "state": "pending",
                                                       "rejection": evidence}}
         try:
-            return self._observe(saved, self._capture())
+            return self._observe(saved, self._current(saved["intent"]))
         except Exception as error:
             return {"outcome": "unknown", "proof": {"intent": saved["fingerprint"], "reason": str(error)}}
 
@@ -1309,6 +1344,215 @@ class Publication:
         """Read-only current exact-effect validation for action checkpoints."""
         try:
             saved = self._load(ident)
-            return isinstance(receipt, dict) and self._validate_receipt(saved, receipt, self._capture())
+            return isinstance(receipt, dict) and self._validate_receipt(saved, receipt, self._current(saved["intent"]))
         except Exception:
             return False
+
+    # -- Issue kinds (#32) ------------------------------------------------------------------------
+    # Same journal, lock, audience, receipts and uncertainty states as every PR
+    # kind. An intent binds the numeric repository, actor and (for an edit) issue,
+    # the exact payload and its verified labels and assignees.
+
+    def _current(self, intent):
+        """The live read-only state an intent's binding and observation use."""
+        if intent["kind"] in ISSUE_KINDS:
+            return self._issue_capture(intent["kind"], intent["payload"])
+        return self._capture()
+
+    def _issue_capture(self, kind, payload):
+        viewer = self._request("GET", "user")
+        repository = self._request("GET", self.repo)
+        if not isinstance(viewer, dict) or not isinstance(repository, dict):
+            raise PublicationError("issue publication state unavailable")
+        _positive(viewer.get("id"), "authenticated actor")
+        if not isinstance(viewer.get("login"), str) or not _LOGIN.fullmatch(viewer["login"]):
+            raise PublicationError("authenticated actor login unavailable")
+        _positive(repository.get("id"), "numeric repository identity")
+        ev = {"viewer": {"id": viewer["id"], "login": viewer["login"]}, "repository": {"id": repository["id"]}}
+        if kind == "edit_issue":
+            number = payload["number"]
+            issue = self._request("GET", f"{self.repo}/issues/{number}")
+            if (not isinstance(issue, dict) or issue.get("number") != number or "pull_request" in issue
+                    or not isinstance(issue.get("title"), str)):
+                raise PublicationError(f"issue {number} is unavailable or is a pull request")
+            _positive(issue.get("id"), "numeric issue identity")
+            ev["issue"] = issue
+        return ev
+
+    @staticmethod
+    def _issue_value(key, value):
+        """Comparable form of an issue field: label and assignee names sorted, an absent body empty."""
+        if key == "labels":
+            return sorted(item.get("name") if isinstance(item, dict) else item for item in value or [])
+        if key == "assignees":
+            return sorted(item.get("login") if isinstance(item, dict) else item for item in value or [])
+        if key == "body":
+            return value or ""
+        return value
+
+    def _issue_matches(self, issue, payload):
+        return all(self._issue_value(key, issue.get(key)) == self._issue_value(key, payload[key])
+                   for key in ISSUE_FIELDS if key in payload)
+
+    def _issue_payload(self, kind, payload):
+        allowed = set(ISSUE_FIELDS)
+        if kind == "create_issue" and set(payload) != allowed:
+            raise PublicationError(f"create_issue requires exactly {sorted(allowed)}")
+        if kind == "edit_issue":
+            if "number" not in payload or not set(payload) - {"number"} or not set(payload) <= allowed | {"number"}:
+                raise PublicationError("edit_issue requires number and at least one of " + ", ".join(ISSUE_FIELDS))
+            _positive(payload["number"], "issue number")
+        if "title" in payload:
+            text(payload["title"], "issue title")
+            if len(payload["title"]) > 256 or "\n" in payload["title"]:
+                raise PublicationError("issue title must be one bounded line")
+        if "body" in payload and (not isinstance(payload["body"], str) or "\x00" in payload["body"]
+                                  or len(payload["body"]) > 65536):
+            raise PublicationError("issue body must be bounded text without NUL")
+        for key in ("labels", "assignees"):
+            if key in payload:
+                values = payload[key]
+                if (not isinstance(values, list) or len(values) > (10 if key == "assignees" else 100)
+                        or len(set(map(str, values))) != len(values)):
+                    raise PublicationError(f"issue {key} require a bounded list of distinct names")
+                for value in values:
+                    text(value, f"issue {key[:-1]}")
+                    if key == "assignees" and not _LOGIN.fullmatch(value):
+                        raise PublicationError("invalid issue assignee login")
+        return copy.deepcopy(payload)
+
+    def _issue_metadata(self, payload, error):
+        """Every requested label and assignee exists in the target repository now."""
+        for key, field in (("labels", "name"), ("assignees", "login")):
+            wanted = payload.get(key) or []
+            if wanted:
+                known = {item.get(field) for item in self._pages(f"{self.repo}/{key}?per_page=100")
+                         if isinstance(item, dict)}
+                missing = sorted(set(wanted) - known)
+                if missing:
+                    raise error(f"issue {key} unavailable in the target repository: {missing}")
+
+    def _own_issues(self, login):
+        """The actor's issues in the repository, pull requests excluded."""
+        result = []
+        for issue in self._pages(f"{self.repo}/issues?state=all&creator={login}&per_page=100"):
+            if isinstance(issue, dict) and "pull_request" not in issue:
+                _positive(issue.get("number"), "issue number")
+                if (issue.get("user") or {}).get("login") != login:
+                    raise PublicationError("issue listing returned another creator")
+                result.append(issue)
+        return result
+
+    def _prepare_issue(self, proposal, kind, authority, payload, sources):
+        if any(key in proposal for key in ("head", "lease", "target")):
+            raise PublicationError("issue writes bind the repository, not a PR head")
+        semantic = {"kind": kind, "payload": payload, "sources": list(sources), "source": proposal.get("source")}
+        ident, supersedes = proposal.get("id"), None
+        if ident is not None:
+            if not isinstance(ident, str) or not _ID.fullmatch(ident):
+                raise PublicationError("invalid publication operation ID")
+            attempts = self._attempts(ident)
+            if attempts:
+                if {key: attempts[0]["intent"].get(key) for key in semantic} != semantic:
+                    raise PublicationError("conflicting publication operation identity")
+                latest = attempts[-1]
+                if latest["state"] not in TERMINAL:
+                    if latest["intent"]["authorization"] != authority:
+                        raise PublicationError("retained publication authority changed")
+                    return self._public(latest)
+                # A terminal intent is never resent; a later attempt is a fresh intent.
+                if len(attempts) > FRESH_ATTEMPTS:
+                    raise PublicationError("fresh publication attempts exhausted for this proposal")
+                ident, supersedes = f"{attempts[0]['id']}.r{len(attempts)}", latest["id"]
+        ev = self._issue_capture(kind, payload)
+        action, setting = ISSUE_KINDS[kind]
+        intent = {"run": self.plan["logical_run"], "pr": self.pr, "repository": self.repository, "kind": kind,
+                  "repository_id": ev["repository"]["id"], "actor_id": ev["viewer"]["id"],
+                  "actor_login": ev["viewer"]["login"], "payload": payload, "authorization": authority,
+                  "action": action, "permission": setting, "sources": list(sources), "before": {}}
+        if proposal.get("source") is not None:
+            intent["source"] = copy.deepcopy(proposal["source"])
+        if supersedes is not None:
+            intent["supersedes"] = supersedes
+        self._issue_metadata(payload, PublicationError)
+        if kind == "edit_issue":
+            issue = ev["issue"]
+            intent["issue_id"] = issue["id"]
+            intent["before"] = {key: self._issue_value(key, issue.get(key)) for key in ISSUE_FIELDS if key in payload}
+        else:
+            own = self._own_issues(ev["viewer"]["login"])
+            intent["before"]["issue_numbers"] = sorted(issue["number"] for issue in own)
+            # An identical open issue by the actor is this effect; it settles without a second write.
+            same = [issue for issue in own if issue.get("state") == "open" and self._issue_matches(issue, payload)]
+            if len(same) > 1:
+                raise PublicationError("multiple identical issues require explicit recovery")
+            if same:
+                intent["before"]["satisfied_issue"] = same[0]["number"]
+        ident = ident or digest(intent)
+        fingerprint = digest(intent)
+        with self.ledger.transaction():
+            existing = self._select(ident)
+            if existing:
+                saved = _row(existing)
+                self._assert_replay(saved["intent"], intent)
+                return self._public(saved)
+            self.ledger.db.execute(
+                "INSERT INTO publication_intents(id,fingerprint,value,state,receipt) VALUES(?,?,?,'prepared','')",
+                (ident, fingerprint, canonical(intent).decode()))
+            self._event(ident, "prepared", {"fingerprint": fingerprint, "supersedes": supersedes})
+        return {"id": ident, "fingerprint": fingerprint, "intent": intent, "state": "prepared"}
+
+    def _issue_binding(self, intent, ev):
+        if ev["viewer"]["id"] != intent["actor_id"]:
+            raise Drift("authenticated actor changed")
+        if ev["repository"]["id"] != intent["repository_id"]:
+            raise Drift("numeric repository identity changed")
+        self._issue_metadata(intent["payload"], Drift)
+        if intent["kind"] == "edit_issue":
+            issue = ev["issue"]
+            if issue["id"] != intent["issue_id"]:
+                raise Drift("numeric issue identity changed")
+            # Never overwrite a field someone else changed after preparation.
+            payload = intent["payload"]
+            if any(self._issue_value(key, issue.get(key)) not in (value, self._issue_value(key, payload[key]))
+                   for key, value in intent["before"].items()):
+                raise Drift("issue field changed after preparation")
+
+    def _observe_issue(self, saved, ev):
+        """Read-only: ``completed`` with an exact receipt, otherwise ``unknown``.
+
+        A missing issue never proves that a creation did not happen.
+        """
+        intent = saved["intent"]
+        kind, payload = intent["kind"], intent["payload"]
+        found, result = False, None
+        if ev["viewer"]["id"] != intent["actor_id"] or ev["repository"]["id"] != intent["repository_id"]:
+            return {"outcome": "unknown", "proof": {"reason": "authenticated actor or repository differs"}}
+        if kind == "edit_issue":
+            issue = ev["issue"]
+            found = issue["id"] == intent["issue_id"] and self._issue_matches(issue, payload)
+            result = {"number": issue["number"], "id": issue["id"],
+                      **{key: self._issue_value(key, issue.get(key)) for key in ISSUE_FIELDS if key in payload}}
+        else:
+            known = self._known(saved)
+            candidates = self._own_issues(intent["actor_login"])
+            if known:
+                # The acknowledged creation names its issue; a retained receipt names it by identity.
+                wanted = _positive(known.get("number"), "acknowledged issue number")
+                exact = "title" not in known or self._issue_matches(known, payload)
+                candidates = [issue for issue in candidates if exact and issue["number"] == wanted]
+            elif intent["before"].get("satisfied_issue"):
+                candidates = [issue for issue in candidates if issue["number"] == intent["before"]["satisfied_issue"]
+                              and self._issue_matches(issue, payload)]
+            else:
+                candidates = [issue for issue in candidates if issue["number"] not in intent["before"]["issue_numbers"]
+                              and self._issue_matches(issue, payload)]
+            if len(candidates) == 1:
+                issue = candidates[0]
+                found = True
+                result = {"number": issue["number"], "id": issue.get("id"), "html_url": issue.get("html_url")}
+            # Missing and ambiguous creations remain unknown.
+        proof = {"intent": saved["fingerprint"], "observation": digest(result), "kind": kind}
+        if found:
+            return {"outcome": "completed", "proof": proof, "result": self._receipt(saved, result)}
+        return {"outcome": "unknown", "proof": proof}

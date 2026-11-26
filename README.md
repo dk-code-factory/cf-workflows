@@ -42,6 +42,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Feedback read, address and reply entries](docs/feedback-skills.md)
 - [Reviewer coordination, simplification and approver discovery entries](docs/reviewer-skills.md)
 - [Publication, review-posting and approval entries](docs/publication-skills.md)
+- [PR description, commit-message and issue entries](docs/drafting.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

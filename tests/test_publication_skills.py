@@ -24,7 +24,7 @@ from prfix import app, publishing
 from prfix.capture import HTTPFailure
 from prfix.core import digest, read_artifact
 from prfix.prepare import prepare
-from prfix.publication import EXTENSIONS, SUPPORTED, PendingReview, PublicationError, UncertainEffect
+from prfix.publication import EXTENSIONS, ISSUE_KINDS, SUPPORTED, PendingReview, PublicationError, UncertainEffect
 from test_dk_pr_review import AGENTS, PR_URL, adapters
 from test_dk_pr_review_findings import CONFLICT, INLINE, SUBJECT, Fixture as FindingsFixture, GitHub as FindingsGitHub
 from test_publication import review_page, review_request
@@ -640,7 +640,8 @@ class Entries(PreflightFixture):
                 self.assertEqual(SUPPORTED[kind][0], action)
             self.assertEqual(fix_preflight.PUBLICATION_ACTIONS[action], record['permission'])
         self.assertEqual(set(dk_pr_publish.CAPABILITIES) | set(dk_pr_publish.OWNERS), set(admission.ACTIONS))
-        self.assertEqual({kind for kind in EXTENSIONS}, set(dk_pr_publish.OWNERS))
+        # Issue kinds are supported for cf-workflows:dk-issue (#32), never for these entries.
+        self.assertEqual(set(EXTENSIONS) | set(ISSUE_KINDS), set(dk_pr_publish.OWNERS))
         self.assertNotIn('approve_pr', EXTENSIONS)
 
     def test_role_prompts_match_the_pinned_baseline(self):

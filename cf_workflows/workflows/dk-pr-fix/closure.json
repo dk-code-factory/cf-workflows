@@ -32,7 +32,7 @@
     "workflows/helpers/prfix/findings.py": "974caa2707879f483201b0258601819d1d027f286e5f2c7e23784004ed8ee9d0",
     "workflows/helpers/prfix/preparation.py": "0945ba5325cfd9facb2bb8d94194a210176b0dc1d6c3bc2ccfc8fb1c46fbafc8",
     "workflows/helpers/prfix/prepare.py": "db49365a180652ed66b7ef5436c1b72780540d2036b9938952f68e1907d6ad3a",
-    "workflows/helpers/prfix/publication.py": "bf3e9079c56c69128b06cdf79febbea917b6dcab1f98d8c41d7c700800b61eb0",
+    "workflows/helpers/prfix/publication.py": "dd96ddfcd415d02843d5a312e7c72d50e3ed58ad08805b6373090b0c66b60700",
     "workflows/helpers/prfix/publishing.py": "9eaaedc4bf8fb0ba0a05ebaf9465f5f8cf639ce15ed1eef600c6a774d89a4fd5",
     "workflows/helpers/prfix/responses.py": "1b5efa64c3f938aba1fa43e23eed5fb512038a85234eb4355b8404bc3bc5ebab",
     "workflows/main.yml": "32fb3e5432b8f86cee4da8b0765f6e88f30663000510510d43af934c40cc6e37",

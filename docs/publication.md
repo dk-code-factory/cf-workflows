@@ -34,7 +34,7 @@ at preflight, and their kinds deny at preparation:
 
 | Action | Owner |
 | --- | --- |
-| `create_issue`, `edit_issue` | #32 |
+| `create_issue`, `edit_issue` | `cf-workflows:dk-issue` (#32); the installed workflow declares no issue input |
 | `approve_fork_ci` | #35 |
 
 **Extension contract.** A new kind needs all of the following before it is
@@ -43,6 +43,18 @@ one dispatch call, a read-only observation that recognizes only the exact
 effect, an effect key when it creates a unique object, and preparation,
 dispatch and reconciliation fixtures with response loss before and after the
 effect. Until then it stays in `EXTENSIONS` and denies.
+
+**Issue kinds.** `create_issue` and `edit_issue` follow that contract (#32) in
+the same journal, lock, audience and receipt states. Each is its own contract
+action and permission. An issue intent binds the numeric repository, actor and
+(for an edit) issue instead of a PR head, so a repository plan with no PR
+publishes issue kinds only. Preparation and dispatch both check that every
+label and assignee exists in the repository. An edit never overwrites a field
+that changed after preparation. A creation records the actor's existing issues
+first. An identical open issue by the actor settles the intent without a
+write, and observation accepts only one new exact issue. Its effect key is the
+issue number, so one created issue never settles two intents. See
+[drafting entries](drafting.md#publication).
 
 `approve_pr` follows that contract (#31). Its proposal comes only from
 `approval_proposal`, which needs current complete clean independent review of
@@ -274,8 +286,9 @@ upstream #138 fixtures for the guard itself.
 - The pending-review classifier matches the exact 422 body reported
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.
-- Issue and fork-CI kinds: #32 and #35. Approval (#31) is supported; see
-  [publication entries](publication-skills.md#approval).
+- Fork-CI kinds: #35. Approval (#31) and issue kinds (#32) are supported; see
+  [publication entries](publication-skills.md#approval) and
+  [drafting entries](drafting.md#publication).
 - While analysis is [provisional](provisional.md), nothing is listed, prepared
   or dispatched.
 - GitHub publication conformance needs separate authorization; these fixtures
