@@ -146,8 +146,10 @@ and fail-closed unconfigured fixture operations.
 - Agent Workflow #127–#133 (the plugin toolchain, provider-neutral sessions
   and relocated packages), #138 (the portable merge guard) and #139
   (session-scoped supplied skills) are closed upstream. No release contains
-  them, and none is consumed here. The upstream blockers in
-  [packaging](packaging.md#what-remains-blocked) therefore stay listed.
+  them. The engine release and the fixture runner's missing container-job
+  support stay listed as [packaging](packaging.md#what-remains-blocked)
+  blockers. A development check builds identical packages from the unreleased
+  source; it verifies no combination.
 - Agent Workflow #134 (managed provider parity) is open. It gates only the
   capabilities that a selected path needs.
 
@@ -265,7 +267,7 @@ accepted records for it.
 `python3 -B -m cf_workflows.package` reports `releasable: false`. Its blockers
 come from three sources:
 
-- the upstream toolchain and the missing engine release;
+- the missing engine release and the fixture runner's container-job gap;
 - the non-runnable suite and every listed row without parity;
 - the matrix: each live procedure without an accepted record, the absence of
   any verified combination, and the rows without native-execution evidence.
@@ -293,5 +295,8 @@ release.
   also need #139.
 - All three live procedures, each under its own explicit authorization.
 - A published engine release equal to the pin, and the shared toolchain's
-  build, check, test and release validation. Packaging also needs
-  reproducible packages for both hosts.
+  build, check, test and release validation from it. Reproducible packages for
+  both hosts are shown only against unreleased source
+  ([build check](packaging.md#reproducible-builds-against-unreleased-source)),
+  and `plugin test` cannot run the bound skills until the fixture runner
+  supports container jobs.

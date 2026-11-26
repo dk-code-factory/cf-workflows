@@ -1,10 +1,14 @@
-"""Plugin descriptor, declared resource closure and honest inventory status.
+"""Plugin descriptor, declared resource closure, package build comparison and honest inventory status.
 
 Every case checks disposable copies of the plugin root, including read-only
-copies under paths with spaces. Nothing is built, installed, downloaded or run;
-these results do not certify any engine, host or package.
+copies under paths with spaces. The build comparison runs against a scripted
+fake toolchain whose unconfigured commands fail; with CF_AGENT_WORKFLOW set to
+a local agent-workflow clone it also builds the real CLI from the pinned,
+unreleased source commit. Nothing is installed, downloaded or run; these
+results do not certify any engine, host, package or release.
 """
 import copy
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +22,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from cf_workflows import dk_pr_fix, package  # noqa: E402
+
+SPEC = importlib.util.spec_from_file_location('check_package_build', ROOT / 'scripts/check_package_build.py')
+build_check = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(build_check)
 
 DESCRIPTOR = (package.ROOT / package.DESCRIPTOR).read_text()
 
@@ -228,6 +236,142 @@ class Closure(unittest.TestCase):
         self.assertNotEqual(package.check(root)['closure_digest'], before)
 
 
+# A scripted stand-in for `agent-workflow plugin check|build`: it records every
+# invocation, fails any other command, and injects one FAULT into its output.
+FAKE_TOOLCHAIN = r"""#!{python}
+import hashlib, io, json, os, sys, time, zipfile
+from pathlib import Path
+FAULT, LOG = {fault!r}, {log!r}
+with open(LOG, 'a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\n')
+args = sys.argv[1:]
+if args[:3] == ['plugin', 'check', '--json']:
+    print(json.dumps({{'schema-version': 1, 'kind': 'structure', 'passed': FAULT != 'check',
+                      'diagnostics': [{{'code': 'fake'}}] if FAULT == 'check' else []}}))
+    sys.exit(FAULT == 'check')
+if args[:3] != ['plugin', 'build', '--target'] or args[4] != '--output' or len(args) != 7:
+    sys.exit('unconfigured fake operation ' + json.dumps(args))
+targets, output, source = sorted(args[3].split(',')), Path(args[5]), Path(args[6])
+name, version = 'cf-workflows', '0.1.0-dev'
+files = {{}}
+for directory, _, entries in os.walk(source):
+    for entry in entries:
+        path = Path(directory) / entry
+        files[path.relative_to(source).as_posix()] = path.read_bytes()
+for skill in ('skills/dk-pr-fix/SKILL.md', 'skills/dk-pr-review/SKILL.md'):
+    files[skill] += b'\n## Generated invocation guidance\n'
+generated = {{'.claude-plugin/plugin.json': b'{{}}', '.codex-plugin/plugin.json': b'{{}}', 'plugin.json': b'{{}}',
+             'compatibility.json': b'{{}}', 'scripts/agent-workflow': b'#!/bin/sh\n',
+             'scripts/engine_bootstrap.py': b'# bootstrap\n'}}
+files.update(generated)
+if FAULT == 'undeclared':
+    files['notes.txt'] = b'scratch'
+if FAULT == 'dropped':
+    del files['request.example.json']
+if FAULT == 'altered':
+    files['LICENSE'] += b'changed'
+if FAULT == 'guidance':
+    files['skills/dk-pr-fix/SKILL.md'] = b'generated only'
+listed = sorted(set(files) - {{'plugin.yaml'}} | ({{'notes'}} if FAULT == 'descriptor' else set()))
+files['plugin.yaml'] = ('schema-version: 1\nname: ' + name + '\nversion: ' + version + '\nengine-version: 0.2.2\n'
+                        'resources:\n' + ''.join('    - ' + path + '\n' for path in listed)).encode()
+tree = {{name + '/plugins/' + name + '/' + path: data for path, data in files.items()}}
+tree[name + '/.agents/plugins/marketplace.json'] = b'{{}}'
+tree[name + '/.claude-plugin/marketplace.json'] = b'{{}}'
+buffer = io.BytesIO()
+with zipfile.ZipFile(buffer, 'w') as archive:
+    for path in sorted(tree):
+        if FAULT == 'zip' and path.endswith('LICENSE'):
+            continue
+        archive.writestr(zipfile.ZipInfo(path, (1980, 1, 1, 0, 0, 0)), tree[path])
+report = {{'schema_version': 1, 'name': name, 'version': version, 'engine_version': '0.2.2', 'targets': targets,
+          'source_digest': '0' * 64, 'package_digest': '1' * 64, 'archive': name + '-' + version + '.zip'}}
+if FAULT == 'timestamp':
+    report['built_at'] = time.time_ns()
+everything = {{**tree, report['archive']: buffer.getvalue(), 'build.json': json.dumps(report).encode()}}
+for path, data in everything.items():
+    (output / path).parent.mkdir(parents=True, exist_ok=True)
+    (output / path).write_bytes(data)
+    if path.endswith('scripts/agent-workflow'):
+        (output / path).chmod(0o755)
+sums = ''.join(hashlib.sha256(data).hexdigest() + '  ' + path + '\n' for path, data in sorted(everything.items())
+               if not (FAULT == 'checksum' and path == 'build.json'))
+(output / 'SHA256SUMS').write_text(sums)
+"""
+
+
+class PackageBuild(unittest.TestCase):
+    """Two builds of relocated read-only copies compared byte for byte, and the payload against the closure."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='package build ')
+        self.base = Path(self.temp.name)
+        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(writable, self.base)
+
+    def toolchain(self, fault=None):
+        log = self.base / 'invocations.jsonl'
+        log.unlink(missing_ok=True)
+        cli = self.base / 'fake bin' / 'agent-workflow'
+        cli.parent.mkdir(exist_ok=True)
+        cli.write_text(FAKE_TOOLCHAIN.format(python=sys.executable, fault=fault, log=str(log)))
+        cli.chmod(0o755)
+        return cli, log
+
+    def work(self, name):
+        work = self.base / name
+        work.mkdir()
+        return work
+
+    def invocations(self, log):
+        return [json.loads(line)[:2] for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_identical_builds_ship_exactly_the_closure_and_generated_assets(self):
+        cli, log = self.toolchain()
+        summary = build_check.verify(cli, self.work('clean run'))
+        closure = json.loads((package.ROOT / dk_pr_fix.CLOSURE).read_text())['files']
+        self.assertEqual(summary['payload_files'], len(closure) + 1 + len(build_check.GENERATED))
+        self.assertFalse(summary['released'])
+        self.assertEqual(summary['closure_digest'], package.check(copy_root(self.base / 'copy'))['closure_digest'])
+        self.assertEqual(self.invocations(log), [['plugin', 'check'], ['plugin', 'build']] * 2)
+        builds = [json.loads(line) for line in log.read_text().splitlines() if json.loads(line)[1] == 'build']
+        # Different target order, paths with spaces and a different umask still yield the same bytes.
+        self.assertEqual([args[3] for args in builds], ['codex,claude', 'claude,codex'])
+        self.assertTrue(all(' ' in args[-1] and ' ' in args[5] for args in builds))
+
+    def test_differences_and_undeclared_resources_reject(self):
+        cases = {'check': ('plugin check rejected', 1, 0), 'timestamp': ('SHA256SUMS differs between builds', 2, 2),
+                 'undeclared': ("undeclared ['notes.txt']", 2, 2), 'dropped': ("missing ['request.example.json']", 2, 2),
+                 'altered': ('LICENSE: shipped bytes differ', 2, 2),
+                 'guidance': ('drops the developer instructions', 2, 2),
+                 'descriptor': ('generated resources differ', 2, 2),
+                 'checksum': ('SHA256SUMS does not cover exactly', 2, 2),
+                 'zip': ('ZIP does not hold exactly the marketplace', 2, 2)}
+        for fault, (message, checks, builds) in cases.items():
+            with self.subTest(fault):
+                cli, log = self.toolchain(fault)
+                with self.assertRaises(build_check.BuildCheckError) as raised:
+                    build_check.verify(cli, self.work(fault))
+                self.assertIn(message, str(raised.exception))
+                calls = self.invocations(log)
+                self.assertEqual((calls.count(['plugin', 'check']), calls.count(['plugin', 'build'])),
+                                 (checks, builds))
+
+    def test_unconfigured_toolchain_operations_fail(self):
+        cli, log = self.toolchain()
+        with self.assertRaisesRegex(build_check.BuildCheckError, 'unconfigured fake operation'):
+            build_check.run([str(cli), 'plugin', 'test', '--json', str(self.base)], self.work('unconfigured'))
+        self.assertEqual(self.invocations(log), [['plugin', 'test']])
+
+    @unittest.skipUnless(os.environ.get('CF_AGENT_WORKFLOW'),
+                         'set CF_AGENT_WORKFLOW to a local agent-workflow clone with the pinned toolchain commit')
+    def test_pinned_unreleased_toolchain_builds_identical_packages(self):
+        summary = build_check.main(Path(os.environ['CF_AGENT_WORKFLOW']))
+        self.assertEqual(summary['toolchain_commit'], build_check.TOOLCHAIN_COMMIT)
+        self.assertEqual(summary['targets'], ['claude', 'codex'])
+        self.assertFalse(summary['released'])
+
+
 class InventoryStatus(unittest.TestCase):
     def descriptor(self):
         return package.validate_descriptor(package.parse_descriptor(DESCRIPTOR.encode()))
@@ -239,8 +383,12 @@ class InventoryStatus(unittest.TestCase):
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}
-        self.assertTrue({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132', 'agent-workflow#133',
-                         'engine release', 'cf-workflows', 'cf-workflows:dk-pr-fix',
+        self.assertEqual([item['prerequisite'] for item in status['blockers'][:2]],
+                         ['engine release', 'plugin test container jobs'])
+        # Merged upstream capabilities are not listed as missing; only their release is.
+        self.assertFalse({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132',
+                          'agent-workflow#133'} & missing)
+        self.assertTrue({'engine release', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
                          'cf-workflows:dk-pr-review', 'live acceptance: user_supplied_skill',
                          'live acceptance: live_provider', 'live acceptance: github_publication',
                          'compatibility', 'acceptance matrix'} <= missing)

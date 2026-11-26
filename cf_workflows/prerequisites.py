@@ -8,8 +8,9 @@ installation. The only container command runs the already-present helper image
 with `--pull=never` and no network to list its tools.
 
 The verified exact-engine download is Agent Workflow's shared setup
-(agent-workflow#130). It is not available yet, so the engine check always
-reports it as blocked rather than substituting a local engine.
+(agent-workflow#130). It is merged upstream but in no release yet, so the
+engine check always reports it as blocked rather than substituting a local
+engine.
 """
 import os
 from pathlib import Path

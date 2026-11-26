@@ -2,10 +2,13 @@
 
 cf-workflows has one plugin project: the dk-pr-fix installation root,
 `cf_workflows/workflows/dk-pr-fix/`. Agent Workflow's shared toolchain builds
-the Codex and Claude packages from it. That toolchain is not available yet (see
-[What remains blocked](#what-remains-blocked)), so this repository builds no
-package. It also has no hand-maintained substitute: no host manifests,
-launchers, catalogs or archives. Nothing here is releasable or certified.
+the Codex and Claude packages from it. That toolchain is merged on Agent
+Workflow's `main` but not released (see
+[What remains blocked](#what-remains-blocked)). This repository checks in and
+publishes no package, and it has no hand-maintained substitute: no host
+manifests, launchers, catalogs or archives. A development check
+[builds the packages from the unreleased source](#reproducible-builds-against-unreleased-source)
+to show they are reproducible. Nothing here is releasable or certified.
 
 ## Descriptor
 
@@ -61,7 +64,9 @@ It writes nothing.
 
 The scanner reads only the reference forms these workflows use and rejects any
 other. It is a consistency check of the toolchain's inputs, not a packager. The
-upstream `agent-workflow plugin check` is authoritative once it is released.
+upstream `agent-workflow plugin check` is authoritative. The
+[build check](#reproducible-builds-against-unreleased-source) runs it from
+unreleased source; it is supported only once released.
 
 `python3 -B -m cf_workflows.package` prints the check and the inventory status
 as JSON, and exits 1 on a diagnostic. The status:
@@ -70,12 +75,13 @@ as JSON, and exits 1 on a diagnostic. The status:
   version that differs from the suite identity;
 - lists each skill with its inventory parity status (currently
   `not_implemented`);
-- reports `releasable: false` with its blockers: the upstream capabilities, the
-  missing engine release, the non-runnable suite, every listed row without
-  implemented parity, and the [acceptance matrix](qualification.md#release-readiness)
-  blockers (pending live procedures, no verified combination, rows without
-  native evidence). The upstream blockers stay listed until a released
-  capability is actually consumed here. Editing the inventory cannot remove them.
+- reports `releasable: false` with its blockers: the missing engine release,
+  the fixture runner's missing container-job support, the non-runnable suite,
+  every listed row without implemented parity, and the
+  [acceptance matrix](qualification.md#release-readiness) blockers (pending live
+  procedures, no verified combination, rows without native evidence). The
+  upstream blockers stay listed until a released capability is actually
+  consumed here. Editing the inventory cannot remove them.
 
 Adding a skill to the descriptor needs an inventory row and its installed
 workflow. Listing a skill does not claim parity or support.
@@ -122,7 +128,14 @@ unreachable, missing, linked, colliding and bytecode files, hand-maintained
 manifests, skill name mismatch, remote references, helper traversal, flow-form
 helper and agent lists, called workflows without `workflow_call`, invalid UTF-8,
 Unicode normalization collisions, native agent formats, a manifest mismatch, executable modes, unknown inventory rows,
-foreign identities and blockers that inventory edits cannot remove.
+foreign identities and blockers that inventory edits cannot remove. Its
+`PackageBuild` cases drive the [build check](#reproducible-builds-against-unreleased-source)
+with a scripted fake toolchain that records every invocation and fails any
+unconfigured command. They inject a failed `plugin check`, a non-reproducible
+report, undeclared, missing and altered payload files, an entry point without
+the developer instructions, a generated descriptor that declares other files, an
+incomplete checksum list and an incomplete ZIP, and assert the check and build
+counts for each.
 
 [`tests/test_prerequisites.py`](../tests/test_prerequisites.py) uses disposable
 repositories under paths with spaces: a complete clone, a linked worktree, a
@@ -135,24 +148,68 @@ The relocated execution smoke test is in [dk-pr-fix verification](dk-pr-fix.md#v
 It runs the installed helpers from a read-only copy, which now includes the
 descriptor, against a separate checkout that contains no workflow definitions.
 
+## Reproducible builds against unreleased source
+
+[`scripts/check_package_build.py`](../scripts/check_package_build.py) is a
+development check of the first acceptance criterion, identical packages with no
+undeclared resources, against Agent Workflow source that no release contains:
+
+```sh
+python3 scripts/check_package_build.py --agent-workflow /path/to/agent-workflow
+CF_AGENT_WORKFLOW=/path/to/agent-workflow python3 -m unittest tests.test_package -v
+```
+
+It reads the exact `TOOLCHAIN_COMMIT` (`87587758fdb3`, Agent Workflow `main`
+with #129–#133, #138 and #139) from a local clone with `git archive`, never
+fetching, checking out or changing the clone. It builds `cmd/agent-workflow`
+offline (`GOPROXY=off`, read-only modules), so the Go toolchain and module cache
+must already be present. Then it:
+
+1. copies the plugin root twice, read-only, under different paths with spaces
+   and with different timestamps;
+2. runs `plugin check --json` on each copy and requires no diagnostics;
+3. runs `plugin build` on each copy, with the targets in different orders
+   (`codex,claude` and `claude,codex`) and different umasks;
+4. requires `SHA256SUMS`, the ZIP, `build.json` and the whole output trees to be
+   byte-identical, the checksums to cover exactly the build output, and the ZIP
+   to hold exactly the marketplace tree (the payload plus both host catalogs);
+5. requires the runtime payload, minus the generated assets
+   (`.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `plugin.json`,
+   `compatibility.json`, `scripts/agent-workflow` and
+   `scripts/engine_bootstrap.py`), to equal `closure.json` and the files it
+   lists. Each file ships byte for byte with its executable bit, except
+   `plugin.yaml`, which the toolchain regenerates with the same identity and a
+   resource list of exactly the payload, and each `SKILL.md`, which must start
+   with the developer instructions before the generated guidance.
+
+It prints a JSON summary with `released: false` and the package digest. The
+`tests/test_package.py` case that builds the real CLI is skipped unless
+`CF_AGENT_WORKFLOW` names the clone. This verifies unreleased upstream source
+only. It is not a supported or released toolchain, installs and runs nothing,
+and no package is published from it.
+
 ## What remains blocked
 
-- [agent-workflow #130](https://github.com/dk-code-factory/agent-workflow/issues/130)
-  (draft PR #142): running an installed package against a separate checkout, and
-  the shared verified exact-engine setup.
-- [agent-workflow #131](https://github.com/dk-code-factory/agent-workflow/issues/131):
-  `plugin build`. It generates both hosts' manifests, launchers, catalogs and
-  byte-identical archives. Byte-identical packages need it.
-- [agent-workflow #132](https://github.com/dk-code-factory/agent-workflow/issues/132):
-  `plugin check` and `plugin test` with deterministic fixtures for both targets.
-- [agent-workflow #133](https://github.com/dk-code-factory/agent-workflow/issues/133):
-  release validation of generated artifacts, checksums and compatibility.
-- A published engine release of the pinned version, for the verified download.
+Agent Workflow
+[#130](https://github.com/dk-code-factory/agent-workflow/issues/130) (packaged
+execution and shared verified engine setup),
+[#131](https://github.com/dk-code-factory/agent-workflow/issues/131)
+(`plugin build`), [#132](https://github.com/dk-code-factory/agent-workflow/issues/132)
+(`plugin check` and `plugin test`) and
+[#133](https://github.com/dk-code-factory/agent-workflow/issues/133) (release
+validation) are merged on its `main`, so they are no longer listed as missing
+capabilities. Two blockers remain:
 
-As of 2026-11-26, agent-workflow #127–#133 are closed upstream, but there is
-still no published release (the newest tag is `v0.2.1`, which predates them).
-None of them is consumed here, so the blockers stay listed.
+- **Engine release.** As of 2026-11-26 no published release contains them (the
+  newest tag is `v0.2.1`, which predates them), and the pinned `0.2.2` has no
+  verified download. Setup through `engine_bootstrap.py`, release validation
+  and supported package claims wait for it. Then replace the pin with that
+  release.
+- **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
+  with a container ("fixtures do not support job containers"). Every bound
+  skill's closure has them (`helper.yml`, `publication.yml`), so `plugin test`
+  cannot run either skill, and no deterministic packaged smoke execution
+  exists. A real `plugin run` needs Docker, the pinned helper image, provider
+  sessions and a released engine, which need separate authorization.
 
-Installed-package smoke execution through the engine, plugin check/test of
-both targets and the archive comparison wait for these. They need no change to
-the descriptor format.
+Neither needs a change to the descriptor format.
