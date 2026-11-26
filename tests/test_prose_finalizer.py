@@ -282,6 +282,21 @@ class Direct(Fixture):
         self.assertNotIn(self.task["id"], coverage["missing"])
         self.assertFalse(self.claim()["invoke"])
 
+    def test_session_free_coverage_survives_a_new_head_with_the_same_tree(self):
+        git(self.root, "checkout", "-q", self.target, "--", "docs/guide.md")
+        git(self.root, "commit", "-qm", "Drop the prose change")
+        self.pushed()
+        self.replan()
+        settled = self.claim()
+        self.assertFalse(settled["invoke"])
+        # An empty commit moves the head but not the tree; the settled record still holds.
+        git(self.root, "commit", "-q", "--allow-empty", "-m", "Empty")
+        self.pushed()
+        self.replan()
+        self.assertEqual(self.claim()["invoke"], False)
+        coverage = app.coverage(self.root, self.provider, self.ledger, self.plan, {})
+        self.assertNotIn(self.task["id"], coverage["missing"])
+
 
 class Refresh(Fixture):
     def test_a_later_source_change_refreshes_only_its_lines_as_a_delta(self):

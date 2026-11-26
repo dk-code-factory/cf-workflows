@@ -162,7 +162,9 @@ add the procedure at two points:
    the units, patches, quoted wording, the role prompt, `skills: []`, no commit
    or publication, the reference limits and the report contract. With no changed
    prose, the occurrence completes without a session. Its coverage then holds
-   only while a fresh plan is identical.
+   only while a fresh plan has the same units, blobs and candidates; a new head
+   or base commit with the same trees (an empty commit, a message-only amend)
+   keeps it.
 2. **Acceptance.** Before the controlled commit, the session may have changed
    only candidate files, and every edit must pass the edit checks above. The
    report returns its prose report in `deliverables.prose`, with

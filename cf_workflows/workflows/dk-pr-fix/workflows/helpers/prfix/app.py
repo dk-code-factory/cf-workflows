@@ -702,6 +702,13 @@ def accept(root, provider, ledger, plan, inputs):
         report = decode_native_report(report)
         complete = verify_report(root, task, report)
         _dispositions(root, ledger, plan, task, report, agent, assignment)
+        if complete and "prose" in assignment:
+            # Edits stay within changed prose and the prose report matches them, before any commit.
+            from .prose import Blocked, check as check_prose
+            try:
+                check_prose(root, assignment["prose"], report)
+            except Blocked as error:
+                raise ReportContractError("prose cleanup: " + str(error)) from error
         if task["kind"] == "reply" and complete:
             # The responder must account for every current source and draft every owed reply.
             from .responses import accept as retain_responses
@@ -709,13 +716,6 @@ def accept(root, provider, ledger, plan, inputs):
                 retain_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
-        elif complete and "prose" in assignment:
-            # Edits stay within changed prose and the prose report matches them, before any commit.
-            from .prose import Blocked, check as check_prose
-            try:
-                check_prose(root, assignment["prose"], report)
-            except Blocked as error:
-                raise ReportContractError("prose cleanup: " + str(error)) from error
         elif feedback_role(task) and complete:
             # Reading or addressing feedback must leave every current source assessed; its
             # assessments are retained only once the report's effects are committed below.

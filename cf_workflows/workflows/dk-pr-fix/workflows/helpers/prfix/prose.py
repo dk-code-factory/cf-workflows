@@ -646,6 +646,16 @@ def check(root, record, report):
 
 
 def unchanged(root, ledger, plan_, task, snapshot, record):
-    """Whether a session-free completion still describes the current snapshot (coverage recheck)."""
+    """Whether a session-free completion still describes the current snapshot (coverage recheck).
+
+    Compares content, not commit IDs: an empty commit, a message-only amend or
+    a moved merge base with the same trees keeps the settled record valid,
+    because its claim fingerprint (and so the cached claim) does not change.
+    """
     current = plan(root, ledger, plan_, task, snapshot)
-    return not current['writes'] and current == record
+    commits = ('base', 'head')
+    return not current['writes'] and _without(current, commits) == _without(record, commits)
+
+
+def _without(record, keys):
+    return {key: value for key, value in record.items() if key not in keys}
