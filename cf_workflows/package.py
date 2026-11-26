@@ -2,7 +2,8 @@
 
 The plugin project is the dk-pr-fix installation root. Its plugin.yaml uses
 Agent Workflow's version 1 descriptor format. Agent Workflow's shared toolchain
-(agent-workflow#131-#133) builds, checks and tests the host packages from it.
+(agent-workflow#131-#133) builds, checks and tests the host packages from it;
+scripts/check_package_build.py drives that toolchain from unreleased source.
 This module builds nothing and generates no host manifest, launcher or catalog.
 It checks the inputs that toolchain will consume:
 
@@ -15,7 +16,8 @@ It checks the inputs that toolchain will consume:
 
 Its closure scanner reads only the reference forms these workflows use and
 rejects any other reference. It is a consistency check; the upstream
-`agent-workflow plugin check` is the authoritative one once released.
+`agent-workflow plugin check` is the authoritative one, and it is supported
+only once released.
 """
 import hashlib
 import json
@@ -37,13 +39,14 @@ SKILL_FIELDS = ('name', 'path', 'workflow')
 # Host files the shared toolchain generates. A checked-in copy would be hand-maintained.
 GENERATED = ('.codex-plugin', '.claude-plugin', '.agents', 'plugin.json', 'marketplace.json', 'compatibility.json')
 # Supported-capability prerequisites that are not available yet. Remove an entry
-# only when its released capability is actually consumed here.
+# only when its released capability is actually consumed here. Agent Workflow
+# #130-#133 (plugin run, build, check/test and release validation) are merged
+# upstream, so only the release and the fixture runner's container gap remain.
 UPSTREAM_BLOCKERS = (
-    ('agent-workflow#130', 'run an installed package against a separate checkout, with shared verified engine setup'),
-    ('agent-workflow#131', 'plugin build: generated Codex and Claude manifests, launchers, catalogs and archives'),
-    ('agent-workflow#132', 'plugin check and plugin test with deterministic fixtures'),
-    ('agent-workflow#133', 'release validation of generated artifacts, checksums and compatibility'),
-    ('engine release', 'no published release of the pinned engine version for verified download'),
+    ('engine release', 'no published engine release contains agent-workflow #130-#133 (packaged run, plugin '
+     'build, check, test and release validation), so the pinned version has no verified download'),
+    ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs, so plugin test '
+     'cannot run either bound skill and no deterministic packaged smoke execution exists'),
 )
 IDENTITY = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'

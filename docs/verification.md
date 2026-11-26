@@ -82,6 +82,14 @@ closure on read-only relocated copies under paths with spaces, and the runtime
 prerequisites against disposable clones with a fake host whose unconfigured
 commands fail. `python3 -B -m cf_workflows.package` checks the source plugin
 root and prints its inventory status; it builds no package.
+`python3 scripts/check_package_build.py --agent-workflow /path/to/agent-workflow`
+builds the CLI from the pinned, unreleased Agent Workflow commit and the Codex
+and Claude packages twice from relocated read-only copies, then compares them
+byte for byte and the payload against `closure.json`
+([reproducible builds](packaging.md#reproducible-builds-against-unreleased-source)).
+It verifies unreleased upstream source, not a supported release; its fake
+toolchain cases run in the default suite and the real build only with
+`CF_AGENT_WORKFLOW` set.
 [Response stage](responses.md) tests (`tests/test_dk_pr_fix_responses.py`) cover
 dk-workflows#255 with the installed helpers and a fake GitHub transport that
 counts captures and writes: replies settled before a failing review and kept on
