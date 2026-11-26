@@ -1,0 +1,103 @@
+# Authored for cf-workflows (#29); no upstream counterpart. See docs/reviewer-skills.md.
+# dk-code-simplify: one bundled simplification reviewer in incoming review's reviewer stage,
+# in review mode. The stage and the empty finalizers and reviewer list are fixed here; the
+# entry's priority and allow_untouched_code options select the reviewer. prepare rejects any
+# other reviewer, an authorization or an enabled permission. Recommendations are verified by
+# the separate verifier session and never make a clean review.
+name: cf-workflows:dk-code-simplify
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      simplifier:
+        # simplify, simplify-code-first, simplify-related-code or simplify-code-first-related-code.
+        type: string
+        default: simplify
+      adapters:
+        type: object
+        default:
+          simplify:
+            kind: review
+            writes: false
+            definition: reviewer
+            assignment: "Review only the PR changes for bounded, behavior-preserving simplifications with a concrete maintainability benefit. Stay within changed hunks and agreed scope; report broader opportunities as deferred observations. Each finding states the complexity reduced, its scope and the verification it needs. Do not edit or publish."
+            checklist:
+            - id: assignment
+              text: "Inspect the actual changed hunks and agreed scope."
+            - id: evidence
+              text: "Support every recommendation with source evidence and a concrete benefit."
+            - id: scope
+              text: "Keep behavior and public contracts; defer out-of-scope observations."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          post_findings: false
+          approve_pr: false
+          approve_fork_ci: false
+          merge: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.simplify.outputs.complete }}
+      clean_review:
+        value: ${{ jobs.simplify.outputs.clean_review }}
+      ready:
+        value: ${{ jobs.simplify.outputs.ready }}
+      provisional:
+        value: ${{ jobs.simplify.outputs.provisional }}
+jobs:
+  simplify:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks:
+      - stage: reviews
+        reviewers:
+        - ${{ inputs.simplifier }}
+      finalizers: []
+      reviewers: []
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: review
+      entry: dk-code-simplify
+    secrets:
+      github_token: ${{ secrets.github_token }}
