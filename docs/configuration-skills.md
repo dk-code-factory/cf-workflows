@@ -20,7 +20,7 @@ Each entry has these parts:
 | Entry | Adapter | Original options | Helper operations | Saves |
 | --- | --- | --- | --- | --- |
 | `dk-repo-onboard` | `onboard-repository` (inspection) | none | `discover`, `view`, `check_report` | Nothing |
-| `dk-config` | `configure` (configuration) | none | `view`, `explain`, `apply_operations`, admit, write, readback | Settings and prompts |
+| `dk-config` | `configure` (configuration) | none | `view`, `explain`, `apply_operations`, admit, write, readback | Settings, prompts and prompt resources |
 | `dk-preferences` | `admit-preferences` (configuration) | `default_applies_to` | `view`, `apply_operations`, `overlaps`, admit, write, readback, `resolve` | Preferences |
 
 The role prompts are the baseline `prompts/default.md` texts, byte for byte. Their
@@ -33,6 +33,8 @@ takes none, because a clarification would open a durable gate. Tasks, finalizers
 skills and unknown entry options reject before the engine is contacted. A
 remote-write authorization in the request rejects too: enabling a permission is a
 saved setting, not an authorization.
+
+Each entry run may also choose [native controls](#native-controls).
 
 The entry's own run is admitted from bundled defaults and invocation prompts
 only. Saved configuration is what the entry inspects or changes, not its governing
@@ -56,6 +58,32 @@ must show that claim, role, digest and agent, no loaded skill and only reads of
 the listed files. Anything else blocks the procedure, and nothing is applied. A
 known claim is reconciled to its original result, so a lost response never starts
 a second session.
+
+## Native controls
+
+Agent Workflow agent definitions take an optional `model` and
+`reasoning-effort` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`;
+`docs/AGENT_TASKS.md` at agent-workflow main). The three configuration entries
+accept the same two choices per run as `controls`: `onboard()`, `explain()`,
+`configure()` and `entries.preflight()` take
+`controls={'model': ..., 'reasoning_effort': ...}`, each optional.
+
+- `model` is a provider model identifier (`[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`),
+  never free text. `reasoning_effort` must be one of the engine's values.
+- Unknown controls, and controls for any other entry, reject before the engine
+  is contacted.
+- `claude-sdk` rejects a definition reasoning effort, so `reasoning_effort`
+  rejects when the session's agent uses that provider. A model alone is
+  accepted.
+- The session assignment carries the controls as `native`. The engine's
+  observation must report the same `native` value; a session that ran without
+  them blocks, and nothing is applied.
+- Controls are part of the onboarding and explanation claims and of the saved
+  request ID, so the same ask with other controls is another claim. Without
+  controls, claims and request IDs are unchanged.
+
+Controls choose how the session runs. They are not saved settings and grant no
+authority.
 
 ## Onboarding
 
@@ -120,13 +148,13 @@ paths.
 5. `apply_operations()` applies only the entry's operations to a copy of the
    saved document:
    - `dk-config`: `add_scope`, `remove_scope` (empty scopes only),
-     `set_option`/`unset_option`, `set_permission`/`unset_permission` and
-     `set_prompt`/`remove_prompt`.
+     `set_option`/`unset_option`, `set_permission`/`unset_permission`,
+     `set_prompt`/`remove_prompt` and `set_resource`/`remove_resource`.
    - `dk-preferences`: `add_scope`, `set_preference` and `remove_preference`, in
      personal scopes or the target repository's scope only.
 
    Other operations, unknown scopes and invalid values reject, and nothing is
-   written.
+   written. See [resource-backed prompts](#resource-backed-prompts).
 6. Admit the exact revision through the shared [structural](admission.md) and
    [semantic](semantic.md) pipeline, against the bundled default plan, with
    [acceptance reuse](acceptance.md). Custom prompts and preferences therefore get
@@ -136,6 +164,26 @@ paths.
    it back. If another writer changed the store, compare-and-swap settles the
    intent as `not_applied`. A later call reads the new revision and assesses it
    with a new claim.
+
+### Resource-backed prompts
+
+A saved prompt can take its text from a file (`resource` instead of `text`), as
+admission already allows. `dk-config` can now declare that file:
+
+- `set_resource` takes `{root, path, purpose, owner}` and an optional
+  `sha256`. The root must be `repository`, the target checkout. The helper reads
+  the file without following symlinks and pins its current SHA-256. A proposed
+  `sha256` that differs rejects as a changed file. Paths that leave the
+  checkout, symlinks and missing files reject.
+- `remove_resource` takes `{root, path}`. It rejects while a saved prompt or
+  preference still names the file, so remove or change those in the same
+  proposal.
+
+The revision then goes through the same admission: the resource digest is
+verified against the same bytes, a Markdown resource must declare its local
+link closure, and a prompt that uses it is custom input for the shared
+validator, which reads the pinned file. `dk-preferences` cannot declare
+resources.
 
 A configuration change never grants an effect: a saved permission stays
 non-effective until a request authorizes the action.
@@ -187,7 +235,9 @@ installation and restate it as a new ask:
   per-request authorization.
 
 Old instruction-source overrides have no equivalent yet. Onboarding reports
-which sources admission consumes.
+which sources admission consumes. An old prompt kept in a file can be restated
+as a [resource-backed prompt](#resource-backed-prompts) of the target
+repository.
 
 ## Verification
 
@@ -213,28 +263,47 @@ counts and, where it matters, the number of distinct sessions.
   with no new session; a lost session response reconciled through its claim; a
   lost write response settled by readback; a concurrent writer; a custom prompt
   accepted and rejected by the shared validator; and out-of-entry or invalid
-  operations that are never written.
+  operations that are never written; a resource-backed prompt pinned, assessed
+  by the validator on the pinned bytes and read back, a referenced resource
+  that cannot be removed alone, and stale, foreign-root, traversing, linked,
+  missing and malformed resource declarations.
 - **dk-preferences.** Explicit modes, stable IDs and readback; duplicate reuse;
   saved modes kept on update; overlaps that need the user, with invented answers
   rejected; disjoint and compatible additions; the personal and repository scope
   limit; and composed PR admission that consumes and then reuses a saved scoped
   preference.
+- **Native controls.** Controls reach the assignment and must match the
+  engine observation; they change the onboarding claim and the saved request
+  ID; a session that ignores them blocks; unknown, malformed and other-entry
+  controls reject; and `claude-sdk` rejects only a reasoning effort.
 - **Selection.** Mode, path, exclusion, glob and condition selection; a binding
   that stays unchanged when an unrelated preference changes; conservative
   overlap detection; and malformed scopes and request targets.
 
 ## What remains
 
-- These procedures run as engine-managed native sessions only once Agent Workflow
+- These procedures run as engine-managed native sessions only once a released
+  engine ships Agent Workflow
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land. The
-  installed graph is PR-targeted, so running a repository-targeted entry through
-  it also needs workflow inputs for a repository target. No local controller or
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). Both are
+  closed on upstream main, but no release contains them. No local controller or
   launcher stands in for either.
-- Plugin skill entries (`SKILL.md` and descriptor rows) wait for an installed
-  workflow that runs them ([packaging](packaging.md)).
-- These features have no equivalent yet: saved instruction-source overrides,
-  resource-backed prompt edits through `dk-config`, per-task preference handoffs
-  in the installed `dk-pr-fix` workflow (which still rejects custom inputs), and
-  native model controls per entry.
+- The installed graph is PR-targeted, and its container helpers carry only the
+  `prfix` bundle. Running these entries through it needs a repository target in
+  that graph and the configuration write path inside the helper bundle. Copying
+  `configuration.py`, admission, the validator and the write ledger into the
+  bundle would be the second writer and validator that #26 rules out, so the
+  installed presets wait for a way to run the shared library from the installed
+  package.
+- Plugin skill entries (`SKILL.md` and descriptor rows) and their `plugin
+  check`/`plugin test` fixtures wait for those installed presets
+  ([packaging](packaging.md)).
+- These features have no equivalent yet: saved instruction-source overrides
+  (admission consumes the root guidance closure for every run, so an override
+  changes what governs all runs and needs its own admission design) and
+  per-task preference handoffs in the installed `dk-pr-fix` workflow (which
+  still rejects custom inputs).
+- Native controls are admitted and checked at library level. The installed
+  graph does not pass them to an engine yet, so no provider is shown to honor
+  them.
 - Real configuration-agent and validator adherence needs separate authorization.
