@@ -748,30 +748,39 @@
         34
       ],
       "behavior": [
-        "cf_workflows/splitting.py"
+        "cf_workflows/splitting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/splitting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/commit-split.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/splitting.yml"
       ],
       "documentation": "docs/splitting.md",
       "composition": "shared_workflow",
       "direct": [
         "test_splitting.CommitSplit.test_tree_preserving_reorder_keeps_authorship_dirty_work_and_a_recovery_ref",
-        "test_splitting.CommitSplit.test_every_commit_is_assessed_and_an_unchanged_series_is_a_no_op_reused_without_a_session"
+        "test_splitting.CommitSplit.test_every_commit_is_assessed_and_an_unchanged_series_is_a_no_op_reused_without_a_session",
+        "test_dk_pr_fix_splitting.CommitSplit.test_reorder_is_built_validated_applied_and_assessed_again_before_one_rewrite",
+        "test_dk_pr_fix_splitting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [
-        "test_splitting.CommitSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+        "test_splitting.CommitSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure",
+        "test_dk_pr_fix_splitting.Prepare.test_other_plans_never_rewrite_history_or_run_the_procedure"
       ],
       "recovery": [
         "test_splitting.CommitSplit.test_interrupted_rewrite_reconciles_its_original_refs_before_continuing",
         "test_splitting.CommitSplit.test_publication_needs_its_own_grant_an_exact_lease_and_a_clean_checkout",
-        "test_recovery.SplittingRecovery.test_interrupted_rewrite_reconciles_its_original_refs_after_restore"
+        "test_recovery.SplittingRecovery.test_interrupted_rewrite_reconciles_its_original_refs_after_restore",
+        "test_dk_pr_fix_splitting.CommitSplit.test_an_interrupted_apply_resumes_from_the_refs_it_finds_and_a_moved_branch_blocks",
+        "test_dk_pr_fix_splitting.CommitSplit.test_a_failed_validation_moves_nothing_and_lists_nothing",
+        "test_recovery.InstalledSplittingRecovery.test_an_interrupted_installed_apply_stays_unsettled_until_it_settles"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a commit policy, invocation prompts and supplied policy skills run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-split",
@@ -779,29 +788,38 @@
         34
       ],
       "behavior": [
-        "cf_workflows/splitting.py"
+        "cf_workflows/splitting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/splitting.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/pr-split.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/splitting.yml"
       ],
       "documentation": "docs/splitting.md",
       "composition": "shared_workflow",
       "direct": [
         "test_splitting.PrSplit.test_split_preserves_every_change_authorship_and_unrelated_dirty_work",
-        "test_splitting.PrSplit.test_kept_work_reports_size_and_is_reused"
+        "test_splitting.PrSplit.test_kept_work_reports_size_and_is_reused",
+        "test_dk_pr_fix_splitting.PrSplit.test_split_publishes_each_split_before_the_source_and_reconciles_a_lost_response",
+        "test_dk_pr_fix_splitting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [
-        "test_splitting.PrSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+        "test_splitting.PrSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure",
+        "test_dk_pr_fix_splitting.Prepare.test_other_plans_never_rewrite_history_or_run_the_procedure"
       ],
       "recovery": [
         "test_splitting.PrSplit.test_partial_publication_failure_is_reconciled_without_a_resend",
-        "test_splitting.PrSplit.test_interrupted_split_reconciles_refs_and_the_moved_paths"
+        "test_splitting.PrSplit.test_interrupted_split_reconciles_refs_and_the_moved_paths",
+        "test_dk_pr_fix_splitting.PrSplit.test_split_publishes_each_split_before_the_source_and_reconciles_a_lost_response",
+        "test_dk_pr_fix_splitting.PrSplit.test_an_existing_split_branch_blocks_the_build",
+        "test_recovery.InstalledSplittingRecovery.test_an_interrupted_installed_apply_stays_unsettled_until_it_settles"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a commit policy, invocation prompts and manual-mode approval run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-publish",

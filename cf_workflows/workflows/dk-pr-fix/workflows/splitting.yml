@@ -1,0 +1,52 @@
+# Authored for cf-workflows (#34); no upstream counterpart. See docs/splitting.md.
+# The local operation of a splitting entry, before its publication barrier: build the
+# accepted series or split as objects, run the configured validation commands on each
+# new intermediate commit in its own private checkout, then move the refs only when
+# every commit passed. A failed validation fails apply, so nothing is moved or listed.
+name: Build, validate and apply a splitting operation
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+    secrets:
+      github_token:
+        required: true
+jobs:
+  build:
+    uses: workflows/helper.yml
+    with:
+      operation: split_build
+      payload:
+        plan: ${{ inputs.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  validate:
+    needs: build
+    uses: workflows/helper.yml
+    for-each:
+      items: ${{ needs.build.outputs.result.items }}
+      key: ${{ item.commit }}
+      concurrency: 1
+    with:
+      operation: split_validate
+      payload:
+        plan: ${{ inputs.plan }}
+        operation: ${{ needs.build.outputs.result.operation }}
+        commit: ${{ item.commit }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  apply:
+    needs:
+    - build
+    - validate
+    uses: workflows/helper.yml
+    with:
+      operation: split_apply
+      payload:
+        plan: ${{ inputs.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    if: ${{ needs.build.outputs.result.operation and needs.validate.status != 'failed' and needs.validate.status != 'needs_attention'
+      and needs.validate.status != 'canceled' }}

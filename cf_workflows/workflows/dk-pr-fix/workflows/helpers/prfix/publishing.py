@@ -20,6 +20,10 @@ _AGENT = re.compile(r"agent_[a-f0-9]{32}")
 
 
 def _report_row(ledger, reference):
+    if isinstance(reference, str) and reference.startswith("splitting:"):
+        # The accepted report behind an applied splitting operation (splitting.py).
+        from . import splitting
+        return splitting.report_row(ledger, reference)
     row = ledger.db.execute("SELECT * FROM accepted_reports WHERE reference=?", (reference,)).fetchone()
     if not row:
         raise PublicationError("publication source is not an accepted original report")
@@ -30,6 +34,14 @@ def _source(root, provider, ledger, plan, reference, *, snapshot=None, audience_
     """Verify immutable artifact bytes and their current application coverage."""
     from . import app
     from .prepare import CHECKLIST
+    if isinstance(reference, str) and reference.startswith("splitting:"):
+        # An applied splitting operation of this run while the checkout is its result (splitting.py).
+        from . import splitting
+        try:
+            return splitting.source(root, ledger, plan, reference,
+                                    snapshot if snapshot is not None else app._snapshot(root, provider, plan))
+        except splitting.Blocked as error:
+            raise PublicationError(str(error)) from None
     row = _report_row(ledger, text(reference, "accepted report reference"))
     wrapper = read_artifact(root, reference)
     report = bounded_json(row["report"])
@@ -129,6 +141,12 @@ def publication_list(root, provider, ledger, plan, inputs):
     # Replies to feedback sources belong to the selected response stage.
     owned = responses.responder(plan) is not None
     selected, seen = [], {}
+    if selector != "merge":
+        # A splitting entry publishes only the exact intents of its applied local operation (splitting.py).
+        from . import splitting
+        split = splitting.listing(root, provider, ledger, plan, snapshot)
+        if split is not None:
+            return split
     rows = ledger.db.execute("SELECT * FROM accepted_reports ORDER BY rowid").fetchall()
     if selector != "merge" and snapshot["local_head"] != snapshot["head"]:
         # A native writer cannot predict commit-tree's eventual object ID. The
@@ -270,7 +288,14 @@ def publication_prepare(root, provider, ledger, plan, inputs):
         if saved["state"] not in {"applied", "pending"}:
             raise PublicationError("publication source changed before dispatch")
         return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
-    prepared = _publication(root, provider, ledger, plan).prepare(proposal)
+    publisher = _publication(root, provider, ledger, plan)
+    from . import splitting
+    try:
+        # dk-pr-split's source keeps its moved work until every split PR is applied.
+        splitting.ready(root, plan, proposal, publisher)
+    except splitting.Blocked as error:
+        raise PublicationError(str(error)) from None
+    prepared = publisher.prepare(proposal)
     return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
 
 

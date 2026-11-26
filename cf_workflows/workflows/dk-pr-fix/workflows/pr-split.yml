@@ -1,0 +1,97 @@
+# Authored for cf-workflows (#34); no upstream counterpart. See docs/splitting.md.
+# PR splitting: a preset over the shared workflow. One assess-scope occurrence assesses
+# every changed path in a read-only session; the helpers check the proposed split,
+# build it under the explicit local rewrite grant, validate each new commit
+# (splitting.yml) and publish the split PRs, then the source, only under create_pr and push.
+name: cf-workflows:dk-pr-split
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - assess-scope
+        - stage: publication
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          assess-scope:
+            kind: scope
+            writes: false
+            definition: leaf
+            assignment: "Assess the complete diff against the selected size/scope policies; report concrete boundaries and ownership evidence. Splitting publication requires separately supplied explicit authority."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          create_draft_prs: false
+          push_commits: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        # settings.splitting.dk-pr-split: the entry options, the local rewrite grant,
+        # further owned authors and the validation commands of each new commit.
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.splitting.outputs.complete }}
+      ready:
+        value: ${{ jobs.splitting.outputs.ready }}
+      provisional:
+        value: ${{ jobs.splitting.outputs.provisional }}
+jobs:
+  splitting:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+      entry: dk-pr-split
+    secrets:
+      github_token: ${{ secrets.github_token }}

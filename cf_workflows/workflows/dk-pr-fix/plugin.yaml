@@ -58,6 +58,12 @@ skills:
   - name: dk-issue
     path: skills/dk-issue/SKILL.md
     workflow: workflows/issue.yml
+  - name: dk-commit-split
+    path: skills/dk-commit-split/SKILL.md
+    workflow: workflows/commit-split.yml
+  - name: dk-pr-split
+    path: skills/dk-pr-split/SKILL.md
+    workflow: workflows/pr-split.yml
 resources:
   - LICENSE
   - agents.yml

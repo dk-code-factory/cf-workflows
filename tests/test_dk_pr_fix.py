@@ -106,7 +106,7 @@ class InstalledClosure(unittest.TestCase):
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
                                    'code-simplify.yml', 'approvers.yml', 'description.yml',
-                                   'commit-message.yml', 'issue.yml'])
+                                   'commit-message.yml', 'issue.yml', 'commit-split.yml', 'pr-split.yml'])
         # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
         reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:

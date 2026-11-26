@@ -162,9 +162,9 @@ name: cf-workflows:dk-pr-fix
         default: []
       entry:
         # A direct publication entry (workflows/publish.yml, review-post.yml), reviewer
-        # entry (reviewers-run.yml, code-simplify.yml) or drafting entry (description.yml,
-        # commit-message.yml, issue.yml) whose preset prepare enforces; empty for
-        # dk-pr-fix and dk-pr-review.
+        # entry (reviewers-run.yml, code-simplify.yml), drafting entry (description.yml,
+        # commit-message.yml, issue.yml) or splitting entry (commit-split.yml, pr-split.yml)
+        # whose preset prepare enforces; empty for dk-pr-fix and dk-pr-review.
         type: string
         default: ''
     secrets:

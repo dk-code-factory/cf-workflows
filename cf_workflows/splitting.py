@@ -42,7 +42,7 @@ import subprocess
 import tempfile
 import time
 
-from . import admission, configuration, decisions, dk_pr_fix, drafting, semantic
+from . import admission, configuration, decisions, dk_pr_feedback, dk_pr_fix, drafting, semantic
 from .admission import AdmissionError, digest, fields, require, text
 
 SCHEMA_VERSION = 1
@@ -199,6 +199,82 @@ def preflight(name, *, request, configuration, deployment, repository, transport
     result['entry'].update(adapter=entry['adapter'], task=task,
                            publication={action: snapshot['permissions'][action]['effective']
                                         for action in entry['actions']})
+    return result
+
+
+# The installed entry workflows: presets over workflows/main.yml (docs/splitting.md#installed-workflow).
+ENTRY_WORKFLOWS = {'dk-commit-split': 'workflows/commit-split.yml', 'dk-pr-split': 'workflows/pr-split.yml'}
+# The installed permission inputs each entry's intents need, by contract action.
+INSTALLED_PERMISSIONS = {'dk-commit-split': {'push': 'rewrite_commits'},
+                         'dk-pr-split': {'create_pr': 'create_draft_prs', 'push': 'push_commits'}}
+
+
+def installed(name, *, request, configuration, deployment, repository, transport, invocation=None, options=None,
+              rewrite=None, owners=(), validation_commands=(), roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of the installed entry workflow and return its declared inputs; writes nothing.
+
+    The installed preset runs main.yml with the same tasks, finalizers and
+    reviewers as preset(name). Its only permission inputs are the ones its
+    intents need (rewrite_commits for dk-commit-split; create_draft_prs and
+    push_commits for dk-pr-split), enabled for the requested and configured
+    actions. Entry options set by the invocation, the explicit local `rewrite`
+    grant, further `owners` and the `validation_commands` each new intermediate
+    commit runs are passed as settings.splitting[name], which the installed
+    helper validates again. A commit policy and invocation prompts need the
+    shared validator and run only through preflight() and organize() or
+    partition().
+    """
+    entry = ENTRIES.get(name)
+    if entry is None:
+        return _rejected('entry', 'unknown splitting entry')
+    try:
+        entry_options = check_options(name, options)
+        require(entry_options.get('policy', {}).get('value') is None, 'options.policy',
+                'a commit policy is assessed by the shared validator; run it through the library procedure')
+        require(isinstance(request, dict) and 'pr' in request, 'request.pr', entry['skill'] + ' works on one pull request')
+        authorizations = request.get('authorizations') or {}
+        require(isinstance(authorizations, dict) and set(authorizations) <= set(entry['actions']),
+                'request.authorizations', entry['skill'] + ' publishes only ' + ' and '.join(entry['actions']))
+        invocation = {} if invocation is None else invocation
+        require(isinstance(invocation, dict) and set(invocation) <= {'permissions'}, 'invocation',
+                'the installed entry fixes its preset and runs no prompts yet; only permissions may be added')
+        permissions = invocation.get('permissions', {})
+        require(isinstance(permissions, dict), 'invocation.permissions', 'must be an object')
+        for action in sorted(permissions):
+            require(action in entry['actions'], 'invocation.permissions.' + str(action),
+                    'only the entry\'s own actions may be enabled')
+        grant = None if rewrite is None else _grant(rewrite, 'rewrite')
+        owners = list(owners)
+        for number, item in enumerate(owners):
+            require(isinstance(item, str) and '@' in item and item.strip() == item and len(item) <= 256,
+                    f'owners[{number}]', 'must be an email address')
+        commands = dk_pr_feedback.check_options(
+            'dk-pr-feedback-address', {'additional_validation_commands': list(validation_commands)}
+        )['additional_validation_commands']['value']
+    except AdmissionError as error:
+        if error.path.startswith('options.additional_validation_commands'):
+            error = AdmissionError('validation_commands' + error.path[len('options.additional_validation_commands'):],
+                                   error.message)
+        return {**_rejected(error.path, error.message), 'entry': {'name': name, 'skill': entry['skill']}}
+    result = dk_pr_fix.preflight(request=request, configuration=configuration,
+                                 invocation=copy.deepcopy(invocation) or None, deployment=deployment,
+                                 repository=repository, transport=transport, roots=roots, home=home, install=install,
+                                 defaults=preset(name), workflow=entry['skill'], entry=ENTRY_WORKFLOWS[name])
+    result['entry'] = {'name': name, 'skill': entry['skill'], 'options': entry_options}
+    if result['preflight'] != 'admitted':
+        return result
+    chosen = {key: copy.deepcopy(value['value']) for key, value in entry_options.items()
+              if value['source'] == 'invocation'}
+    for key, value in (('rewrite', grant), ('owners', owners), ('validation_commands', commands)):
+        if value:
+            chosen[key] = copy.deepcopy(value)
+    if chosen:
+        result['inputs']['settings'] = {**result['inputs']['settings'], 'splitting': {name: chosen}}
+    effective = {action for action in entry['actions'] if result['snapshot']['permissions'][action]['effective']}
+    mapping = INSTALLED_PERMISSIONS[name]
+    result['inputs']['permissions'] = {setting: action in effective for action, setting in mapping.items()}
+    result['entry'].update(adapter=entry['adapter'], publication={action: action in effective
+                                                                   for action in entry['actions']})
     return result
 
 

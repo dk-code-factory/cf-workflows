@@ -31,7 +31,8 @@ Preflight enables a permission input only when the action is enabled by
 accepted configuration and explicitly authorized. An authorization without the
 enabled permission rejects instead of being dropped. The installed workflow keeps
 `rewrite_commits` false. Only [dk-commit-split](splitting.md#publication) enables
-it, for its own verified series, with a `push` grant and permission. These actions
+it, for its own verified series, with a `push` grant and permission;
+`prepare` rejects it in every other plan (`workflows/commit-split.yml`). These actions
 belong to one entry. The installed workflow declares their permission inputs, but
 preflight and `prepare` reject them in every other plan:
 

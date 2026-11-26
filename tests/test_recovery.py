@@ -32,6 +32,7 @@ import dk_pr_fix as _helpers  # noqa: E402,F401  (puts the installed helpers and
 import git_fixture  # noqa: E402
 from prfix import app, core, feedback  # noqa: E402
 from prfix import decisions as installed_decisions  # noqa: E402
+from prfix import splitting as installed_splitting  # noqa: E402
 from prfix.publication import Publication, UncertainEffect  # noqa: E402
 from cf_workflows import (acceptance, admission, alignment, decisions, dk_pr_fix, drafting, prose,  # noqa: E402
                           recovery, splitting, writes)
@@ -201,6 +202,8 @@ class Catalog(unittest.TestCase):
         with patch.dict(os.environ, {'CF_WORKFLOWS_STATE': str(ns)}):
             core.Ledger(checkout, 'r', PUBLISHED_PR).close()
             core.writer_lease(checkout, 'r', 'claim', acquire=True)
+            installed_splitting.Store(checkout, {'logical_run': 'r', 'pr': {'url': PUBLISHED_PR}}, write=True).__exit__()
+            paths['split_operations'] = installed_splitting.store_path(checkout, 'r')
         paths['run'] = core.ledger_path(ns, 'r')
         paths['writer'] = ns / 'workspace-writer.sqlite'
         self.assertEqual(set(paths), set(recovery.STORES))
@@ -224,7 +227,7 @@ class Catalog(unittest.TestCase):
             self.assertTrue(set(stores) <= set(recovery.STORES), row)
         # Each store a delivered row retains is exercised by a recovery scenario below.
         covered = {'run', 'feedback', 'writer', 'configuration', 'prose', 'decisions', 'reconciliation', 'alignment',
-                   'drafting', 'splitting'}
+                   'drafting', 'splitting', 'split_operations'}
         self.assertEqual({store for stores in recovery.ROWS.values() for store in stores}, covered)
         self.assertEqual(covered, set(recovery.STORES))
 
@@ -981,6 +984,28 @@ class SplittingRecovery(LedgerHome, splitting_tests.Fixture):
         self.assertEqual((resumed['status'], resumed['reused']), ('prepared', True), resumed)
         self.assertEqual(splitting_tests.git(self.repo, 'rev-parse', 'HEAD^{tree}'), self.tree)
         self.assertEqual(self.engine.sessions['dk-commit-split'], 2)
+        self.assertEqual(recovery.unsettled(suite), {})
+
+
+class InstalledSplittingRecovery(unittest.TestCase):
+    def test_an_interrupted_installed_apply_stays_unsettled_until_it_settles(self):
+        home = Path(tempfile.mkdtemp(prefix='cfw split recovery '))
+        self.addCleanup(shutil.rmtree, home, True)
+        checkout = Path(tempfile.mkdtemp(prefix='cfw checkout '))
+        self.addCleanup(shutil.rmtree, checkout, True)
+        ns, plan = namespace(home), {'logical_run': 'r', 'pr': {'url': PUBLISHED_PR}}
+        suite = home / recovery.SUITE_DIR
+        with patch.dict(os.environ, {'CF_WORKFLOWS_STATE': str(ns)}):
+            with installed_splitting.Store(checkout, plan, write=True) as store:
+                store.build('commit-split-x', 'dk-commit-split', 'claim', {'original': 'b' * 40, 'final': 'a' * 40})
+                # A built operation has moved nothing; an applying one resumes from the refs it finds.
+                self.assertEqual(recovery.unsettled(suite), {})
+                store.advance('commit-split-x', 'built', 'applying')
+                self.assertEqual(recovery.unsettled(suite), {(NAMESPACE.split('/')[1], 'r'): {
+                    'claims': [], 'publications': [], 'operations': ['commit-split-x']}})
+                store.advance('commit-split-x', 'applying', 'applied')
+            path = installed_splitting.store_path(checkout, 'r')
+        self.assertEqual(recovery.classify(path.relative_to(suite).as_posix()), ('store', 'split_operations'))
         self.assertEqual(recovery.unsettled(suite), {})
 
 

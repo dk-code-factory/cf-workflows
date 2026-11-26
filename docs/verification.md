@@ -185,6 +185,11 @@ disposable histories with mixed authors, a moved target, unrelated dirty files
 and a bare remote. They count sessions, ref updates, pushes and writes across
 tree-preserving reorders, collisions, interrupted local work and partial
 publication failure.
+`tests/test_dk_pr_fix_splitting.py` drives the installed splitting helpers the
+same way: claims, same-session corrections, reuse, the build, per-commit
+validation and apply of `workflows/splitting.yml` with a failing command and an
+interrupted apply, the publication stage's rewrite, split pushes, draft PRs and
+source push with a lost response, entry presets and the installed preflight.
 [Recovery](recovery.md#verification) tests (`tests/test_recovery.py`) back up,
 lose and restore the whole suite state home with a fake engine adapter and fake
 Codex and Claude host adapters. They cover concurrent writers between snapshots,
