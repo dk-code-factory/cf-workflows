@@ -38,6 +38,9 @@ KIND = 'alignment_state'
 STAGES = ('assessment', 'inventory', 'comparison', 'selection', 'interactions', 'alignment', 'verification')
 SETTLED = ('assessment', 'inventory', 'comparison', 'selection', 'interactions')
 CURRENT = ('alignment', 'verification')
+# The whole-problem and branch records of one PR share one assessment (Ledger.adopt).
+SHARED = ('assessment',)
+SHARED_PREFIX = 'shared:'
 DIRECT_SKILL = 'cf-workflows:dk-pr-review-alternatives'
 # Default ceilings; the first reservation of an allowance fixes it for the logical run.
 LIMITS = {'architecture': 16, 'alignment': 4}
@@ -201,7 +204,7 @@ class Ledger:
         subject instead and never invents a PR identity."""
         require(scope in SCOPES and (pr is None) != (subject is None) and (pr is not None or scope != 'branch'),
                 'alignment ledger requires a PR, or a subject for whole-problem analysis')
-        self.path = Path(path)
+        self.path, self.scope, self.pr = Path(path), scope, pr
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         require(not self.path.is_symlink(), 'alignment ledger must not be a symlink')
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
@@ -437,6 +440,33 @@ class Ledger:
             old = self.db.execute('SELECT value FROM grants WHERE id = ?', (request_id,)).fetchone()
             require(old is None or old['value'] == value, 'continuation request identity conflict')
             self.db.execute('INSERT OR IGNORE INTO grants VALUES (?, ?, ?, ?)', (request_id, name, amount, value))
+
+    def adopt(self, stage, *, inputs, head, origin):
+        """Record another scope's settled result of a shared stage of the same PR as this record's own.
+
+        Only the assessment is shared. It needs no session and reserves no allowance. Its
+        reference names the origin (`<scope>:<operation>`), so the result is traceable. A
+        record that already has its own result or an open claim keeps it.
+        """
+        require(stage in SHARED, f'{stage} is not shared between alternatives scopes')
+        require(isinstance(origin, dict) and origin.get('scope') in SCOPES and origin['scope'] != self.scope,
+                'a shared result comes from the other alternatives scope')
+        require(self.pr is not None, 'only records of a PR share results')
+        _text(origin.get('operation'), 'origin operation')
+        require(not origin['operation'].startswith(SHARED_PREFIX), 'a shared result is adopted only from its origin')
+        _text(origin.get('session'), 'origin session')
+        _validate(stage, origin.get('result'))
+        operation = f"{SHARED_PREFIX}{origin['scope']}:{origin['operation']}"
+        with self.transaction():
+            require(self.latest(key(stage)) is None and self.open_claim(key(stage)) is None,
+                    f'{stage} already has a result or claim in this record')
+            dependencies, binding = self.binding(stage, inputs=inputs, head=head)
+            self.db.execute('INSERT INTO attempts (key, stage, operation, binding, head, dependencies, request, state, '
+                            "session, result) VALUES (?, ?, ?, ?, NULL, ?, NULL, 'complete', ?, ?)",
+                            (key(stage), stage, operation, binding, dumps(dependencies), origin['session'],
+                             dumps(origin['result'])))
+            return self._record(self.db.execute('SELECT * FROM attempts WHERE operation = ?',
+                                                (operation,)).fetchone())
 
     def finish(self, operation, result, *, session):
         """Accept one attempt's native result. A superseded attempt's result is retained, never current."""

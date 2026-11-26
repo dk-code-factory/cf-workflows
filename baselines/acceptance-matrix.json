@@ -221,14 +221,17 @@
       "composition": "shared_workflow",
       "direct": [
         "test_alternatives.Scope.test_issue_only_analysis_persists_nothing_and_invents_no_pr",
-        "test_alternatives.Scope.test_issue_only_question_is_asked_once_and_its_answer_is_used"
+        "test_alternatives.Scope.test_issue_only_question_is_asked_once_and_its_answer_is_used",
+        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance"
       ],
       "composed": [
-        "test_alternatives.Composition.test_fix_route_hands_settled_choices_and_required_changes_to_implementation"
+        "test_alternatives.Composition.test_fix_route_hands_settled_choices_and_required_changes_to_implementation",
+        "test_alternatives.Composition.test_unresolved_reconciliation_blocks_the_fix_handoff_but_not_the_analysis"
       ],
       "recovery": [
         "test_alternatives.Scope.test_issue_only_rejection_is_retried_without_a_record",
-        "test_alternatives.Presets.test_default_run_loads_no_skill_and_rejects_authority_expansion"
+        "test_alternatives.Presets.test_default_run_loads_no_skill_and_rejects_authority_expansion",
+        "test_alternatives.SavedOptions.test_invalid_saved_entry_options_reject_before_the_engine"
       ],
       "status": {
         "parity": "not_implemented",
@@ -253,10 +256,12 @@
       "direct": [
         "test_alternatives.Selection.test_manual_choice_is_asked_once_resumed_and_sourced",
         "test_alternatives.Scope.test_inherited_decisions_are_inventoried_and_compared",
-        "test_alternatives.Boundary.test_analysis_settles_once_per_pr_across_requirements_guidance_heads_and_routes"
+        "test_alternatives.Boundary.test_analysis_settles_once_per_pr_across_requirements_guidance_heads_and_routes",
+        "test_alternatives.Scope.test_whole_problem_and_branch_records_share_one_assessment"
       ],
       "composed": [
-        "test_alternatives.Composition.test_coordinators_compose_only_their_scope"
+        "test_alternatives.Composition.test_coordinators_compose_only_their_scope",
+        "test_alternatives.Scope.test_reconciled_decisions_feed_the_inventory_and_bind_current_alignment"
       ],
       "recovery": [
         "test_alternatives.Boundary.test_interrupted_analysis_resumes_its_claim_without_a_second_session",
@@ -284,7 +289,8 @@
       "composition": "delegate",
       "direct": [
         "test_alternatives.Compatibility.test_routes_run_the_delegate_under_its_own_identity_with_the_original_instruction",
-        "test_alternatives.Compatibility.test_unsupported_routes_and_legacy_assignments_are_never_concealed"
+        "test_alternatives.Compatibility.test_unsupported_routes_and_legacy_assignments_are_never_concealed",
+        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance"
       ],
       "composed": [
         "test_alternatives.Compatibility.test_compatibility_reuses_settled_analysis_and_cannot_authorize_a_fresh_one"

@@ -206,6 +206,41 @@ class ArchitectureOnceTest(Fixture):
         self.assertEqual((sessions.calls['comparison:cache'], sessions.calls['selection:cache']), (1, 1))
         self.assertEqual(sessions.calls['assessment'] + sessions.calls['inventory'], 2)
 
+    def test_the_other_scope_adopts_the_settled_assessment_without_a_session(self):
+        sessions = Sessions(architecture())
+        self.step(sessions, 'assessment', head=self.heads[0])
+        own = self.ledger.latest('assessment')
+        whole = alignment.Ledger(alignment.ledger_path(Path(self.tmp.name) / 'state', 'run-1', 'whole-problem'),
+                                 logical_run='run-1', pr=PR, scope='whole-problem')
+        self.addCleanup(whole.close)
+        origin = {'scope': 'branch', 'operation': own['operation'], 'session': own['session'],
+                  'result': own['result']}
+        refused = [
+            ('inventory', origin), ('assessment', {**origin, 'scope': 'whole-problem'}),
+            ('assessment', {**origin, 'operation': alignment.SHARED_PREFIX + 'branch:op'}),
+            ('assessment', {**origin, 'result': None}),
+        ]
+        for stage, value in refused:
+            with self.assertRaises(AlignmentError, msg=(stage, value)):
+                whole.adopt(stage, inputs={}, head=self.heads[0], origin=value)
+        adopted = whole.adopt('assessment', inputs={}, head=self.heads[1], origin=origin)
+        self.assertEqual((adopted['state'], adopted['session'], adopted['result'], adopted['head']),
+                         ('complete', own['session'], own['result'], None))
+        self.assertEqual(adopted['reference'], f"assessment@shared:branch:{own['operation']}")
+        self.assertEqual(whole.usage('architecture')['used'], 0)
+        with self.assertRaises(AlignmentError):  # Its own settled assessment is never replaced.
+            whole.adopt('assessment', inputs={}, head=self.heads[1], origin=origin)
+        # Downstream stages consume it like an own result, with no assessment session.
+        prepared = whole.prepare('inventory', inputs={}, head=self.heads[1], operation='op-inventory-whole')
+        self.assertEqual((prepared['action'], prepared['dependencies']), ('run', {'assessment': adopted['reference']}))
+        self.assertEqual(sessions.calls['assessment'], 1)
+        # A record without a PR shares nothing.
+        issue = alignment.Ledger(Path(self.tmp.name) / 'issue.sqlite', logical_run='issue',
+                                 subject='repository:github.com/owner/repo', scope='whole-problem')
+        self.addCleanup(issue.close)
+        with self.assertRaises(AlignmentError):
+            issue.adopt('assessment', inputs={}, head=self.heads[0], origin=origin)
+
     def test_added_inventory_sibling_preserves_unchanged_comparisons(self):
         sessions = Sessions(architecture())
         h0 = self.heads[0]

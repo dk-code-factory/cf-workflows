@@ -54,7 +54,10 @@ The first reservation fixes the allowance's ceiling for the logical run. A later
 run or configuration can only narrow it; only an explicit `grant` adds capacity.
 `prepare(..., account=...)` keeps a separate count, `<allowance>:<account>`, with
 the same default ceiling; the [alternatives entries](alternatives.md) count
-alignment per logical run on a record kept per PR. `abandon(operation)` closes a
+alignment per logical run on a record kept per PR. `adopt('assessment', inputs=..., head=..., origin=...)` records the other scope's
+own settled assessment of the same PR as this record's, with no session and no
+reservation, when this record has neither a result nor an open claim for it
+([shared assessment](alternatives.md#scope)). `abandon(operation)` closes a
 claim whose result was rejected: its reservation stays consumed and the next
 `prepare` starts a new attempt. A direct request has consumed a stage only when
 an attempt under it completed. `gate(..., account=...)` reports that account's

@@ -11,7 +11,8 @@ same structural and semantic admission as every other run. No skill is loaded,
 and no entry accepts a remote-write authorization.
 
 An entry's own run is admitted from bundled defaults and invocation-local prompts.
-Saved configuration is its subject, not its governing input, so an invalid saved
+The alternatives entries also apply their saved entry options (SAVED_OPTIONS).
+Otherwise saved configuration is its subject, not its governing input, so an invalid saved
 document can still be inspected and repaired.
 
 Original role prompts and options come from the pinned dk-workflows baseline
@@ -42,7 +43,8 @@ ENTRIES = {
         'baseline_prompt': 'claude/skills/dk-config/prompts/default.md',
         'options': {}, 'operations': ('view', 'explain', 'apply_operations', 'admit', 'write', 'readback'),
         'domains': ('add_scope', 'remove_scope', 'set_option', 'unset_option', 'set_permission',
-                    'unset_permission', 'set_prompt', 'remove_prompt', 'set_resource', 'remove_resource'),
+                    'unset_permission', 'set_prompt', 'remove_prompt', 'set_resource', 'remove_resource',
+                    'set_entry_option', 'unset_entry_option'),
     },
     'dk-preferences': {
         'skill': 'cf-workflows:dk-preferences', 'adapter': 'admit-preferences', 'saves': True,
@@ -181,6 +183,11 @@ def check_controls(name, controls):
     return dict(sorted(controls.items()))
 
 
+# Entries whose own options may be saved per configuration scope (`entries`; see
+# cf_workflows.configuration.entry_options). Saved values apply under invocation options.
+SAVED_OPTIONS = ('dk-issue-alternatives', 'dk-pr-alternatives')
+
+
 def preset(name, adapter=None):
     """The entry's selection for the shared plan: one adapter task and explicitly empty slots."""
     return {'tasks': [adapter or ENTRIES[name]['adapter']], 'finalizers': [], 'reviewers': []}
@@ -208,24 +215,59 @@ def _option(declared, value, path, rules, where):
     return value
 
 
-def check_options(name, options):
-    """The entry's own options (its baseline schema) with provenance; unknown options reject."""
+def _leaves(value, prefix):
+    if not isinstance(value, dict):
+        return [prefix]
+    return [leaf for key, item in value.items() for leaf in _leaves(item, prefix + '.' + key)]
+
+
+def _layer(declared, current, value, path, rules, where):
+    """One option layer over the value below it; nested objects merge key by key."""
+    if isinstance(declared, dict):
+        require(isinstance(value, dict), path, 'must be an object')
+        merged = copy.deepcopy(current)
+        for key, item in value.items():
+            require(key in declared, path + '.' + str(key), 'unsupported option for ' + where)
+            merged[key] = _layer(declared[key], current[key], item, path + '.' + key, rules, where)
+        return merged
+    return _option(declared, value, path, rules, where)
+
+
+def check_options(name, options, saved=()):
+    """The entry's own options (its baseline schema) with provenance; unknown options reject.
+
+    saved holds the applicable saved layers of an entry in SAVED_OPTIONS as (source, path,
+    options), lowest precedence first (cf_workflows.configuration.entry_options); invocation
+    options apply over them. A nested option merges key by key; when more than one layer set
+    parts of it, `sources` names the layer of each part that was set.
+    """
     require(name in ENTRIES, 'entry', 'unknown entry')
     options = {} if options is None else options
     require(isinstance(options, dict), 'options', 'must be an object')
+    require(not saved or name in SAVED_OPTIONS, 'configuration', ENTRIES[name]['skill'] + ' has no saved options')
     declared = ENTRIES[name]['options']
     result = {key: {'value': copy.deepcopy(value), 'source': 'default'} for key, value in declared.items()}
-    for key, value in options.items():
-        require(key in declared, 'options.' + str(key), 'unsupported option for ' + ENTRIES[name]['skill'])
-        if key == 'default_applies_to':
-            require(isinstance(value, list) and value and len(set(map(str, value))) == len(value)
-                    and all(mode in admission.PREFERENCE_MODES for mode in value),
-                    'options.default_applies_to', 'must be distinct implementation/review modes')
-            value = [mode for mode in admission.PREFERENCE_MODES if mode in value]
-        else:
-            value = _option(declared[key], value, 'options.' + key, ENTRIES[name].get('rules', {}),
-                            ENTRIES[name]['skill'])
-        result[key] = {'value': value, 'source': 'invocation'}
+    parts = {key: {} for key in declared}
+    for source, where, layer in [*saved, ('invocation', 'options', options)]:
+        try:
+            require(isinstance(layer, dict), 'options', 'must be an object')
+            for key, value in layer.items():
+                require(key in declared, 'options.' + str(key), 'unsupported option for ' + ENTRIES[name]['skill'])
+                if key == 'default_applies_to':
+                    require(isinstance(value, list) and value and len(set(map(str, value))) == len(value)
+                            and all(mode in admission.PREFERENCE_MODES for mode in value),
+                            'options.default_applies_to', 'must be distinct implementation/review modes')
+                    value = [mode for mode in admission.PREFERENCE_MODES if mode in value]
+                else:
+                    value = _layer(declared[key], result[key]['value'], value, 'options.' + key,
+                                   ENTRIES[name].get('rules', {}), ENTRIES[name]['skill'])
+                result[key] = {'value': value, 'source': source}
+                parts[key].update({leaf: source for leaf in _leaves(layer[key], key)})
+        except AdmissionError as error:
+            raise AdmissionError(where + error.path[len('options'):], error.message) from None
+    for key, leaves in parts.items():
+        if len(set(leaves.values())) > 1:
+            result[key]['sources'] = dict(sorted(leaves.items()))
     return result
 
 
@@ -235,7 +277,7 @@ def _rejected(path, message, **extra):
 
 
 def preflight(name, *, request, deployment, repository, transport, invocation=None, options=None, roots=None,
-              install=dk_pr_fix.INSTALL, ledger=None, adapter=None, controls=None):
+              install=dk_pr_fix.INSTALL, ledger=None, adapter=None, controls=None, saved=()):
     """Admit one run of an entry through the shared admission pipeline.
 
     invocation may carry only `prompts`: the task, finalizer and reviewer selection
@@ -244,7 +286,7 @@ def preflight(name, *, request, deployment, repository, transport, invocation=No
     semantic.admit (only capabilities() for the default plan).
     """
     try:
-        entry_options = check_options(name, options)
+        entry_options = check_options(name, options, saved)
         native = check_controls(name, controls)
         require(isinstance(request, dict), 'request', 'must be an object')
         require(not request.get('authorizations'), 'request.authorizations',

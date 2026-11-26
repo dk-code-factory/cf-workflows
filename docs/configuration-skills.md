@@ -102,9 +102,10 @@ persisting it.
 3. The helper sets each source's status: `inspected`, `unreadable` (too large or
    not UTF-8) or `unsafe` (a symlink that leaves the repository). The session can
    mark a source `uninspected`, but it cannot upgrade a status.
-4. `view()` reads the saved configuration for the target: each effective option
-   and permission with its source and configuration path, the prompts and
-   preferences of matching scopes, and the inactive scopes.
+4. `view()` reads the saved configuration for the target: each effective option,
+   permission and saved entry option (`entries.<entry>.<option>`) with its source
+   and configuration path, the prompts and preferences of matching scopes, and
+   the inactive scopes.
 
 `check_report()` then checks the session's report:
 
@@ -149,7 +150,12 @@ paths.
    saved document:
    - `dk-config`: `add_scope`, `remove_scope` (empty scopes only),
      `set_option`/`unset_option`, `set_permission`/`unset_permission`,
-     `set_prompt`/`remove_prompt` and `set_resource`/`remove_resource`.
+     `set_prompt`/`remove_prompt`, `set_resource`/`remove_resource` and
+     `set_entry_option`/`unset_entry_option`. The last pair changes one
+     top-level option of an entry with [saved options](alternatives.md#saved-options)
+     in the scope's `entries` (currently `dk-issue-alternatives` and
+     `dk-pr-alternatives`). The key and value are checked against that entry's
+     option schema when the change is applied.
    - `dk-preferences`: `add_scope`, `set_preference` and `remove_preference`, in
      personal scopes or the target repository's scope only.
 
@@ -262,11 +268,12 @@ counts and, where it matters, the number of distinct sessions.
   settled request that runs again with no session; clarification and resume
   with no new session; a lost session response reconciled through its claim; a
   lost write response settled by readback; a concurrent writer; a custom prompt
-  accepted and rejected by the shared validator; and out-of-entry or invalid
+  accepted and rejected by the shared validator; out-of-entry or invalid
   operations that are never written; a resource-backed prompt pinned, assessed
   by the validator on the pinned bytes and read back, a referenced resource
   that cannot be removed alone, and stale, foreign-root, traversing, linked,
-  missing and malformed resource declarations.
+  missing and malformed resource declarations; and saved entry options set,
+  shown and cleared (in [`tests/test_alternatives.py`](../tests/test_alternatives.py)).
 - **dk-preferences.** Explicit modes, stable IDs and readback; duplicate reuse;
   saved modes kept on update; overlaps that need the user, with invented answers
   rejected; disjoint and compatible additions; the personal and repository scope
