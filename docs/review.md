@@ -54,9 +54,12 @@ calls `main.yml` with `mode: review`. The default logical run is
 Preflight and the `prepare` helper reject a writing task, the publication,
 response and CI stages, and a plan without a reviewer stage. The only
 authorizations accepted are `post_findings` (see
-[Finding publication](#finding-publication)) and `merge`, each with its own
-permission; merge also needs the engine's `merge_guard` and current readiness.
-Approval and fork-CI approval stay denied extension kinds. Capture reads
+[Finding publication](#finding-publication)), `approve_pr` (see
+[approval](publication-skills.md#approval)) and `merge`, each with its own
+permission. Merge also needs the engine's `merge_guard` and current readiness.
+Fork-CI approval stays a denied extension kind. These permissions never bind
+analysis in review mode, so a later dk-pr-review-post or merge with the same
+instruction reuses current review. Capture reads
 another author's PR without `maintain_other`, and the plan adds
 `finding_verification` but no `finding_fix`.
 
@@ -173,7 +176,7 @@ The event is `REQUEST_CHANGES` only when the review outcome is `findings`
 as in [routing](#routing)) and the setting `request_changes` is not false. Otherwise, including every
 partial review, it is `COMMENT`. Both are boolean `settings` options. Publishing findings never changes the review
 record: `clean_review`, `approve` and `ready` stay false, merge keeps its own
-authorization and readiness, and approval and fork-CI approval remain denied.
+authorization and readiness, approval keeps its own grant, and fork-CI approval remains denied.
 `include_summary` and `request_changes` shape only the review text, so changing
 them never makes review coverage stale.
 
@@ -235,6 +238,7 @@ publication helpers list only verified findings and the final merge there.
   Workflow #129 and #130 land. The fixtures prove the helper and ledger
   behavior, not GitHub's acceptance of these payloads (for example an empty
   body with inline comments); that conformance needs separate authorization.
-- Historical finding follow-ups (reusing an earlier equivalent thread) and the
-  standalone `cf-workflows:dk-pr-review-post` entry are #31. Approval and
-  fork-CI approval are #31 and #35.
+- The standalone `cf-workflows:dk-pr-review-post` entry and approval are in
+  [publication entries](publication-skills.md). Historical finding follow-ups
+  (reusing an earlier equivalent thread) remain open there. Fork-CI approval is
+  #35.

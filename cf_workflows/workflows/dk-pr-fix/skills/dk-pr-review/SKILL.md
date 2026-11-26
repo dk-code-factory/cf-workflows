@@ -16,8 +16,10 @@ review. With `post_findings` enabled and explicitly authorized, confirmed
 findings are posted once: inline only on the changed line they name, and
 otherwise in the review body with their actual location and evidence. A partial
 review only comments, and posting findings never approves or readies the PR.
-Approval and fork-CI approval are not available in this release; merge keeps
-its own explicit grant and current readiness.
+With `approve_pr` enabled and explicitly authorized, a complete clean review of
+another author's PR is approved once with an empty body. Fork-CI approval is not
+available in this release; merge keeps its own explicit grant and current
+readiness.
 
 Check the same prerequisites as `dk-pr-fix` before a run and report each
 missing one as guidance. Never log in, refresh or copy credentials, build or

@@ -634,6 +634,11 @@ def capture(root, provider, plan, *, clean=False):
     # and the merge method only the final merge, so changing them keeps siblings.
     options = {k: v for k, v in plan.get("options", {}).items()
                if k not in ("tasks", "finalizers", "reviewers", "limits", "merge_method") and k not in CI_OPTIONS}
+    if plan.get("mode") == "review":
+        # Incoming review's native reports never become writes, so its publication
+        # permissions (findings, approval, merge) never shape analysis: a later
+        # dk-pr-review-post or merge reuses current review.
+        options.pop("permissions", None)
     ci_options = {k: v for k, v in plan.get("options", {}).items() if k in CI_OPTIONS}
     discussion = {"title": metadata.get("title"), "body": metadata.get("body"),
                   **{k: observed[k] for k in ("comments", "reviews", "inline", "threads")}}

@@ -210,8 +210,10 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             for item in accounts)):
         raise ValueError("accounts are {host, id} immutable numeric identities")
     if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS
-                                if name not in ("merge", "post_findings")):
+                                if name not in ("merge", "post_findings", "approve_pr")):
         raise ValueError("incoming review enables no branch or feedback publication input")
+    if mode != "review" and permissions.get("approve_pr"):
+        raise ValueError("approval belongs to incoming review; a maintained PR is never approved by its maintainer run")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
@@ -382,4 +384,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "limits": limits, "turns": turns, "merge_authorized": "merge" in authorizations,
             # Incoming review's verified findings; publication still rechecks both at dispatch.
             "findings_authorized": mode == "review" and "post_findings" in authorizations
-                                   and permissions.get("post_findings") is True}
+                                   and permissions.get("post_findings") is True,
+            # A separately authorized approval of a current clean review; approval_proposal rechecks it.
+            "approval_authorized": mode == "review" and "approve_pr" in authorizations
+                                   and permissions.get("approve_pr") is True}

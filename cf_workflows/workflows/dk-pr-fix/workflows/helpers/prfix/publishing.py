@@ -78,7 +78,8 @@ def _publication(root, provider, ledger, plan, *, audience=None):
             return False
     return Publication(ledger, provider, root, plan,
         readiness=lambda intent: readiness(root, provider, ledger, plan, {"intent": intent}),
-        source_validator=validate_source)
+        source_validator=validate_source,
+        approval=lambda intent: approval(root, provider, ledger, plan, {"intent": intent}))
 
 
 def _current_source(root, provider, ledger, plan, reference, snapshot):
@@ -176,6 +177,8 @@ def publication_list(root, provider, ledger, plan, inputs):
             if not isinstance(original, dict):
                 raise PublicationError("native publication proposal requires an object")
             proposal = copy.deepcopy(original)
+            if proposal.get("kind") == "approve_pr":
+                continue  # Approval comes only from approval_proposal, never from a native report.
             merge = proposal.get("kind") == "merge"
             if selector == "ordinary" and merge or selector == "merge" and not merge:
                 continue
@@ -230,8 +233,9 @@ def publication_prepare(root, provider, ledger, plan, inputs):
             return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
     if listing.get("provisional") and not _retained_original(root, provider, ledger, plan, proposal):
         raise PublicationError("publication is withheld while analysis is provisional")
-    if proposal.get("kind") == "merge":
-        final = merge_proposal(root, provider, ledger, plan, {})
+    if proposal.get("kind") in ("merge", "approve_pr"):
+        # Merge and approval come only from their own final helpers, never from a listing.
+        final = (merge_proposal if proposal["kind"] == "merge" else approval_proposal)(root, provider, ledger, plan, {})
         if final["invoke"] and proposal == final["proposal"]:
             prepared = _publication(root, provider, ledger, plan).prepare(proposal)
             return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
@@ -452,6 +456,71 @@ def readiness(root, provider, ledger, plan, inputs=None):
     return result
 
 
+def _own(snapshot, plan):
+    """The actor's PR, or one by a configured personal account on its host (as in capture)."""
+    pr = snapshot["pr"]
+    return snapshot["author_id"] == snapshot["actor_id"] or any(
+        str(account.get("host", "")).lower() == pr["host"] and account.get("id") == snapshot["author_id"]
+        for account in plan.get("options", {}).get("accounts", []))
+
+
+def approval(root, provider, ledger, plan, inputs=None):
+    """Current clean independent incoming review of the exact head, read-only.
+
+    Approval is separate from finding publication and merge: it needs no CI or
+    repository merge requirement, but it needs complete required coverage, a
+    current ordinary reviewer, a current independent verifier, no confirmed or
+    unverified finding, a reconciled (not provisional) head and another
+    author's PR. It never reads or implies merge readiness.
+    """
+    from . import app
+    result = {"approve": False, "head": "", "target": "", "evidence": [], "blockers": []}
+    try:
+        if plan.get("mode") != "review":
+            result["blockers"].append("approval belongs to incoming review")
+            return result
+        covered = app.coverage(root, provider, ledger, plan, {})
+        snapshot, review = covered["snapshot"], covered["review"]
+        result.update(head=snapshot["head"], target=snapshot["target"])
+        if not snapshot["identities"]["current"]:
+            result["blockers"].append("PR metadata has not reached the analyzed revision; analysis is provisional")
+        if snapshot.get("local_head") != snapshot["head"] or snapshot.get("dirty"):
+            result["blockers"].append("approval needs the exact clean published head")
+        if _own(snapshot, plan):
+            result["blockers"].append("the authenticated account never approves its own PR")
+        if not covered["complete"] or not review["clean_review"]:
+            result["blockers"].append("approval needs complete clean independent review")
+        for task in plan["tasks"]:
+            if task["kind"] not in ("review", "verification"):
+                continue
+            claim = app._current(ledger, snapshot, task)
+            if claim:
+                result["evidence"].append(_source(root, provider, ledger, plan, claim["report"],
+                                                  snapshot=snapshot)["reference"])
+        result["approve"] = not result["blockers"] and bool(result["evidence"])
+    except Exception as error:
+        result["blockers"].append(str(error))
+    return result
+
+
+def approval_proposal(root, provider, ledger, plan, inputs):
+    """Construct only the exact-head approval the user separately authorized."""
+    authority = plan.get("authorizations", {}).get("approve_pr")
+    if authority is None:
+        return {"invoke": False, "proposal": {}}
+    authority = auth(authority)
+    if plan.get("options", {}).get("permissions", {}).get("approve_pr") is not True:
+        return {"invoke": False, "proposal": {}, "blockers": ["configured permission forbids approve_pr"]}
+    current = approval(root, provider, ledger, plan, {})
+    if not current["approve"]:
+        return {"invoke": False, "proposal": {}, "blockers": current["blockers"]}
+    # The body stays empty: coverage and execution details are private.
+    proposal = {"id": "approve_" + digest([plan["logical_run"], current["head"], current["target"], authority]),
+                "kind": "approve_pr", "head": current["head"], "lease": current["head"], "target": current["target"],
+                "payload": {"body": ""}, "sources": sorted(current["evidence"])}
+    return {"invoke": True, "proposal": proposal}
+
+
 def merge_proposal(root, provider, ledger, plan, inputs):
     """Construct only the final exact-head merge authorized by the user."""
     authority = plan.get("authorizations", {}).get("merge")
@@ -497,7 +566,8 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
     handlers = {"publication_list": publication_list, "publication_prepare": publication_prepare,
                 "publication_execute": publication_execute, "publication_record": publication_record,
                 "publication_recover": publication_recover,
-                "readiness": readiness, "merge_proposal": merge_proposal}
+                "readiness": readiness, "merge_proposal": merge_proposal,
+                "approval_proposal": approval_proposal}
     if operation not in handlers:
         raise PublicationError("unknown publication helper operation")
     return handlers[operation](root, provider, ledger, plan, inputs)
