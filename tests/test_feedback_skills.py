@@ -588,6 +588,32 @@ class EntryRuns(unittest.TestCase):
         self.assertEqual(self.commits(), 2)
         self.assertEqual(app.coverage(self.root, self.github, ledger, plan, {})["feedback"]["unbacked"], [])
 
+    def test_a_later_commit_to_the_fixed_file_keeps_the_fix_and_a_revert_drops_it(self):
+        # Review cycle 3: further edits to a fixed path keep the fix backed; restoring its
+        # pre-fix bytes does not.
+        plan, ledger, view, address = self.addressed()
+        fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count"}
+        self.assertTrue(self.accept(plan, ledger, address, {**self.feedback(assessments(view, rename="fixed")),
+                                                            **fix})["complete"])
+        (self.root / "code.py").write_text("COUNT = 2\n# documented\n")
+        git(self.root, "commit", "-qam", "Document COUNT")
+        self.github.evidence["metadata"]["head"]["sha"] = git(self.root, "rev-parse", "HEAD")
+        self.assertEqual(app.feedback_fixes(self.root, ledger), {("inline:30", "rename"): {"code.py"}})
+        for adapter in ("read-feedback", "reconcile-decisions"):
+            claimed = self.claim(plan, ledger, adapter)
+            if claimed["invoke"]:
+                self.accept(plan, ledger, claimed, self.report())
+        address = self.claim(plan, ledger, "address-feedback")
+        self.assertEqual(address["task_input"]["feedback"]["unbacked"], [])
+        self.assertTrue(self.accept(plan, ledger, address, self.report())["complete"])
+        self.assertEqual(app.coverage(self.root, self.github, ledger, plan, {})["feedback"]["unbacked"], [])
+        (self.root / "code.py").write_text("value = 2\n")
+        git(self.root, "commit", "-qam", "Revert the rename")
+        self.github.evidence["metadata"]["head"]["sha"] = git(self.root, "rev-parse", "HEAD")
+        self.assertEqual(app.feedback_fixes(self.root, ledger), {})
+        self.assertEqual(app.coverage(self.root, self.github, ledger, plan, {})["feedback"]["unbacked"],
+                         [{"source": "inline:30", "request": "rename"}])
+
     def test_an_edited_source_is_assessed_again_and_keeps_its_obligation(self):
         plan = self.plan(self.preflight("dk-pr-feedback-read"))
         self.assertEqual([task["skill"] for task in plan["tasks"]], ["read-feedback"])

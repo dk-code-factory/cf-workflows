@@ -487,9 +487,10 @@ def _retained_fix(root, ledger, finding_id):
 def feedback_fixes(root, ledger):
     """{(source, request): paths} of accepted controlled feedback fixes still present.
 
-    A fixed decision of an accepted fix report counts only while its controlled commit
-    remains an ancestor of the local head and the bytes of each cited path that the
-    report changed are intact; a reset, force-push or later rewrite of a path drops it.
+    A fixed decision of an accepted fix report counts while its controlled commit remains
+    an ancestor of the local head and no cited path that the report changed is back at its
+    pre-fix bytes. A reset or force-push that drops the commit, or a revert of a path, drops
+    the fix; a later commit that edits the fixed file further keeps it.
     """
     head = git(root, "rev-parse", "HEAD").decode().strip()
     result = {}
@@ -507,8 +508,8 @@ def feedback_fixes(root, ledger):
         intact = set()
         for change in report["changes"]:
             path = Path(root) / change["path"]
-            if (not (path.exists() or path.is_symlink()) if change["after"] is None
-                    else path.is_file() and source_file(root, change["path"]) == change["after"]):
+            current = source_file(root, change["path"]) if path.is_file() and not path.is_symlink() else None
+            if current != change["before"]:
                 intact.add(change["path"])
         for assessment in value.get("assessments", []):
             for request in assessment.get("requests", []):

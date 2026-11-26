@@ -92,11 +92,12 @@ leaves that source unassessed. Coverage then lists the read as missing.
   must be one of these:
   - a path this report changes;
   - a path of an earlier accepted controlled fix of the same request. That fix's
-    commit must still be an ancestor of the local head, and the path's bytes
-    must be intact (`feedback_fixes()` in `prfix/app.py`). The address claim
+    commit must still be an ancestor of the local head, and the path must not
+    be back at its pre-fix bytes (`feedback_fixes()` in `prfix/app.py`). A later
+    commit that edits the fixed file further keeps the fix. The address claim
     lists these fixes as `feedback.fixes`.
 
-  A fix lost to a reset, force-push or rewrite therefore must be implemented
+  A fix lost to a reset, force-push or revert therefore must be implemented
   again. It is never reported as fixed. Such a retained `fixed` decision is
   listed as `unbacked` in the address claim's `feedback` and in
   `coverage.feedback`. An address report must assess its source again: omitting
