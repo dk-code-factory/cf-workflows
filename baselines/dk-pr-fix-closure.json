@@ -306,6 +306,18 @@
       "reason": "Incoming-review preset over main.yml in review mode (#24); no upstream counterpart (docs/review.md)."
     },
     {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-iter/SKILL.md",
+      "reason": "Author-routing skill entry point (#24); no upstream counterpart (docs/review.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/iter.yml",
+      "reason": "dk-pr-iter routing in front of main.yml and review.yml: the iter_route helper re-checks the routed identities, then one entry runs (#24); no upstream counterpart (docs/review.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/iteration.py",
+      "reason": "Installed dk-pr-iter route check (#24), so helper containers confirm the route before either entry; no upstream counterpart (docs/review.md)."
+    },
+    {
       "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-feedback-read/SKILL.md",
       "reason": "Feedback-read skill entry point (#30); no upstream counterpart (docs/feedback-skills.md)."
     },

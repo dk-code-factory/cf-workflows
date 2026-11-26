@@ -14,8 +14,8 @@ and an external state namespace, and keeps its budgets, deadlines, occurrence
 identities and explicit continuations in the logical run's ledger.
 [Incoming review](docs/review.md) (`cf-workflows:dk-pr-review`) is a review-mode
 preset over that workflow that can publish its independently verified findings
-inline or in the review body, and `cf-workflows:dk-pr-iter` routing picks fixing or
-review from immutable account IDs. One
+inline or in the review body, and `cf-workflows:dk-pr-iter` (`workflows/iter.yml`)
+routes to fixing or review from immutable account IDs. One
 [plugin descriptor](docs/packaging.md) declares the Codex and Claude package
 inputs, with a checked resource closure and read-only runtime prerequisite
 checks. There is no runnable plugin, built package or verified host

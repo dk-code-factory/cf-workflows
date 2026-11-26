@@ -86,6 +86,14 @@ def handle(operation, request, root, provider):
         request = read_artifact(root, _snapshot(root, base, inputs["request"], ident, fingerprint))
         preset = entry_preset(text(inputs["entry"], "entry"), request.get("authorizations", {}))
         output = {"preset": preset, "mode": ENTRY_PRESETS[preset][0]}
+    elif operation == "iter_route":
+        # cf-workflows:dk-pr-iter (iter.yml): the route preflight chose, confirmed against
+        # current identities and the exact staged request before either entry runs.
+        if set(inputs) != {"request", "route", "identity", "accounts", "permissions"}:
+            raise ValueError("iter route requires request, route, identity, accounts and permissions")
+        from .iteration import identity_provider, route_operation
+        request = validate_request(read_artifact(root, _snapshot(root, base, inputs["request"], ident, fingerprint)))
+        output = route_operation(identity_provider(root, provider), request, inputs)
     elif operation == "prepare":
         if set(inputs) != {"snapshot", "controls"}:
             raise ValueError("prepare requires immutable snapshot and YAML controls")

@@ -97,7 +97,8 @@ resume, reply response loss, changed comments, disabled resolution, denied
 reply authority and custom or empty plans.
 [Incoming review and routing](review.md#verification) tests
 (`tests/test_dk_pr_review.py`, `tests/test_routing.py`) drive the installed
-helpers in review mode and the router with fail-closed fake GitHub and engine
+helpers in review mode, the router, its `routing.preflight()` admission and the
+installed `iter_route` check with fail-closed fake GitHub and engine
 transports. They count native dispatches and identity reads, and cover
 dk-workflows#254 report-only pass claims.
 [Finding publication](review.md#finding-publication) tests

@@ -2,7 +2,7 @@
 
 `cf-workflows:dk-pr-review` reviews another author's PR without fixing it.
 `cf-workflows:dk-pr-iter` decides, from verified identities, whether a PR goes
-to fixing or to incoming review. Neither is runnable yet: like
+to fixing or to incoming review. None of them is runnable yet: like
 [dk-pr-fix](dk-pr-fix.md), the installed workflow needs Agent Workflow #129 and
 #130 (see [What remains](#what-remains)).
 
@@ -36,6 +36,43 @@ authorizations. Routing adds no authority. Reviewing your own PR adds an
 merges the routed prohibitions into the caller's invocation scope. Prohibitions
 accumulate in admission, so a narrower request always wins, and restoring a
 withheld grant contradicts it and rejects.
+
+### Installed entry
+
+`dk-pr-iter` is listed in the plugin descriptor with
+[`workflows/iter.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/iter.yml).
+Its host side is `routing.preflight()`:
+
+1. `route()` makes the two identity reads and picks the route, as above.
+   Blocked routing returns `blocked` and admits nothing.
+2. The routed request, the routed prohibitions (through `routing.invocation()`)
+   and any explicit `maintain_other` request go unchanged to
+   `dk_pr_fix.preflight` or `dk_pr_review.preflight`. So the request is
+   admitted exactly as that entry admits it when called directly: the same
+   inputs, logical run and staged request.
+3. The personal accounts routing compared must give the same ownership as the
+   admitted `accounts` option, because the installed helpers use that option.
+   Otherwise preflight rejects on `accounts` and stages nothing.
+4. The result is the selected entry's inputs plus `route` and `identity`
+   (`{author, actor}`, the two numeric IDs routing compared), for `iter.yml`.
+
+`iter.yml` has no orchestration of its own. Its `route` job runs the retained
+`iter_route` helper
+([`prfix/iteration.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/iteration.py)).
+The helper reads the PR and the authenticated account once each and rejects,
+before any session or effect, when:
+
+- either ID differs from `identity`, such as a token for another account;
+- a read fails, the PR is another one, or an ID is missing;
+- `fix` runs on another author's PR without the staged `maintain_other`
+  request;
+- `review` carries `maintain_other`, or approves the actor's own PR (an
+  `approve_pr` grant or permission).
+
+A renamed login keeps the route. Then exactly one job runs: `fix` calls
+`main.yml` in fix mode, or `review` calls `review.yml`, with the admitted
+inputs. Their own `prepare` and capture checks apply unchanged. A replayed
+`iter_route` returns its retained result without reading again.
 
 ## Incoming review
 
@@ -213,7 +250,12 @@ publication helpers list only verified findings and the final merge there.
   other operation fails. Cases cover own and other PRs, multi-host accounts,
   renamed and reused logins, ten missing or inconsistent identity cases,
   analysis-only and explicit routes. Routed requests are then admitted by the
-  real preflights.
+  real preflights. `InstalledIter` checks the descriptor row and `iter.yml`,
+  shows that `routing.preflight()` returns the selected entry's own inputs and
+  staged request with the exact instructions, authorizations, prohibitions and
+  `maintain_other`, and drives `iter_route` on the staged request in a fresh
+  state namespace: changed tokens, failed reads, another PR, own-PR approval,
+  missing `maintain_other` and retained replays.
 - [`tests/test_dk_pr_review.py`](../tests/test_dk_pr_review.py) drives the
   installed helpers in review mode. It uses a disposable repository and a fake
   GitHub transport that answers only capture, and it counts native dispatches.
@@ -231,9 +273,9 @@ publication helpers list only verified findings and the final merge there.
 
 - Running review.yml with real engine-managed sessions needs Agent Workflow
   #129 and #130. These fixtures do not prove session adherence.
-- The incoming-review installed entry for `dk-pr-iter` needs a workflow that
-  runs routing before the selected entry. Today routing is a library operation
-  called before preflight.
+- `iter.yml` has never run through an engine. These fixtures check its YAML
+  and helpers, not the engine's conditional calls or session adherence. Like
+  review.yml, it needs Agent Workflow #129 and #130 in a release.
 - [Alignment](alignment.md) gating of ordinary review runs only as a library.
   The [alternatives entries](alternatives.md) drive its stages as library
   procedures; the installed review workflow rejects their adapters.

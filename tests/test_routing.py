@@ -3,13 +3,23 @@
 A fail-closed fake GitHub transport answers only the PR and authenticated-account
 reads; any other operation raises with no live fallback. Routed requests are
 then admitted by the real dk-pr-fix and dk-pr-review preflights against a
-disposable repository and a fail-closed fake engine transport.
+disposable repository and a fail-closed fake engine transport. The installed
+entry (workflows/iter.yml) is checked as YAML, and its iter_route helper runs
+through the action-v1 entry point on the staged request in a fresh state
+namespace. Nothing here starts an engine, provider or host.
 """
 from collections import Counter
 import copy
+import os
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
+
+import yaml
+
+import dk_pr_fix as _helpers  # noqa: F401  (puts the installed helpers on sys.path)
+import git_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -238,6 +248,221 @@ class RoutedPreflight(PreflightFixture):
                                              maintain_other=value)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'maintain_other'))
                 self.assertEqual(self.transport.calls, Counter())
+
+
+ME, THEM = {'id': 11, 'login': 'me'}, {'id': 12, 'login': 'them'}
+
+
+def iter_workflow():
+    return yaml.safe_load((dk_pr_fix.INSTALL / routing.ENTRY).read_text())
+
+
+class InstalledIter(PreflightFixture):
+    """routing.preflight admits the routed request for workflows/iter.yml; iter_route checks it again."""
+
+    def setUp(self):
+        super().setUp()
+        git_fixture.isolate(self)
+        self.keys = Counter()
+
+    def iterate(self, github, transport=None, **changes):
+        self.transport = transport or FakeTransport()
+        arguments = {'request': request(), 'deployment': self.deployment, 'repository': self.repo,
+                     'home': self.home, 'install': self.clean}
+        arguments.update(changes)
+        staged = self.home.exists()
+        result = routing.preflight(github=github, transport=self.transport, **copy.deepcopy(arguments))
+        self.assertLessEqual(set(github.calls), {'pull_request', 'viewer'})
+        self.assertLessEqual(set(self.transport.calls), {'capabilities'})
+        self.assertEqual(self.home.exists(), staged, 'preflight writes nothing')
+        return result
+
+    def stage(self, result):
+        """Stage the admitted request as the host does, and mount its namespace for the helpers."""
+        dk_pr_fix.stage_request(result)
+        context = patch.dict(os.environ, {'CF_WORKFLOWS_STATE': result['state']['namespace']})
+        context.start()
+        self.addCleanup(context.stop)
+        return result['inputs']['request']
+
+    def check(self, github, inputs, key=None, phase='execute', **changes):
+        import action
+        payload = {name: inputs[name] for name in ('request', 'route', 'identity', 'accounts', 'permissions')}
+        payload.update(changes)
+        self.keys['iter_route'] += 1
+        request = {'protocol': 'action-v1', 'phase': phase, 'input': {'operation': 'iter_route', 'payload': payload},
+                   'context': {'operation_key': key or 'route:%d' % self.keys['iter_route'],
+                               'execution_fingerprint': 'exec-1'}}
+        return action.handle('invoke', request, self.repo, github)
+
+    def test_entry_is_listed_and_runs_exactly_one_routed_entry(self):
+        descriptor = (dk_pr_fix.INSTALL / 'plugin.yaml').read_text()
+        self.assertIn('  - name: dk-pr-iter\n    path: skills/dk-pr-iter/SKILL.md\n    workflow: workflows/iter.yml\n',
+                      descriptor)
+        skill = (dk_pr_fix.INSTALL / 'skills/dk-pr-iter/SKILL.md').read_text()
+        self.assertTrue(skill.startswith('---\nname: dk-pr-iter\ndescription: '))
+        self.assertIn('This plugin version is not runnable.', skill)
+        definition = iter_workflow()
+        self.assertEqual(definition['name'], routing.WORKFLOW)
+        declared = definition['on']['workflow_call']['inputs']
+        jobs = definition['jobs']
+        self.assertEqual(list(jobs), ['route', 'fix', 'review'])
+        self.assertEqual((jobs['route']['uses'], jobs['route']['with']['operation']),
+                         ('workflows/helper.yml', 'iter_route'))
+        self.assertNotIn('needs', jobs['route'])
+        self.assertEqual(set(jobs['route']['with']['payload']),
+                         {'request', 'route', 'identity', 'accounts', 'permissions'})
+        for name, uses in (('fix', 'workflows/main.yml'), ('review', dk_pr_review.ENTRY)):
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertEqual((job['uses'], job['needs']), (uses, 'route'))
+                self.assertEqual(job['if'], "${{ needs.route.outputs.result.route == '%s' }}" % name)
+                target = yaml.safe_load((dk_pr_fix.INSTALL / uses).read_text())['on']['workflow_call']['inputs']
+                passed = set(declared) - {'route', 'identity'}
+                self.assertLessEqual(passed, set(target))
+                for key in passed:
+                    self.assertEqual(job['with'][key], '${{ inputs.%s }}' % key)
+                    self.assertEqual(declared[key]['type'], target[key]['type'], key)
+        self.assertEqual(jobs['fix']['with']['mode'], 'fix')
+        self.assertNotIn('mode', jobs['review']['with'])
+        self.assertNotIn('entry', jobs['fix']['with'])
+        self.assertFalse(any(declared['permissions']['default'].values()))
+        for key in ('request', 'route', 'identity', 'tasks', 'finalizers', 'reviewers', 'adapters'):
+            self.assertTrue(declared[key].get('required'), key)
+
+    def test_preflight_readmits_the_routed_request_on_the_selected_entry(self):
+        declared = iter_workflow()['on']['workflow_call']['inputs']
+        original = request(logical_run='iteration-7', authorizations={'merge': MERGE})
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+        cases = ((ME, 'fix', dk_pr_fix.preflight), (THEM, 'review', dk_pr_review.preflight))
+        for author, route, entry in cases:
+            with self.subTest(route=route):
+                result = self.iterate(GitHub(author, ME), request=original, transport=FakeTransport(offered),
+                                      invocation={'permissions': {'merge': True}})
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+                self.assertEqual((result['workflow'], result['entry_workflow'], result['installation']['entry']),
+                                 (routing.WORKFLOW, routing.ROUTES[route], routing.ENTRY))
+                inputs = result['inputs']
+                self.assertLessEqual(set(inputs), set(declared))
+                self.assertEqual((inputs['route'], inputs['identity']), (route, {'author': author['id'], 'actor': 11}))
+                # The same admission the selected entry gives the routed request directly.
+                self.transport = FakeTransport(offered)
+                direct = entry(request=original, configuration=None, invocation={'permissions': {'merge': True}},
+                               deployment=self.deployment, repository=self.repo, transport=self.transport,
+                               home=self.home, install=self.clean)
+                self.assertEqual({k: v for k, v in inputs.items() if k not in ('route', 'identity')}, direct['inputs'])
+                self.assertEqual(result['state'], direct['state'])
+                document = result['state']['request_document']
+                self.assertEqual((document['instructions'], document['logical_run'], document['authorizations']),
+                                 (original['instructions'], 'iteration-7', {'merge': MERGE}))
+
+    def test_routed_prohibitions_and_maintain_other_reach_the_staged_request(self):
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+        result = self.iterate(GitHub(ME, ME), transport=FakeTransport(offered), analysis_only=True,
+                              request=request(authorizations={'merge': MERGE}),
+                              invocation={'permissions': {'merge': True}})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual((result['inputs']['route'], result['routing']['withheld']), ('review', ['merge']))
+        prohibitions = [item['text'] for item in result['snapshot']['options']['prohibitions']['value']]
+        self.assertEqual(prohibitions, list(admission.ACTIONS))
+        self.assertFalse(any(result['inputs']['permissions'].values()))
+        self.assertEqual(result['state']['request_document']['authorizations'], {})
+        self.assertEqual(result['state']['request_document']['instructions'], request()['instructions'])
+        explicit = {'route': 'fix', 'request_id': 'r3', 'instruction': 'Maintain their PR.', 'source': 'chat:3'}
+        result = self.iterate(GitHub(THEM, ME), explicit=explicit)
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual(result['inputs']['route'], 'fix')
+        self.assertEqual(result['state']['request_document']['maintain_other'],
+                         {key: explicit[key] for key in ('request_id', 'instruction', 'source')})
+        own = {'route': 'review', 'request_id': 'r1', 'instruction': 'Just review my PR.', 'source': 'chat:1'}
+        result = self.iterate(GitHub(ME, ME), explicit=own)
+        self.assertEqual((result['preflight'], result['inputs']['route']), ('admitted', 'review'))
+        self.assertIn('approve_pr', [item['text'] for item in result['snapshot']['options']['prohibitions']['value']])
+
+    def test_blocked_routing_or_other_accounts_admit_nothing(self):
+        github = GitHub({'login': 'them'}, ME)
+        result = self.iterate(github)
+        self.assertEqual((result['preflight'], result['error']['path']), ('blocked', 'routing'))
+        self.assertNotIn('inputs', result)
+        self.assertEqual(self.transport.calls, Counter(), 'no admission without a route')
+        # Routing with a personal account the admitted configuration does not carry.
+        account = [{'host': 'github.com', 'id': 12}]
+        result = self.iterate(GitHub(THEM, ME), accounts=account)
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'accounts'))
+        self.assertNotIn('state', result)
+        result = self.iterate(GitHub(THEM, ME), accounts=account, invocation={'options': {'accounts': account}})
+        self.assertEqual((result['preflight'], result['inputs']['route']), ('admitted', 'fix'), result.get('error'))
+        self.assertEqual(result['inputs']['accounts'], account)
+
+    def test_installed_route_check_confirms_identities_before_either_entry(self):
+        result = self.iterate(GitHub(THEM, ME))
+        inputs = result['inputs']
+        self.stage(result)
+        github = GitHub(THEM, ME)
+        output = self.check(github, inputs)['result']['output']
+        self.assertEqual(output, {'route': 'review', 'ownership': 'others', 'identity': {'author': 12, 'actor': 11}})
+        self.assertEqual(github.calls, Counter({'pull_request': 1, 'viewer': 1}))
+        # A retained result replays without reading again.
+        again = GitHub(THEM, ME)
+        self.assertEqual(self.check(again, inputs, key='route:1')['result']['output'], output)
+        self.assertEqual(again.calls, Counter())
+        # The staged request is the exact routed request, read from the namespace.
+        import action
+        call = {'protocol': 'action-v1', 'phase': 'execute',
+                'input': {'operation': 'snapshot_request', 'payload': {'request': inputs['request']}},
+                'context': {'operation_key': 'snapshot', 'execution_fingerprint': 'exec-1'}}
+        snapshot = action.handle('invoke', call, self.repo, None)['result']['output']['snapshot']
+        from prfix.core import read_artifact
+        self.assertEqual(read_artifact(self.repo, snapshot), result['state']['request_document'])
+        # Over the installed gh transport the check issues exactly two GET reads.
+        from prfix.iteration import GitHubIdentity
+
+        class Transport:
+            host, routes = None, []
+
+            def request(self, method, path, payload=None):
+                self.routes.append((method, self.host, path))
+                return {'repos/owner/repo/pulls/7': {'html_url': PR, 'number': 7, 'user': THEM},
+                        'user': ME}[path]
+        transport = Transport()
+        self.assertEqual(self.check(GitHubIdentity(transport), inputs, key='route:gh')['result']['output'], output)
+        self.assertEqual(transport.routes, [('GET', 'github.com', 'repos/owner/repo/pulls/7'),
+                                            ('GET', 'github.com', 'user')])
+
+    def test_installed_route_check_rejects_changed_identity_or_route(self):
+        own = self.iterate(GitHub(ME, ME))
+        self.stage(own)
+        cases = {
+            'another token': (GitHub(ME, {'id': 13, 'login': 'me'}), {}, 'differs from the identities'),
+            'renamed login keeps the route': (GitHub({'id': 11, 'login': 'renamed'}, ME), {}, None),
+            'viewer read fails': (GitHub(ME, PermissionError('scope')), {}, 'unavailable'),
+            'another PR': (GitHub(ME, ME, url='https://github.com/owner/repo/pull/8', number=8), {}, 'another PR'),
+            'author without ID': (GitHub({'login': 'me'}, ME), {}, 'no immutable numeric ID'),
+            'review of own PR with approval': (GitHub(ME, ME), {'route': 'review',
+                                                                'permissions': {'approve_pr': True}}, 'never approves'),
+            'unknown route': (GitHub(ME, ME), {'route': 'merge'}, 'fix or review only'),
+            'login as identity': (GitHub(ME, ME), {'identity': {'author': 'me', 'actor': 11}}, 'positive integer'),
+            'other accounts': (GitHub(ME, ME), {'accounts': ['me']}, '{host, id}'),
+        }
+        for name, (github, changes, message) in cases.items():
+            with self.subTest(name):
+                if message is None:
+                    self.assertEqual(self.check(github, own['inputs'], **changes)['result']['output']['route'], 'fix')
+                    continue
+                with self.assertRaisesRegex(ValueError, message.replace('{', '\\{').replace('}', '\\}')):
+                    self.check(github, own['inputs'], **changes)
+        theirs = self.iterate(GitHub(THEM, ME))
+        self.stage(theirs)
+        with self.assertRaisesRegex(ValueError, 'maintain_other'):
+            self.check(GitHub(THEM, ME), theirs['inputs'], route='fix')
+        explicit = {'route': 'fix', 'request_id': 'r3', 'instruction': 'Maintain their PR.', 'source': 'chat:3'}
+        maintain = self.iterate(GitHub(THEM, ME), explicit=explicit)
+        self.stage(maintain)
+        self.assertEqual(self.check(GitHub(THEM, ME), maintain['inputs'])['result']['output']['route'], 'fix')
+        with self.assertRaisesRegex(ValueError, 'never maintains'):
+            self.check(GitHub(THEM, ME), maintain['inputs'], route='review')
 
 
 if __name__ == '__main__':

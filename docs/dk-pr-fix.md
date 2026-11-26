@@ -77,7 +77,9 @@ Adaptations to the example:
 - A `mode` input selects `fix` (the default) or `review`. Review mode is
   [incoming review](review.md): read-only tasks and reviewers, a separate
   verifier and no `finding_fix`. Its entry `workflows/review.yml` and
-  `skills/dk-pr-review/SKILL.md` are `authored`, as are the feedback entries'
+  `skills/dk-pr-review/SKILL.md` are `authored`, as are the
+  [routing entry](review.md#installed-entry)'s `workflows/iter.yml`,
+  `prfix/iteration.py` and `skills/dk-pr-iter/SKILL.md`, the feedback entries'
   `workflows/feedback-*.yml` and `skills/dk-pr-feedback-*/SKILL.md`
   ([feedback entries](feedback-skills.md)) and the
   [publication entries](publication-skills.md) `workflows/publish.yml`,

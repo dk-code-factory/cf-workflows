@@ -13,6 +13,9 @@ skills:
   - name: dk-pr-review
     path: skills/dk-pr-review/SKILL.md
     workflow: workflows/review.yml
+  - name: dk-pr-iter
+    path: skills/dk-pr-iter/SKILL.md
+    workflow: workflows/iter.yml
   - name: dk-pr-feedback-read
     path: skills/dk-pr-feedback-read/SKILL.md
     workflow: workflows/feedback-read.yml

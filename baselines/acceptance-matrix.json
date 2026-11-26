@@ -10,30 +10,36 @@
         25
       ],
       "behavior": [
-        "cf_workflows/routing.py"
+        "cf_workflows/routing.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/iter.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/iteration.py"
       ],
       "documentation": "docs/review.md",
       "composition": "shared_workflow",
       "direct": [
         "test_routing.Routing.test_own_pr_routes_to_fixing_and_another_authors_to_review",
         "test_routing.Routing.test_renamed_and_reused_logins_never_decide_ownership",
-        "test_routing.Routing.test_missing_or_inconsistent_identity_never_guesses_a_route"
+        "test_routing.Routing.test_missing_or_inconsistent_identity_never_guesses_a_route",
+        "test_routing.InstalledIter.test_preflight_readmits_the_routed_request_on_the_selected_entry"
       ],
       "composed": [
-        "test_routing.RoutedPreflight.test_routed_requests_admit_on_their_entry_points"
+        "test_routing.RoutedPreflight.test_routed_requests_admit_on_their_entry_points",
+        "test_routing.InstalledIter.test_entry_is_listed_and_runs_exactly_one_routed_entry"
       ],
       "recovery": [
         "test_routing.RoutedPreflight.test_analysis_only_routing_disables_every_enabled_write",
-        "test_routing.Routing.test_routing_preserves_the_exact_request_and_grants_nothing"
+        "test_routing.Routing.test_routing_preserves_the_exact_request_and_grants_nothing",
+        "test_routing.InstalledIter.test_installed_route_check_rejects_changed_identity_or_route",
+        "test_routing.InstalledIter.test_routed_prohibitions_and_maintain_other_reach_the_staged_request"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A router library, not a listed plugin skill; it has no installed workflow of its own. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as iter.yml: the iter_route helper re-checks the routed identities, then main.yml or review.yml runs, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-fix",

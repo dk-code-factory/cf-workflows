@@ -10,12 +10,19 @@ identity evidence blocks routing instead of guessing.
 The routed request keeps the exact original instructions and authorizations.
 Routing grants nothing: an analysis-only request selects read-only incoming
 review and prohibits every remote write, and an explicit request to review your
-own PR never permits approving it. The only operations are two read-only
+own PR never permits approving it. route() performs only two read-only
 GitHub reads on the supplied transport; nothing is staged, run or published.
+
+preflight() is the installed entry (workflows/iter.yml): it routes, admits the
+routed request through the selected entry's preflight and returns iter.yml's
+inputs, including the route and the two IDs it compared. The installed
+`iter_route` helper (prfix/iteration.py) checks them again before either entry runs.
 """
-from . import admission
+from . import admission, dk_pr_fix, dk_pr_review
 
 ROUTES = {'fix': 'cf-workflows:dk-pr-fix', 'review': 'cf-workflows:dk-pr-review'}
+WORKFLOW = 'cf-workflows:dk-pr-iter'
+ENTRY = 'workflows/iter.yml'
 
 
 class RoutingBlocked(ValueError):
@@ -85,6 +92,9 @@ def invocation(routed, base=None):
     return scope or None
 
 
+invocation_scope = invocation
+
+
 def _route(request, configured, transport, explicit, analysis_only):
     _require(isinstance(request, dict) and type(analysis_only) is bool, 'malformed routing request')
     original = admission.resolve_request(request)
@@ -145,3 +155,50 @@ def _route(request, configured, transport, explicit, analysis_only):
             'identity': {'matched': matched, 'compared': 'numeric_id'},
             'request': routed, 'invocation': {'options': {'prohibitions': prohibitions}} if prohibitions else None,
             'maintain_other': maintain_other, 'withheld': withheld}
+
+
+def _owned(routed, accounts):
+    author = routed['author']['id']
+    return author == routed['actor']['id'] or any(
+        item['host'] == routed['host'] and item['id'] == author for item in accounts)
+
+
+def preflight(*, request, github, transport, deployment, repository, accounts=(), explicit=None,
+              analysis_only=False, configuration=None, invocation=None, roots=None, home=None,
+              install=dk_pr_fix.INSTALL, ledger=None, store=None):
+    """Route one PR and admit it on the selected entry; returns workflows/iter.yml's inputs.
+
+    github provides the two routing reads (see route()); transport is the engine
+    transport of the selected entry's preflight. accounts are the personal
+    accounts routing compares; they must give the same ownership as the admitted
+    `accounts` option, which the installed helper uses. The routed request,
+    its added prohibitions and an explicit maintain_other request pass to
+    dk_pr_fix.preflight or dk_pr_review.preflight unchanged. Writes nothing
+    outside their ledger and configuration store.
+    """
+    routed = route(request=request, accounts=accounts, transport=github, explicit=explicit,
+                   analysis_only=analysis_only)
+    if routed['status'] != 'routed':
+        return {'preflight': 'blocked', 'structural': None, 'semantic': None, 'routing': routed,
+                'error': {'path': 'routing', 'message': routed['reason']}}
+    arguments = {'request': routed['request'], 'configuration': configuration,
+                 'invocation': invocation_scope(routed, invocation), 'deployment': deployment,
+                 'repository': repository, 'transport': transport, 'roots': roots, 'home': home,
+                 'install': install, 'ledger': ledger, 'store': store}
+    if routed['route'] == 'fix':
+        result = dk_pr_fix.preflight(maintain_other=routed['maintain_other'], **arguments)
+    else:
+        result = dk_pr_review.preflight(**arguments)
+    result = {**result, 'routing': routed}
+    if result['preflight'] != 'admitted':
+        return result
+    if _owned(routed, result['inputs']['accounts']) != (routed['ownership'] == 'mine'):
+        # Nothing is staged; an admitted configuration write-back stays recorded.
+        rejected = dk_pr_fix._reject(result, 'accounts', 'routing compared other personal accounts than the '
+                                     'admitted accounts option; route with the admitted accounts')
+        return {**rejected, 'routing': routed,
+                **{key: result[key] for key in ('configuration_write',) if key in result}}
+    inputs = {**result['inputs'], 'route': routed['route'],
+              'identity': {'author': routed['author']['id'], 'actor': routed['actor']['id']}}
+    return {**result, 'workflow': WORKFLOW, 'entry_workflow': result['workflow'], 'inputs': inputs,
+            'installation': {**result['installation'], 'entry': ENTRY}}
