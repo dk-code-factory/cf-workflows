@@ -147,6 +147,8 @@ def view(document, where):
                    'repository': where['repository'], 'upstream': where['upstream']}
         options, permissions, records, scopes, inactive, locations = admission.effective(
             config['scopes'], request, None, resources)
+        saved = {name: entries.check_options(name, None, entry_options(document, name, request))
+                 for name in entries.SAVED_OPTIONS}
     except (AdmissionError, TypeError, KeyError, AttributeError, ValueError) as error:
         return {'revision': document.get('revision') if isinstance(document, dict) else None, 'valid': False,
                 'error': _failure(error), 'paths': []}
@@ -161,12 +163,56 @@ def view(document, where):
                                           'path': None if value['source'] == 'default'
                                           else f"{at(value['source'])}.permissions.{key}"}
                    for key, value in permissions.items()})
+    for name, checked in saved.items():
+        for key, value in checked.items():
+            if value['source'] != 'default':
+                values[f'entries.{name}.{key}'] = {'value': value['value'], 'source': value['source'],
+                                                   'path': f"{at(value['source'])}.entries.{name}.{key}"}
     entries_ = {kind: [{'path': where_, 'source': source, 'record': copy.deepcopy(record)}
                        for where_, source, record in records[kind]] for kind in ('prompts', 'preferences', 'skills')}
     paths = sorted(set(values) | {item['path'] for kind in entries_.values() for item in kind}
                    | set(locations.values()) - {'default'} | {where_ for _, where_, _ in inactive})
     return {'revision': config['revision'], 'valid': True, 'values': values, **entries_,
             'scopes': scopes, 'inactive': [source for source, _, _ in inactive], 'paths': paths}
+
+
+def entry_options(document, name, request):
+    """The applicable saved option layers of one entry, lowest precedence first.
+
+    request is a resolved request (admission.resolve_request) or a target with the
+    same `pr`, `repository` and `upstream` keys. Each layer is (source, path,
+    options) for entries.check_options, which applies invocation options over them.
+    Every scope is validated in full first. Two scopes at the same precedence that
+    set different values for the same option reject, as for workflow options.
+    """
+    require(name in entries.SAVED_OPTIONS, 'entry', 'no saved options for ' + name)
+    config = admission.check_configuration(document)
+    resources = {}
+    for record in config['resources']:
+        fields(record, 'configuration.resources', ('root', 'path', 'sha256', 'purpose', 'owner'))
+        resources[record['root'] + ':' + record['path']] = record
+    admission.effective(config['scopes'], request, None, resources)
+    applicable = []
+    for index, scope in enumerate(config['scopes']):
+        where = f'configuration.scopes[{index}]'
+        kind, applies = admission.matches(scope['selector'], request, where + '.selector')
+        if applies and name in scope.get('entries', {}):
+            applicable.append((admission.PRECEDENCE.index(kind), index, f"{kind}:{scope['id']}",
+                               f'{where}.entries.{name}', scope['entries'][name]))
+    applicable.sort(key=lambda item: item[:2])
+    def flat(value, prefix=''):
+        if isinstance(value, dict) and value:
+            return {leaf: item for key, child in value.items() for leaf, item in flat(child, f'{prefix}.{key}').items()}
+        return {prefix: value}
+    for number, first in enumerate(applicable):
+        for second in applicable[number + 1:]:
+            if first[0] != second[0]:
+                continue
+            ours, theirs = flat(first[4]), flat(second[4])
+            for leaf in sorted(set(ours) & set(theirs)):
+                require(ours[leaf] == theirs[leaf], second[3] + leaf,
+                        f'contradicts {first[2]} at the same precedence; resolve before admission')
+    return [(source, where, copy.deepcopy(options)) for _, _, source, where, options in applicable]
 
 
 # -- Native sessions ---------------------------------------------------------------------------
@@ -570,7 +616,8 @@ def apply_operations(document, operations, name, where, options, repository=None
         if kind == 'remove_scope':
             fields(operation, at, ('op', 'scope'))
             scope = _scope(revised, operation['scope'], at)
-            require(not any(scope.get(key) for key in SCOPE_KEYS), at, 'remove the scope contents explicitly first')
+            require(not any(scope.get(key) for key in (*SCOPE_KEYS, 'entries')), at,
+                    'remove the scope contents explicitly first')
             revised['scopes'].remove(scope)
             changes['paths'].append('scopes.' + operation['scope'])
             continue
@@ -589,6 +636,22 @@ def apply_operations(document, operations, name, where, options, repository=None
                 require(operation[key] in scope[section], at + '.' + key, 'not set in this scope')
                 del scope[section][operation[key]]
             changes['paths'].append(f"scopes.{scope['id']}.{section}.{operation[key]}")
+        elif kind in ('set_entry_option', 'unset_entry_option'):
+            # One top-level option of an entry with saved options; its schema is checked on admission.
+            fields(operation, at, ('op', 'scope', 'entry', 'key', *(('value',) if kind.startswith('set') else ())))
+            require(operation['entry'] in entries.SAVED_OPTIONS, at + '.entry', 'no saved options for this entry')
+            require(isinstance(operation['key'], str), at + '.key', 'must be a string')
+            saved = scope.setdefault('entries', {})
+            if kind.startswith('set'):
+                saved.setdefault(operation['entry'], {})[operation['key']] = copy.deepcopy(operation['value'])
+            else:
+                require(operation['key'] in saved.get(operation['entry'], {}), at + '.key', 'not set in this scope')
+                del saved[operation['entry']][operation['key']]
+                if not saved[operation['entry']]:
+                    del saved[operation['entry']]
+                if not saved:
+                    del scope['entries']
+            changes['paths'].append(f"scopes.{scope['id']}.entries.{operation['entry']}.{operation['key']}")
         elif kind in ('set_prompt', 'remove_prompt'):
             fields(operation, at, ('op', 'scope', 'record') if kind == 'set_prompt' else ('op', 'scope', 'id'))
             ident = operation['record'].get('id') if kind == 'set_prompt' and isinstance(operation['record'], dict) \

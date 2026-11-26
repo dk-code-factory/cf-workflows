@@ -1045,7 +1045,17 @@ def check_scope_body(scope, path, resources, invocation=False):
     if invocation:
         fields(scope, path, (), keys)
     else:
-        fields(scope, path, ('id', 'selector', *keys))
+        # `entries` holds saved options of individual entries (cf_workflows.configuration.entry_options).
+        fields(scope, path, ('id', 'selector', *keys), ('entries',))
+        saved = scope.get('entries', {})
+        require(isinstance(saved, dict), path + '.entries', 'must be an object')
+        from . import entries  # Entries build on admission; their option schemas are checked here at call time.
+        for name, value in saved.items():
+            require(name in entries.SAVED_OPTIONS, f'{path}.entries.{name}', 'no saved options for this entry')
+            try:
+                entries.check_options(name, value)
+            except AdmissionError as error:
+                raise AdmissionError(f'{path}.entries.{name}' + error.path[len('options'):], error.message) from None
     options = scope.get('options', {})
     require(isinstance(options, dict), path + '.options', 'must be an object')
     for key in ('before_cycle', 'after_cycle'):

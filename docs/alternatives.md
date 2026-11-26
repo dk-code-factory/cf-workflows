@@ -36,6 +36,33 @@ the engine is contacted.
 The installed `dk-pr-fix` and `dk-pr-review` workflows reject the alternatives
 adapters. A single generic task would conceal the staged procedure.
 
+## Saved options
+
+The options of `dk-issue-alternatives` and `dk-pr-alternatives` can be saved per
+configuration scope, under the scope's `entries` object:
+
+```json
+{"id": "repo", "selector": {"kind": "repository", "id": "github.com/owner/repo"},
+ "options": {}, "permissions": {}, "prompts": [], "skills": [], "preferences": [],
+ "entries": {"dk-pr-alternatives": {"selection": {"mode": "automatic"}}}}
+```
+
+`run(..., configuration=document)` applies the matching scopes in the shared
+precedence (personal, repository, upstream, PR), then the invocation options.
+Nested options merge key by key, so a PR scope can change `min_score_gap` and
+keep the repository's `mode`. Each option keeps the source of the last layer
+that set it, and `sources` names the layer of each part when several did. Two
+scopes at the same precedence that set different values reject, as they do for
+workflow options. Every scope is checked in full, including scopes that do not
+apply. Only these two entries take saved options; any other name under
+`entries`, an unknown option or an invalid value rejects before the engine is
+contacted. The compatibility and manual entries apply their delegate's saved
+options, the same way they pass its invocation options. A non-default saved
+prompt option is custom input like an invoked one and passes the shared
+semantic assessment. `dk-config` saves them with `set_entry_option` and
+`unset_entry_option`, and its `view()` shows them
+([configuration skills](configuration-skills.md#saved-changes)).
+
 ## Stages
 
 Every stage is one engine-managed native session with an exact typed assignment:
@@ -81,6 +108,38 @@ persisted rubric and rejects a stated total that differs.
 With a PR, each scope's record is keyed by the PR, not by the logical run. The
 analysis is therefore settled once per PR across the fix, review and manual
 routes, sessions, heads and guidance versions.
+
+The two records of a PR share one assessment. When a record has no assessment
+and no open assessment claim, it adopts the other record's own settled
+assessment instead of running a session. The adopted result must pass this run's
+assessment checks, for example cite this run's requirements or files of its
+pinned head. Otherwise the scope runs its own. Adoption reserves no allowance.
+The adopted attempt's reference names its origin
+(`assessment@shared:<scope>:<operation>`), and from then on it is this record's
+settled assessment. An issue-only run has no PR identity and shares nothing.
+
+## Reconciled decisions
+
+`decisions` takes the sourced reconciliation handoff of
+[`cf-workflows:dk-pr-decisions`](decisions.md) (`decisions.handoff(report)`):
+settled commitments, user exceptions, unresolved contradictions, blocking
+questions and `dependent_work`. It is checked before the engine is contacted:
+decision IDs are distinct, every decision keeps its sources, and `dependent_work`
+is `blocked` exactly while contradictions or blocking questions remain.
+
+- The inventory and current alignment receive the handoff in their assignment
+  context, and each commitment or exception is citable as `decision:<id>`. An
+  inventory that cites any other `decision:` reference rejects. A whole-problem
+  decision must still cite an issue requirement; a reconciled decision does not
+  count as one. Requirement sources cannot use the `git:` or `decision:` prefixes.
+- The handoff binds the inventory and current alignment. The inventory is
+  settled like the rest of the analysis, so a new reconciliation refreshes only
+  current alignment.
+- On the fix route, an unresolved reconciliation blocks dependent
+  implementation, not the analysis. The result is `decisions_blocked` with the
+  unresolved contradictions and questions and no `handoff`. A resolved handoff
+  then releases it with only an alignment session.
+- The result names the consumed reconciliation (`decisions`, its `result_ref`).
 
 ## Selection
 
@@ -176,12 +235,23 @@ sessions scripted per stage, and it reconciles a known claim to its original
 result. Any unscripted session or unconfigured operation fails. Each case
 asserts its transport call counts or new sessions per stage.
 
+- **Saved options.** Saved entry options layered by precedence with per-part
+  provenance and invocation overrides; a saved automatic mode that never asks;
+  the compatibility entry applying its delegate's saved options; invalid,
+  foreign, inapplicable and same-precedence contradictory scopes rejected with no
+  transport call; `dk-config` saving, showing and clearing them.
 - **Presets.** Baseline role and stage prompt digests, options with provenance,
   no skill, rejected authority expansion, custom prompt options through the
   shared validator, and the installed workflow refusing the adapters.
 - **Scope.** Issue-only analysis that persists nothing, invents no PR and reuses
   engine claims; separate whole-problem and branch records; each scope's
-  inventory and comparison contract; inherited decisions inventoried and compared.
+  inventory and comparison contract; inherited decisions inventoried and compared;
+  one assessment shared by both records in either order, reserving no allowance,
+  and not adopted when this run cannot cite it.
+- **Reconciled decisions.** The handoff in the inventory and alignment context,
+  `decision:` citations, alignment-only refresh on a new reconciliation,
+  rejected unknown citations and malformed handoffs, and a fix handoff blocked
+  by unresolved reconciliation and then released.
 - **Selection.** Automatic mode that never prompts and never chooses over time,
   an unqualified pick recorded with no choice, manual and semi-manual questions
   instead of an unqualified pick, manual gates asked once and resumed, answers
@@ -205,18 +275,23 @@ asserts its transport call counts or new sessions per stage.
 
 ## What remains
 
-- The stages run as engine-managed native sessions only once Agent Workflow
+- The installed `dk-pr-fix` and `dk-pr-review` workflows do not run the staged
+  procedure yet, so they reject its adapters. Installing it needs native stage
+  tasks with helper checks, engine input gates for manual selection, and the
+  stage checks and alignment ledger inside the helper closure, which cannot
+  import this library. Agent Workflow
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) land. The
-  installed `dk-pr-fix` and `dk-pr-review` workflows do not run the staged
-  procedure yet, so they reject its adapters. No local controller or launcher
-  stands in for either.
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) are on
+  its `main` but in no release, and its `plugin test` runner rejects container
+  jobs ([packaging](packaging.md#what-remains-blocked)), so no installed run can
+  be exercised by a deterministic packaged fixture yet. No local controller or
+  launcher stands in for the engine.
 - Plugin skill entries (`SKILL.md` and descriptor rows) wait for an installed
   workflow that runs them ([packaging](packaging.md)).
-- No equivalent yet: saved per-skill alternatives options (entries are admitted
-  from bundled defaults and invocation options), sourced
-  [decision reconciliation](https://github.com/dk-code-factory/cf-workflows/issues/28)
-  inputs, sharing one assessment between the whole-problem and branch records,
-  and per-entry native model controls.
+- No equivalent yet: per-entry native controls for the alternatives stages. The
+  configuration entries admit them at library level
+  ([native controls](configuration-skills.md#native-controls)); managed control
+  parity across providers waits for Agent Workflow
+  [#134](https://github.com/dk-code-factory/agent-workflow/issues/134).
 - Real native-session adherence needs separate authorization. These fixtures do
   not establish it.

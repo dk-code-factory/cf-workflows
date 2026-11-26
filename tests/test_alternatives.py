@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests'))
 sys.path.insert(0, str(ROOT))
 sys.dont_write_bytecode = True  # Never add caches to the installed closure.
-from cf_workflows import admission, alignment, alternatives, dk_pr_fix, entries  # noqa: E402
+from cf_workflows import admission, alignment, alternatives, configuration, dk_pr_fix, entries  # noqa: E402
 from test_admission import CAPABILITIES, FakeTransport  # noqa: E402
 from test_configuration_skills import Engine  # noqa: E402
 from test_semantic import verdict  # noqa: E402
@@ -195,6 +195,15 @@ def branch_script(**overrides):
 def whole_script(kinds=('pr', 'smallest', 'alternative'), **overrides):
     return {'assessment': assessment(), 'inventory': whole_inventory(), 'comparison:whole': comparison(kinds),
             'selection:whole': auto(), 'interactions': COMPATIBLE, **overrides}
+
+
+def reconciled(**changes):
+    """A cf_workflows.decisions.handoff() value: one settled user commitment."""
+    value = {'result_ref': 'decisions-1', 'commitments': [
+        {'id': 'bounded-retries', 'subject': 'Retries', 'text': 'Retries stop after five attempts.',
+         'status': 'settled', 'scope': 'src/retry.py', 'sources': ['comment-1']}],
+        'exceptions': [], 'unresolved': [], 'questions': [], 'dependent_work': 'released'}
+    return {**value, **changes}
 
 
 ANALYSIS = ('assessment', 'inventory', 'comparison:retry', 'comparison:scheduler', 'selection:retry',
@@ -428,7 +437,9 @@ class Scope(Fixture):
         self.assertEqual((whole['status'], whole['scope'], whole['persisted']), ('complete', 'whole-problem', True))
         branch = self.pr_run('dk-pr-alternatives', branch_script())
         self.assertEqual((branch['status'], branch['scope']), ('complete', 'branch'))
-        self.assertEqual(sum(1 for item in branch['stages'] if item['action'] == 'run'), 7)
+        # The branch record adopts the shared assessment and runs the rest itself.
+        self.assertEqual([item['action'] for item in branch['stages']].count('run'), 6)
+        self.assertEqual(branch['stages'][0]['action'], 'shared')
         runs = sorted(path.name for path in (self.state / 'runs').iterdir())
         self.assertEqual(len(runs), 2)
         self.assertTrue(any('.whole-problem.' in name for name in runs))
@@ -449,6 +460,80 @@ class Scope(Fixture):
             script.update(override)
             result = self.pr_run(name, script)
             self.assertEqual((result['status'], result['stage']), ('blocked', stage), (name, override, result))
+
+    def test_whole_problem_and_branch_records_share_one_assessment(self):
+        whole = self.pr_run('dk-issue-alternatives', whole_script())
+        self.assertEqual(whole['status'], 'complete', whole)
+        before = copy.copy(self.engine.sessions)
+        branch = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual(branch['status'], 'complete', branch)
+        self.assertEqual(self.new_sessions(before), Counter({key: 1 for key in ANALYSIS[1:]}))
+        [origin] = [item['reference'] for item in whole['stages'] if item['key'] == 'assessment']
+        shared = branch['stages'][0]
+        self.assertEqual((shared['key'], shared['action'], shared['origin']),
+                         ('assessment', 'shared', 'whole-problem:' + origin))
+        self.assertEqual(self.record('assessment')['result'], assessment())
+        self.assertEqual(branch['allowances']['architecture']['used'], 6)  # Adoption reserves nothing.
+        inventory = next(task for task in self.fake.tasks if task['mode'] == 'inventory')
+        self.assertEqual(inventory['context']['assessment'], assessment())
+        # Settled once adopted: later runs reuse it from their own record.
+        before = copy.copy(self.engine.sessions)
+        again = self.pr_run('dk-pr-alternatives', branch_script())
+        self.assertEqual((again['stages'][0]['action'], self.new_sessions(before)), ('reuse', Counter()))
+        # Branch first: the whole-problem record adopts the branch assessment.
+        self.state = self.base / 'branch first'
+        self.pr_run('dk-pr-alternatives', branch_script())
+        before = copy.copy(self.engine.sessions)
+        whole = self.pr_run('dk-issue-alternatives', whole_script())
+        self.assertEqual((whole['status'], whole['stages'][0]['action']), ('complete', 'shared'))
+        self.assertTrue(whole['stages'][0]['origin'].startswith('branch:assessment@alt-'))
+        self.assertEqual(self.new_sessions(before)['assessment'], 0)
+        # An assessment this run cannot cite (other requirements) is not adopted; this scope runs its own.
+        self.state = self.base / 'other requirements'
+        self.pr_run('dk-issue-alternatives', whole_script())
+        ticket = [{'source': 'ticket:9', 'text': 'Retries must be bounded.'}]
+        own = assessment(evidence=['ticket:9'], rubrics=[{**RUBRIC, 'evidence': ['ticket:9']}])
+        before = copy.copy(self.engine.sessions)
+        branch = self.pr_run('dk-pr-alternatives', branch_script(assessment=own), requirements=ticket)
+        self.assertEqual((branch['status'], branch['stages'][0]['action']), ('complete', 'run'), branch)
+        self.assertEqual(self.new_sessions(before)['assessment'], 1)
+
+    def test_reconciled_decisions_feed_the_inventory_and_bind_current_alignment(self):
+        handoff = reconciled()
+        cited = branch_inventory(retry={'evidence': ['git:src/retry.py:2', 'decision:bounded-retries']})
+        result = self.pr_run('dk-pr-alternatives', branch_script(inventory=cited, alignment=current()),
+                             caller='cf-workflows:dk-pr-review', decisions=handoff)
+        self.assertEqual((result['status'], result['decisions']), ('released', 'decisions-1'), result)
+        inventory = next(task for task in self.fake.tasks if task['mode'] == 'inventory')
+        self.assertEqual(inventory['context']['decisions'], handoff)
+        aligned = next(task for task in self.fake.tasks if task['mode'] == 'alignment')
+        self.assertEqual(aligned['context']['decisions'], handoff)
+        # A new reconciliation refreshes current alignment only; the settled inventory stays.
+        before = copy.copy(self.engine.sessions)
+        later = reconciled(result_ref='decisions-2', commitments=[*handoff['commitments'], {
+            'id': 'log-retries', 'subject': 'Logging', 'text': 'Log each retry.', 'status': 'settled',
+            'scope': 'src/retry.py', 'sources': ['comment-2']}])
+        again = self.pr_run('dk-pr-alternatives', branch_script(alignment=current()),
+                            caller='cf-workflows:dk-pr-review', decisions=later)
+        self.assertEqual(again['status'], 'released', again)
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
+        # The inventory may cite only reconciled decisions it was given.
+        self.state = self.base / 'unknown decision'
+        unknown = branch_inventory(retry={'evidence': ['git:src/retry.py', 'decision:other']})
+        blocked = self.pr_run('dk-pr-alternatives', branch_script(inventory=unknown), decisions=handoff)
+        self.assertEqual((blocked['status'], blocked['stage']), ('blocked', 'inventory'))
+        # A reconciled decision is not a whole-problem requirement.
+        self.state = self.base / 'whole problem'
+        whole = self.pr_run('dk-issue-alternatives', whole_script(
+            inventory=whole_inventory(evidence=['decision:bounded-retries'])), decisions=handoff)
+        self.assertEqual((whole['status'], whole['stage']), ('blocked', 'inventory'))
+        # Malformed or inconsistent handoffs reject before any session.
+        for bad in ({**handoff, 'dependent_work': 'blocked'}, {**handoff, 'commitments': [{'id': 'x'}]},
+                    {**handoff, 'unresolved': [{'id': 'c'}]}, {k: v for k, v in handoff.items() if k != 'questions'}):
+            self.state = self.base / 'bad'
+            rejected = self.pr_run('dk-pr-alternatives', {}, decisions=bad)
+            self.assertEqual((rejected['status'], rejected['error']['path'].split('.')[0]), ('rejected', 'decisions'))
+            self.assertEqual(self.fake.calls['native_session'], 0)
 
     def test_inherited_decisions_are_inventoried_and_compared(self):
         result = self.pr_run('dk-pr-alternatives', branch_script())
@@ -776,6 +861,23 @@ class Composition(Fixture):
         self.assertEqual(again['handoff']['alignment'], 'aligned')
         self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
 
+    def test_unresolved_reconciliation_blocks_the_fix_handoff_but_not_the_analysis(self):
+        contested = reconciled(unresolved=[{'id': 'retry-limit', 'subject': 'Retry limit', 'decisions': [
+            'bounded-retries'], 'sources': ['comment-1'], 'question': 'Five or ten?', 'resolution': None}],
+            dependent_work='blocked')
+        result = self.pr_run('dk-issue-alternatives', whole_script(alignment=current('mismatch')),
+                             caller='cf-workflows:dk-pr-fix', decisions=contested)
+        self.assertEqual(result['status'], 'decisions_blocked', result)
+        self.assertNotIn('handoff', result)
+        self.assertEqual(result['unresolved'], contested['unresolved'])
+        self.assertEqual(result['selections']['whole']['choice'], 'smallest')  # The analysis is settled.
+        # The user's answer releases the handoff with no architectural session.
+        before = copy.copy(self.engine.sessions)
+        released = self.pr_run('dk-issue-alternatives', whole_script(alignment=current('mismatch')),
+                               caller='cf-workflows:dk-pr-fix', decisions=reconciled(result_ref='decisions-2'))
+        self.assertEqual((released['status'], released['handoff']['required_changes']), ('complete', CHANGES))
+        self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
+
     def test_coordinators_compose_only_their_scope(self):
         for name, caller in (('dk-issue-alternatives', 'cf-workflows:dk-pr-review'),
                              ('dk-pr-alternatives', 'cf-workflows:dk-pr-fix'),
@@ -783,6 +885,137 @@ class Composition(Fixture):
             result = self.pr_run(name, {}, caller=caller)
             self.assertEqual((result['status'], result['error']['path']), ('rejected', 'caller'))
             self.calls()
+
+
+# -- Saved entry options ----------------------------------------------------------------------------------
+
+def scope(ident, kind, target, **saved):
+    return {'id': ident, 'selector': {'kind': kind, 'id': target}, 'options': {}, 'permissions': {}, 'prompts': [],
+            'skills': [], 'preferences': [], 'entries': saved}
+
+
+def document(*scopes):
+    return {**configuration.empty_configuration(), 'revision': 'rev-1', 'scopes': list(scopes)}
+
+
+PR_URL = admission.pr_identity(PR, 'pr')['url']
+
+
+class SavedOptions(Fixture):
+    def test_saved_entry_options_apply_under_invocation_options_with_provenance(self):
+        saved = document(
+            scope('repo', 'repository', REPOSITORY,
+                  **{'dk-pr-alternatives': {'selection': {'mode': 'automatic', 'min_score_gap': 20}}}),
+            scope('this-pr', 'pr', PR_URL, **{'dk-pr-alternatives': {'selection': {'min_score_gap': 5}}}),
+            scope('mine', 'personal', 'me', **{'dk-issue-alternatives': {'selection': {'mode': 'manual'}}}),
+            scope('elsewhere', 'repository', 'github.com/other/repo',
+                  **{'dk-pr-alternatives': {'selection': {'mode': 'manual'}}}))
+        request = admission.resolve_request({'pr': PR, 'instructions': 'x'})
+        layers = configuration.entry_options(saved, 'dk-pr-alternatives', request)
+        self.assertEqual([(source, where) for source, where, _ in layers], [
+            ('repository:repo', 'configuration.scopes[0].entries.dk-pr-alternatives'),
+            ('pr:this-pr', 'configuration.scopes[1].entries.dk-pr-alternatives')])
+        checked = entries.check_options('dk-pr-alternatives', {'selection': {'enabled': False}}, layers)
+        self.assertEqual(checked['selection']['value'], {**entries.ALTERNATIVES_OPTIONS['selection'], 'mode': 'automatic',
+                                                         'min_score_gap': 5, 'enabled': False})
+        self.assertEqual((checked['selection']['source'], checked['selection']['sources']), ('invocation', {
+            'selection.enabled': 'invocation', 'selection.min_score_gap': 'pr:this-pr',
+            'selection.mode': 'repository:repo'}))
+        self.assertEqual(checked['scoring'], {'value': entries.ALTERNATIVES_OPTIONS['scoring'], 'source': 'default'})
+        # The saved automatic mode governs the run: a close pick stays pending and nothing asks the user.
+        close = comparison(ratings={'pr': 80, 'smallest': 85, 'alternative': 20})
+        result = self.pr_run('dk-pr-alternatives', branch_script(**{'comparison:retry': close,
+                                                                    'selection:retry': auto(None)}),
+                             configuration=saved)
+        self.assertEqual(result['status'], 'choice_pending', result)
+        self.assertEqual(self.fake.calls['input_gates'] + self.fake.calls['open_input_gate'], 0)
+        self.assertEqual(result['admission']['entry']['options']['selection']['sources']['selection.mode'],
+                         'repository:repo')
+        selection = next(task for task in self.fake.tasks if task['mode'] == 'selection')
+        self.assertEqual((selection['options']['selection']['mode'], selection['context']['policy']['min_score_gap']),
+                         ('automatic', 5))
+        # Invocation options override saved ones; the issue entry reads only its own saved options.
+        self.state = self.base / 'invoked'
+        invoked = self.pr_run('dk-pr-alternatives', branch_script(), configuration=saved,
+                              options={'selection': {'mode': 'semi-manual'}})
+        self.assertEqual(invoked['status'], 'complete', invoked)
+        self.assertEqual(self.fake.calls['input_gates'], 2)
+        issue = entries.check_options('dk-issue-alternatives', None, configuration.entry_options(
+            saved, 'dk-issue-alternatives', request))
+        self.assertEqual((issue['selection']['value']['mode'], issue['selection']['source']), ('manual', 'personal:mine'))
+        # The compatibility entry passes them as its delegate's.
+        self.state = self.base / 'compatibility'
+        transport = self.transport(branch_script(**{'comparison:retry': close, 'selection:retry': auto(None)}))
+        compat = alternatives.compatibility(route='branch', request={'pr': PR, 'instructions': 'Review alts.'},
+                                            deployment=self.deployment, repository=self.repo, transport=transport,
+                                            target=self.target, head=self.head, state=self.state,
+                                            requirements=ISSUE, configuration=saved)
+        self.assertEqual(compat['status'], 'choice_pending', compat)
+        self.assertEqual(self.fake.calls['input_gates'], 0)
+
+    def test_invalid_saved_entry_options_reject_before_the_engine(self):
+        cases = [
+            (document(scope('repo', 'repository', REPOSITORY,
+                            **{'dk-pr-alternatives': {'selection': {'mode': 'sometimes'}}})),
+             'configuration.scopes[0].entries.dk-pr-alternatives.selection.mode'),
+            (document(scope('repo', 'repository', REPOSITORY, **{'dk-alternatives-review': {}})),
+             'configuration.scopes[0].entries.dk-alternatives-review'),
+            # Not applicable to this PR, but still validated in full.
+            (document(scope('other', 'repository', 'github.com/other/repo',
+                            **{'dk-pr-alternatives': {'unknown': 1}})),
+             'configuration.scopes[0].entries.dk-pr-alternatives.unknown'),
+            (document(scope('a', 'repository', REPOSITORY, **{'dk-pr-alternatives': {'selection': {'mode': 'manual'}}}),
+                      scope('b', 'repository', REPOSITORY,
+                            **{'dk-pr-alternatives': {'selection': {'mode': 'automatic'}}})),
+             'configuration.scopes[1].entries.dk-pr-alternatives.selection.mode'),
+            ({'kind': 'configuration'}, 'configuration'),
+        ]
+        for saved, path in cases:
+            result = self.pr_run('dk-pr-alternatives', {}, configuration=saved)
+            self.assertEqual((result['status'], result['admission']['error']['path']), ('rejected', path), saved)
+            self.calls()
+        self.assertFalse(self.state.exists())
+        # Two scopes at one precedence that agree, or set different parts, are consistent.
+        agreeing = document(
+            scope('a', 'repository', REPOSITORY, **{'dk-pr-alternatives': {'selection': {'mode': 'manual'}}}),
+            scope('b', 'repository', REPOSITORY, **{'dk-pr-alternatives': {'selection': {'mode': 'manual',
+                                                                                         'min_score_gap': 3}}}))
+        request = admission.resolve_request({'pr': PR, 'instructions': 'x'})
+        layers = configuration.entry_options(agreeing, 'dk-pr-alternatives', request)
+        self.assertEqual(entries.check_options('dk-pr-alternatives', None, layers)['selection']['value']['min_score_gap'], 3)
+        with self.assertRaises(admission.AdmissionError):
+            entries.check_options('dk-config', None, layers)
+
+    def test_dk_config_saves_and_shows_entry_options(self):
+        where = {'repository': REPOSITORY, 'pr': None, 'upstream': None}
+        options = entries.check_options('dk-config', None)
+        saved = document(scope('repo', 'repository', REPOSITORY))
+        revised, changes = configuration.apply_operations(saved, [
+            {'op': 'set_entry_option', 'scope': 'repo', 'entry': 'dk-pr-alternatives', 'key': 'selection',
+             'value': {'mode': 'manual'}}], 'dk-config', where, options)
+        self.assertEqual(revised['scopes'][0]['entries'], {'dk-pr-alternatives': {'selection': {'mode': 'manual'}}})
+        self.assertEqual(changes['paths'], ['scopes.repo.entries.dk-pr-alternatives.selection'])
+        shown = configuration.view(revised, where)
+        self.assertEqual(shown['values']['entries.dk-pr-alternatives.selection'], {
+            'value': {**entries.ALTERNATIVES_OPTIONS['selection'], 'mode': 'manual'}, 'source': 'repository:repo',
+            'path': 'configuration.scopes[0].entries.dk-pr-alternatives.selection'})
+        with self.assertRaises(admission.AdmissionError):  # Remove the contents explicitly first.
+            configuration.apply_operations(revised, [{'op': 'remove_scope', 'scope': 'repo'}], 'dk-config', where,
+                                           options)
+        cleared, _ = configuration.apply_operations(revised, [
+            {'op': 'unset_entry_option', 'scope': 'repo', 'entry': 'dk-pr-alternatives', 'key': 'selection'},
+            {'op': 'remove_scope', 'scope': 'repo'}], 'dk-config', where, options)
+        self.assertEqual(cleared['scopes'], [])
+        for operation in ({'op': 'set_entry_option', 'scope': 'repo', 'entry': 'dk-ci-flakes', 'key': 'max_runs',
+                           'value': 5},
+                          {'op': 'unset_entry_option', 'scope': 'repo', 'entry': 'dk-pr-alternatives', 'key': 'x'}):
+            with self.assertRaises(admission.AdmissionError, msg=operation):
+                configuration.apply_operations(saved, [operation], 'dk-config', where, options)
+        # dk-preferences cannot save entry options.
+        with self.assertRaises(admission.AdmissionError):
+            configuration.apply_operations(saved, [{'op': 'set_entry_option', 'scope': 'repo', 'entry':
+                                                    'dk-pr-alternatives', 'key': 'selection', 'value': {}}],
+                                           'dk-preferences', where, entries.check_options('dk-preferences', None))
 
 
 # -- Compatibility entry ----------------------------------------------------------------------------------
