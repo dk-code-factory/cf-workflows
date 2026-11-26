@@ -7,15 +7,21 @@
 them. Their adapter procedures are the bundled adapters and the installed helpers
 in [`prfix/responses.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/responses.py)
 and [`prfix/feedback.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py).
-They add no orchestration and load no skill. They don't run yet (see
-[What remains](#what-remains)).
+Each is listed in the plugin descriptor with its own `SKILL.md` and installed
+entry workflow. They add no orchestration and load no skill. They don't run yet
+(see [What remains](#what-remains)).
 
 ## Entries
 
 Each entry has these parts:
 
-- A preset selection for `workflows/main.yml`, with explicitly empty finalizers
-  and reviewers.
+- An installed entry workflow, `workflows/feedback-read.yml`,
+  `feedback-address.yml` or `feedback-reply.yml`, and its descriptor row and
+  [`SKILL.md`](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-feedback-read/SKILL.md).
+  The entry workflow calls `workflows/main.yml` with the preset task selection
+  and explicitly empty finalizers and reviewers written into the workflow. It
+  declares no `tasks`, `finalizers`, `reviewers` or `adapters` input, so an
+  engine input cannot change the preset. `main.yml` runs its bundled adapters.
 - The bundled adapters that selection runs, all with the admitted `leaf` role, and
   their helper operations.
 - The entry's original role prompt and options from the pinned baseline. Each
@@ -27,8 +33,10 @@ Each entry has these parts:
 | `dk-pr-feedback-address` | `read-feedback`, `reconcile-decisions`, `address-feedback` | `additional_validation_commands` | none (a local controlled commit only) |
 | `dk-pr-feedback-reply` | `{stage: responses}` | `reply_prompt`, `resolve_answered_threads` | `reply`, `resolve_thread` |
 
-`preflight()` is the shared `dk-pr-fix` preflight. It runs the same structural
-admission, installed-closure check, state namespace and staged request. The
+`preflight()` is the shared `dk-pr-fix` preflight with the entry workflow as its
+installation entry. It runs the same structural admission, installed-closure
+check, state namespace and staged request, and returns only the inputs the entry
+workflow declares. The
 preset is applied at invocation precedence, so a configured task selection for
 `dk-pr-fix` never changes an entry. Configured permissions, accounts and limits
 still apply. A configured replacement of a bundled adapter is custom input, and
@@ -54,8 +62,8 @@ Options are honored only where the installed workflow carries them:
 - `resolve_answered_threads`: false keeps threads open, because the
   `resolve_thread` authorization rejects and the `resolve_threads` input stays
   false.
-- `additional_validation_commands`: only the default `[]` is accepted. Settings
-  carry booleans and integers only, so commands have no installed input yet.
+- `additional_validation_commands`: carried by the `validation_commands` input
+  of `feedback-address.yml` and `main.yml`. See [Validation commands](#validation-commands).
 
 ## Reading
 
@@ -129,6 +137,33 @@ are the remaining response obligations. The address entry publishes nothing.
 Pushing the fix needs [publication](publication.md) through `dk-pr-fix` or
 `dk-pr-publish` (#31).
 
+## Validation commands
+
+`dk-pr-feedback-address` accepts `additional_validation_commands` as in the
+baseline: argument arrays that the address session runs in the checkout,
+besides its relevant checks, and that never launch Codex or Claude Code.
+
+- Admission (`check_options()`) accepts at most 32 commands of 1 to 256
+  nonempty argument strings, 64 KiB in all. A shell string, an empty argument
+  or a command whose program is `codex` or `claude` rejects. The other entries
+  reject the option.
+- Preflight passes the exact arrays as the `validation_commands` input. The
+  helper (`validation_commands()` in `prfix/prepare.py`) checks the same shape
+  and bounds again, and incoming review rejects any command. The plan keeps
+  them only when there are some, so a plan without them is unchanged.
+- Only the `address-feedback` claim's assignment gets `validation_commands`:
+  the commands and the execution contract. Read, reconciliation and composed
+  `dk-pr-fix` sessions without configured commands get none.
+- A complete address report that changes files must report
+  `deliverables.validation_commands`: one `{argv, exit_code}` per configured
+  command, in order, each with its exact argument array and exit code 0
+  (`check_validation()` in `prfix/app.py`). Otherwise the report gets a bounded
+  same-session correction and nothing is committed. A report without changes
+  implements nothing to validate.
+
+The helper checks what the session reports. It does not run the commands
+itself.
+
 ## Replying
 
 `dk-pr-feedback-reply` runs the shared [response stage](responses.md) alone: one
@@ -157,7 +192,9 @@ assert native dispatch, capture, page and write counts. They cover:
 
 - **Preflight.** Presets and adapters, the shared logical run, baseline prompt
   digests, the shared reply prompt in `main.yml`, configured and invocation
-  overrides, per-entry authority and options.
+  overrides, per-entry authority and options. Each entry workflow fixes its
+  preset, declares exactly the inputs preflight returns and has its descriptor
+  row and `SKILL.md`. Its plan equals the plan from the admitted adapters.
 - **Read.** 252 sources over two REST pages per collection and two GraphQL
   thread pages, through the real gh capture and fake routes. A wrong thread
   count, a duplicate row, drift and a missing thread never complete. A read that
@@ -173,6 +210,9 @@ assert native dispatch, capture, page and write counts. They cover:
   write. Refused and uncertain resolutions, a refused reply, and denied
   permission or authorization each stay incomplete. A lost reply response is
   reconciled on resume without a resend.
+- **Validation commands.** Admission and helper bounds, the commands reaching
+  only the address session, and missing, altered or failing results that get a
+  correction and commit nothing.
 
 ## What remains
 
@@ -180,9 +220,11 @@ assert native dispatch, capture, page and write counts. They cover:
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
   [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). No local
   controller or launcher stands in. The fixtures drive only the helpers.
-- Plugin skill entries (`SKILL.md` and descriptor rows) wait for that runtime
+- The descriptor rows and `SKILL.md` files claim no runtime support
   ([packaging](packaging.md)). The three inventory rows stay `not_implemented`.
-- These features have no installed input yet: a custom `reply_prompt` and
-  `additional_validation_commands`. Supplied skills need #16.
+- A custom `reply_prompt` is custom prompt text: it needs semantic admission
+  (#2) and an installed input. Supplied skills need #16.
+- That a real session runs the validation commands it reports needs a live
+  provider run; the fixtures check only the reported results.
 - Real GitHub conformance needs separate authorization. One open question is the
   thread root that GitHub reports for replies to thread replies.

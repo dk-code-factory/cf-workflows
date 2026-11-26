@@ -144,6 +144,11 @@ name: cf-workflows:dk-pr-fix
         # fix maintains the PR; review is incoming review (workflows/review.yml).
         type: string
         default: fix
+      validation_commands:
+        # Argument arrays an address-feedback session runs in the checkout besides its relevant
+        # checks (dk-pr-feedback-address's additional_validation_commands; workflows/feedback-address.yml).
+        type: array
+        default: []
     secrets:
       github_token:
         required: true
@@ -185,6 +190,7 @@ jobs:
           resources: ${{ inputs.resources }}
           turns: ${{ inputs.turns }}
           mode: ${{ inputs.mode }}
+          validation_commands: ${{ inputs.validation_commands }}
     secrets:
       github_token: ${{ secrets.github_token }}
     needs:

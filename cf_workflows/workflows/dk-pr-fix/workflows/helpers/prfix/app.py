@@ -386,6 +386,8 @@ def prepare_claim(root, provider, ledger, plan, inputs):
         # paths may back a fixed decision, and a fixed decision without one is implemented again.
         assignment["feedback"] = feedback_context(
             root, provider, plan, feedback_fixes(root, ledger) if feedback_role(task) == "address" else None)
+        if feedback_role(task) == "address" and plan.get("validation_commands"):
+            assignment["validation_commands"] = {"commands": plan["validation_commands"], "contract": VALIDATION_CONTRACT}
     reference = artifact(root, assignment)
     # Reviewers share each input-sensitive round. A fresh invocation of a
     # noncacheable reviewer consumes another round even when inputs are unchanged.
@@ -482,6 +484,38 @@ def _retained_fix(root, ledger, finding_id):
             return {"claim": wrapper["claim"], "report": row["reference"],
                     "head": commit["head"], "changes": report["changes"]}
     return None
+
+
+VALIDATION_CONTRACT = (
+    "After your changes and the relevant checks, run each configured validation command exactly as its argument "
+    "array, without a shell, in the workspace. Report deliverables.validation_commands: one {argv, exit_code} per "
+    "command, in the configured order. A complete report that changes files needs every command to exit 0. Never "
+    "use these commands to launch Codex or Claude Code.")
+
+
+def check_validation(plan, report):
+    """A complete address report that changes files ran every configured validation command, all passing.
+
+    The commands are the plan's exact argument arrays (dk-pr-feedback-address's
+    additional_validation_commands); a report without changes implements nothing to validate.
+    """
+    commands = plan.get("validation_commands") or []
+    if not commands or not report.get("changes"):
+        return
+    deliverables = report.get("deliverables")
+    results = deliverables.get("validation_commands") if isinstance(deliverables, dict) else None
+    if (not isinstance(results, list) or len(results) != len(commands)
+            or any(not isinstance(result, dict) or set(result) != {"argv", "exit_code"} for result in results)):
+        raise ReportContractError("deliverables.validation_commands must report {argv, exit_code} for each of the "
+                                  f"{len(commands)} configured validation commands, in order")
+    for number, (command, result) in enumerate(zip(commands, results), 1):
+        if result["argv"] != command:
+            raise ReportContractError(f"validation command {number} must run exactly its configured argument array")
+        if type(result["exit_code"]) is not int:
+            raise ReportContractError(f"validation command {number} needs an integer exit_code")
+        if result["exit_code"] != 0:
+            raise ReportContractError(f"validation command {number} failed with exit code {result['exit_code']}; "
+                                      "fix the change or report the task incomplete")
 
 
 def feedback_fixes(root, ledger):
@@ -649,6 +683,8 @@ def accept(root, provider, ledger, plan, inputs):
         elif feedback_role(task) and complete:
             # Reading or addressing feedback must leave every current source assessed; its
             # assessments are retained only once the report's effects are committed below.
+            if feedback_role(task) == "address":
+                check_validation(plan, report)
             try:
                 fixes = feedback_fixes(root, ledger) if feedback_role(task) == "address" else {}
                 validated = check_feedback(root, provider, plan, task, report, fixes)

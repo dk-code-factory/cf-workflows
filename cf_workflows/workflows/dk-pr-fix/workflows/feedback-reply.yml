@@ -1,0 +1,70 @@
+# Authored for cf-workflows (#30); no upstream counterpart. See docs/feedback-skills.md.
+# Feedback reply: a preset over the shared workflow. The task selection is fixed here, with no
+# finalizers or reviewers; the bundled adapters are main.yml's defaults. No skill is loaded.
+name: cf-workflows:dk-pr-feedback-reply
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          reply_to_feedback: false
+          resolve_threads: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.feedback.outputs.complete }}
+      provisional:
+        value: ${{ jobs.feedback.outputs.provisional }}
+jobs:
+  feedback:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks:
+      - stage: responses
+      finalizers: []
+      reviewers: []
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

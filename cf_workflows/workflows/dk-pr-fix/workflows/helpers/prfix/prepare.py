@@ -41,6 +41,24 @@ RESPONDER = "reply-feedback"
 # Plan modes. "review" is incoming review of a PR (cf-workflows:dk-pr-review):
 # read-only tasks and reviewers, independent verification and no finding fixes.
 MODES = ("fix", "review")
+# Additional validation commands (dk-pr-feedback-address's additional_validation_commands):
+# argument arrays the address session runs in the checkout besides its relevant checks.
+VALIDATION_LIMITS = {"commands": 32, "arguments": 256, "bytes": 64 << 10}
+
+
+def validation_commands(raw):
+    """The exact validated argument arrays: no shell string and no empty argument.
+
+    Admission (dk_pr_feedback.check_options) also rejects a command that launches a provider CLI.
+    """
+    if (not isinstance(raw, list) or len(raw) > VALIDATION_LIMITS["commands"]
+            or any(not isinstance(command, list) or not 1 <= len(command) <= VALIDATION_LIMITS["arguments"]
+                   or any(not isinstance(argument, str) or not argument.strip() or "\0" in argument
+                          for argument in command) for command in raw)):
+        raise ValueError("validation commands are arrays of 1-256 nonempty argument strings, at most 32 commands")
+    if len(json.dumps(raw).encode()) > VALIDATION_LIMITS["bytes"]:
+        raise ValueError("validation commands exceed 64 KiB")
+    return [list(command) for command in raw]
 
 
 def _selection(raw):
@@ -177,7 +195,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     pr = identity(request["pr"])
     instructions = text(request.get("instructions"), "exact original instruction")
     execution_fingerprint = text(execution_fingerprint, "admitted execution fingerprint")
-    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode"}:
+    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode", "validation_commands"}:
         raise ValueError("unsupported YAML preparation input")
     mode = controls.get("mode", "fix")
     if mode not in MODES:
@@ -191,7 +209,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if set(definitions) != {"leaf", "reviewer", "verifier", "fixer", "audience"}:
         raise ValueError("five explicit native definitions required")
     options = {key: value for key, value in controls.items()
-               if key not in {"settings", "resources", "adapters", "turns", "mode"}}
+               if key not in {"settings", "resources", "adapters", "turns", "mode", "validation_commands"}}
     allowed_options = {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method",
                        "ci_timeout_seconds", "ci_classifications", "ci_exceptions", "before_cycle", "after_cycle"}
     if set(options) - allowed_options:
@@ -218,6 +236,9 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         raise ValueError("fork workflow approval belongs to incoming review; dk-pr-fix never approves it")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
+    validation = validation_commands(controls.get("validation_commands", []))
+    if validation and mode == "review":
+        raise ValueError("incoming review addresses no feedback, so it runs no validation commands")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
               "max_parallel_reviewers": 0, **options.get("limits", {})}
     # max_parallel_reviewers only schedules: it caps each reviewer group's concurrency (0: no cap)
@@ -349,6 +370,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "history": False, "head_sensitive": True, "cacheable": False})
     plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),
+            # Only an address session receives them (app.prepare_claim); absent when none are configured.
+            **({"validation_commands": validation} if validation else {}),
             "runtime": {"execution_fingerprint": execution_fingerprint}, "execution_fingerprint": execution_fingerprint, "turns": turns,
             "authorizations": authorizations, "limits": limits, "tasks": tasks, "stages": stages,
             "resources": {}, "definitions": {key: hashlib.sha256(value).hexdigest() for key, value in definitions.items()},

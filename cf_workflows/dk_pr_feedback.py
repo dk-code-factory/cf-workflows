@@ -1,11 +1,12 @@
 """Feedback read, address and reply entries as thin presets over the shared workflow (contract v1).
 
 cf-workflows:dk-pr-feedback-read, dk-pr-feedback-address and dk-pr-feedback-reply add no
-orchestration. Each entry is a preset selection for the installed dk-pr-fix workflow
-(main.yml), the bundled adapters that selection runs and their helper operations in the
-installed helpers (prfix/responses.py and prfix/feedback.py), and the entry's original
-options. Preflight is dk-pr-fix preflight: the same structural admission, installed
-closure, state namespace and staged request. No skill is loaded.
+orchestration. Each entry is a preset selection for the installed dk-pr-fix workflow: its
+installed entry workflow (workflows/feedback-*.yml, listed in plugin.yaml) calls main.yml
+with the fixed selection and main.yml's bundled adapters. The bundled adapters that
+selection runs have their helper operations in the installed helpers (prfix/responses.py
+and prfix/feedback.py). Preflight is dk-pr-fix preflight: the same structural admission,
+installed closure, state namespace and staged request. No skill is loaded.
 
 The entries share the PR's default logical run with dk-pr-fix, so standalone and
 composed runs read and settle one feedback record and one publication journal: a
@@ -15,15 +16,21 @@ Original role prompts and options come from the pinned dk-workflows baseline
 (MIT; see licenses/dk-workflows-MIT.txt).
 """
 import copy
+import json
+import os
 
 from . import admission, dk_pr_fix
 from .admission import AdmissionError, require
 
-ENTRY = dk_pr_fix.ENTRY
+# Inputs every entry workflow declares; the selection and adapters are fixed by the entry workflow.
+INPUTS = ('request', 'limits', 'permissions', 'ci', 'merge_method', 'accounts', 'settings', 'resources', 'turns')
+# The installed helper's bounds for validation commands (prfix/prepare.py validation_commands).
+VALIDATION_COMMANDS, VALIDATION_ARGUMENTS, VALIDATION_BYTES = 32, 256, 64 << 10
+PROVIDER_COMMANDS = ('codex', 'claude')
 # Exact baseline role prompts (prompts/default.md at the pinned commit; digests in baselines/inventory.json).
 ENTRIES = {
     'dk-pr-feedback-read': {
-        'skill': 'cf-workflows:dk-pr-feedback-read',
+        'skill': 'cf-workflows:dk-pr-feedback-read', 'entry': 'workflows/feedback-read.yml', 'inputs': INPUTS,
         'preset': {'tasks': ['read-feedback'], 'finalizers': [], 'reviewers': []},
         'role_prompt': 'Use the supplied complete evidence handoff. Without one, use '
                        '`fetch_unresolved_review_threads.py` and `fetch_pr_conversation.py` under '
@@ -34,7 +41,8 @@ ENTRIES = {
         'operations': ('capture', 'context', 'check_feedback', 'retain_feedback', 'summary'),
     },
     'dk-pr-feedback-address': {
-        'skill': 'cf-workflows:dk-pr-feedback-address',
+        'skill': 'cf-workflows:dk-pr-feedback-address', 'entry': 'workflows/feedback-address.yml',
+        'inputs': INPUTS + ('validation_commands',),
         # Reading and decision reconciliation are the baseline entry's own first steps.
         'preset': {'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback'], 'finalizers': [],
                    'reviewers': []},
@@ -49,7 +57,7 @@ ENTRIES = {
         'operations': ('capture', 'context', 'check_feedback', 'controlled_commit', 'retain_feedback', 'summary'),
     },
     'dk-pr-feedback-reply': {
-        'skill': 'cf-workflows:dk-pr-feedback-reply',
+        'skill': 'cf-workflows:dk-pr-feedback-reply', 'entry': 'workflows/feedback-reply.yml', 'inputs': INPUTS,
         'preset': {'tasks': [{'stage': 'responses'}], 'finalizers': [], 'reviewers': []},
         'role_prompt': 'Reply to affected PR feedback and resolve fully answered inline threads when authorized.\n',
         'baseline_prompt': 'claude/skills/dk-pr-feedback-reply/prompts/default.md',
@@ -70,7 +78,8 @@ def check_options(name, options):
     """The entry's own options (its baseline schema) with provenance; unknown or unsupported values reject.
 
     Only values the installed workflow actually honors are accepted: the default reply prompt
-    (applied by the shared responder), resolve_answered_threads, and an empty validation list.
+    (applied by the shared responder), resolve_answered_threads, and validation commands within
+    the installed helper's bounds (carried by the validation_commands input).
     """
     require(name in ENTRIES, 'entry', 'unknown feedback entry')
     options = {} if options is None else options
@@ -89,13 +98,15 @@ def check_options(name, options):
             require(value == admission.REPLY_PROMPT, where, 'a custom reply prompt is not supported by the installed '
                     'workflow yet; the shared responder applies the default')
         elif key == 'additional_validation_commands':
-            require(isinstance(value, list) and all(
-                isinstance(command, list) and command
+            require(isinstance(value, list) and len(value) <= VALIDATION_COMMANDS and all(
+                isinstance(command, list) and 1 <= len(command) <= VALIDATION_ARGUMENTS
                 and all(isinstance(arg, str) and arg.strip() and '\0' not in arg for arg in command)
-                for command in value), where, 'must be an array of nonempty argument arrays')
-            # Typed command settings have no installed input yet (settings carry booleans and integers only).
-            require(not value, where, 'additional validation commands are not supported by the installed workflow '
-                    'yet; run them separately')
+                for command in value), where, f'must be an array of at most {VALIDATION_COMMANDS} arrays of '
+                f'1-{VALIDATION_ARGUMENTS} nonempty argument strings')
+            require(len(json.dumps(value).encode()) <= VALIDATION_BYTES, where, 'must not exceed 64 KiB')
+            for number, command in enumerate(value):
+                require(os.path.basename(command[0]) not in PROVIDER_COMMANDS, f'{where}[{number}]',
+                        'validation commands never launch Codex or Claude Code')
         result[key] = {'value': copy.deepcopy(value), 'source': 'invocation'}
     return result
 
@@ -162,7 +173,7 @@ def preflight(name, *, request, deployment, repository, transport, configuration
         merged['permissions'] = copy.deepcopy(permissions)
     result = dk_pr_fix.preflight(request=request, configuration=configuration, invocation=merged,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
-                                 home=home, install=install, workflow=entry['skill'], entry=ENTRY)
+                                 home=home, install=install, workflow=entry['skill'], entry=entry['entry'])
     result['entry'] = {'name': name, 'skill': entry['skill'], 'options': entry_options}
     if result['preflight'] != 'admitted':
         return result
@@ -170,6 +181,12 @@ def preflight(name, *, request, deployment, repository, transport, configuration
     mismatch = _check_plan(name, snapshot)
     if mismatch:
         return {**dk_pr_fix._reject(result, *mismatch), 'entry': result['entry']}
+    # The entry workflow fixes tasks, finalizers and reviewers and runs main.yml's bundled
+    # adapters, which the shared preflight just admitted unchanged; it declares only these inputs.
+    inputs = result['inputs']
+    result['inputs'] = {key: inputs[key] for key in INPUTS}
+    if 'validation_commands' in entry['inputs']:
+        result['inputs']['validation_commands'] = copy.deepcopy(entry_options['additional_validation_commands']['value'])
     result['entry'].update({
         'role_prompt': entry['role_prompt'], 'operations': list(entry['operations']),
         'adapters': sorted({task['adapter'] for task in snapshot['plan']['tasks']}),

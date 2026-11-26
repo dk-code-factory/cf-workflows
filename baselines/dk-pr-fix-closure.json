@@ -304,6 +304,30 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/review.yml",
       "reason": "Incoming-review preset over main.yml in review mode (#24); no upstream counterpart (docs/review.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-feedback-read/SKILL.md",
+      "reason": "Feedback-read skill entry point (#30); no upstream counterpart (docs/feedback-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/feedback-read.yml",
+      "reason": "Feedback-read preset over main.yml (#30); no upstream counterpart (docs/feedback-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-feedback-address/SKILL.md",
+      "reason": "Feedback-address skill entry point (#30); no upstream counterpart (docs/feedback-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/feedback-address.yml",
+      "reason": "Feedback-address preset over main.yml (#30); no upstream counterpart (docs/feedback-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-feedback-reply/SKILL.md",
+      "reason": "Feedback-reply skill entry point (#30); no upstream counterpart (docs/feedback-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/feedback-reply.yml",
+      "reason": "Feedback-reply preset over main.yml (#30); no upstream counterpart (docs/feedback-skills.md)."
     }
   ],
   "corrections": [

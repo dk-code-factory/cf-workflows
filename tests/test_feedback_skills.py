@@ -22,6 +22,8 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qsl, urlsplit
 
+import yaml
+
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture
 from prfix import app, capture, feedback, publication, responses
@@ -45,6 +47,19 @@ OWNER = {"id": 1, "login": "owner", "type": "User"}
 REVIEWER = {"id": 2, "login": "reviewer", "type": "User"}
 BOT = {"id": 4, "login": "lint[bot]", "type": "Bot"}
 GRANT = {"request_id": "reply-1", "instruction": "Answer the review feedback.", "source": "chat:1"}
+
+
+def workflow(path):
+    return yaml.safe_load((fix_preflight.INSTALL / path).read_text())
+
+
+def entry_controls(name, inputs):
+    """What the installed entry workflow hands main.yml: its fixed selection and main.yml's adapters."""
+    entry = workflow(dk_pr_feedback.ENTRIES[name]["entry"])
+    adapters = workflow("workflows/main.yml")["on"]["workflow_call"]["inputs"]["adapters"]["default"]
+    fixed = {key: value for key, value in entry["jobs"]["feedback"]["with"].items()
+             if not (isinstance(value, str) and value.startswith("${{"))}
+    return {**{key: value for key, value in inputs.items() if key != "request"}, **fixed, "adapters": adapters}
 
 
 def git(root, *args):
@@ -232,15 +247,17 @@ class EntryPreflight(PreflightFixture):
                 self.assertEqual(result["preflight"], "admitted", result)
                 self.assertEqual(self.transport.calls, Counter(capabilities=1))
                 inputs = result["inputs"]
-                self.assertEqual({key: inputs[key] for key in ("tasks", "finalizers", "reviewers")},
-                                 dk_pr_feedback.preset(name))
-                self.assertEqual(set(inputs["adapters"]), adapters)
+                # The entry workflow fixes the selection and adapters; preflight hands it only its inputs.
+                self.assertEqual(set(inputs), set(dk_pr_feedback.ENTRIES[name]["inputs"]))
+                self.assertEqual({key: result["snapshot"]["options"][key]["value"]
+                                  for key in ("tasks", "finalizers", "reviewers")}, dk_pr_feedback.preset(name))
+                self.assertEqual(result["entry"]["adapters"], sorted(adapters))
                 for adapter in adapters:
-                    self.assertEqual(inputs["adapters"][adapter]["assignment"],
+                    self.assertEqual(result["snapshot"]["adapters"][adapter]["assignment"],
                                      admission.BASELINE_ADAPTERS[adapter]["assignment"])
                 self.assertFalse(any(inputs["permissions"].values()))
                 self.assertEqual((result["workflow"], result["installation"]["entry"]),
-                                 (dk_pr_feedback.ENTRIES[name]["skill"], "workflows/main.yml"))
+                                 (dk_pr_feedback.ENTRIES[name]["skill"], dk_pr_feedback.ENTRIES[name]["entry"]))
                 # Standalone and composed runs share one logical run, feedback record and journal.
                 self.assertEqual(result["state"]["request_document"]["logical_run"],
                                  fix["state"]["request_document"]["logical_run"])
@@ -264,7 +281,8 @@ class EntryPreflight(PreflightFixture):
         main = (fix_preflight.INSTALL / "workflows" / "main.yml").read_text()
         self.assertIn("assignment: " + json.dumps(assignment), main)
         composed = self.preflight()["inputs"]["adapters"]["reply-feedback"]["assignment"]
-        self.assertEqual(composed, self.entry("dk-pr-feedback-reply")["inputs"]["adapters"]["reply-feedback"]["assignment"])
+        self.assertEqual(composed, self.entry("dk-pr-feedback-reply")["snapshot"]["adapters"]["reply-feedback"]
+                         ["assignment"])
 
     def test_the_preset_is_fixed_and_configuration_cannot_replace_it(self):
         for invocation in ({"options": {"tasks": ["describe-pr"]}}, {"prompts": []}, {"skills": []},
@@ -283,8 +301,10 @@ class EntryPreflight(PreflightFixture):
         self.assertEqual(self.preflight(configuration=configuration)["inputs"]["tasks"], ["describe-pr"])
         result = self.entry("dk-pr-feedback-read", configuration=configuration)
         self.assertEqual(result["preflight"], "admitted", result)
-        self.assertEqual((result["inputs"]["tasks"], result["inputs"]["finalizers"], result["inputs"]["reviewers"]),
+        self.assertEqual(tuple(result["snapshot"]["options"][key]["value"] for key in ("tasks", "finalizers",
+                                                                                      "reviewers")),
                          (["read-feedback"], [], []))
+        self.assertNotIn("tasks", result["inputs"])
         # A configured replacement of the bundled adapter is custom input the installed workflow cannot run.
         scope["options"] = {"adapters": {"read-feedback": {"kind": "inspection", "assignment": "Skim it."}}}
         self.rejected(self.entry("dk-pr-feedback-read", configuration=configuration), "custom", "not supported")
@@ -321,11 +341,47 @@ class EntryPreflight(PreflightFixture):
         self.assertEqual({key for key, value in result["inputs"]["permissions"].items() if value},
                          {"reply_to_feedback"})
 
+    def test_entry_workflows_fix_the_preset_and_declare_only_preflight_inputs(self):
+        descriptor = (fix_preflight.INSTALL / "plugin.yaml").read_text()
+        main = workflow("workflows/main.yml")["on"]["workflow_call"]["inputs"]
+        for name, entry in dk_pr_feedback.ENTRIES.items():
+            with self.subTest(name=name):
+                definition = workflow(entry["entry"])
+                self.assertEqual(definition["name"], entry["skill"])
+                declared = definition["on"]["workflow_call"]["inputs"]
+                self.assertEqual(set(declared), set(entry["inputs"]))
+                self.assertEqual(set(self.entry(name)["inputs"]), set(entry["inputs"]))
+                self.assertTrue(declared["request"]["required"])
+                for key, value in declared.items():
+                    self.assertEqual(value["type"], main[key]["type"], key)
+                (job,) = definition["jobs"].values()
+                self.assertEqual(job["uses"], "workflows/main.yml")
+                passed = {key: value for key, value in job["with"].items()
+                          if isinstance(value, str) and value.startswith("${{")}
+                self.assertEqual(passed, {key: "${{ inputs.%s }}" % key for key in entry["inputs"]})
+                # The selection is fixed in the installed workflow; adapters and mode are main.yml's.
+                fixed = {key: value for key, value in job["with"].items() if key not in passed}
+                self.assertEqual(fixed, dk_pr_feedback.preset(name))
+                skill = name.removeprefix("cf-workflows:")
+                self.assertIn(f"  - name: {skill}\n    path: skills/{skill}/SKILL.md\n"
+                              f"    workflow: {entry['entry']}\n", descriptor)
+                text = (fix_preflight.INSTALL / "skills" / skill / "SKILL.md").read_text()
+                self.assertTrue(text.startswith(f"---\nname: {skill}\ndescription: "))
+                self.assertIn("This plugin version is not runnable.", text)
+
     def test_options_follow_the_baseline_schemas_and_installed_support(self):
         self.assertEqual(self.entry("dk-pr-feedback-reply", options={"reply_prompt": admission.REPLY_PROMPT})
                          ["entry"]["options"]["reply_prompt"]["source"], "invocation")
-        self.assertEqual(self.entry("dk-pr-feedback-address", options={"additional_validation_commands": []})
-                         ["preflight"], "admitted")
+        result = self.entry("dk-pr-feedback-address", options={"additional_validation_commands": []})
+        self.assertEqual((result["preflight"], result["inputs"]["validation_commands"]), ("admitted", []))
+        commands = [["make", "check"], ["python3", "-m", "pytest", "-q", "tests/a b.py"]]
+        result = self.entry("dk-pr-feedback-address", options={"additional_validation_commands": commands})
+        self.assertEqual(result["preflight"], "admitted", result)
+        self.assertEqual(result["inputs"]["validation_commands"], commands)
+        self.assertEqual(result["entry"]["options"]["additional_validation_commands"],
+                         {"value": commands, "source": "invocation"})
+        # Only the address entry workflow declares the input.
+        self.assertNotIn("validation_commands", self.entry("dk-pr-feedback-read")["inputs"])
         for name, options, path, fragment in (
                 ("dk-pr-feedback-read", {"additional_validation_commands": []}, "options.additional_validation_commands",
                  "unsupported option"),
@@ -333,10 +389,20 @@ class EntryPreflight(PreflightFixture):
                 ("dk-pr-feedback-reply", {"reply_prompt": " "}, "options.reply_prompt", "nonempty"),
                 ("dk-pr-feedback-reply", {"resolve_answered_threads": "yes"}, "options.resolve_answered_threads",
                  "boolean"),
-                ("dk-pr-feedback-address", {"additional_validation_commands": [["make", "check"]]},
-                 "options.additional_validation_commands", "not supported"),
                 ("dk-pr-feedback-address", {"additional_validation_commands": [[]]},
-                 "options.additional_validation_commands", "argument arrays"),
+                 "options.additional_validation_commands", "nonempty argument strings"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": ["make check"]},
+                 "options.additional_validation_commands", "nonempty argument strings"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": [["make", " "]]},
+                 "options.additional_validation_commands", "nonempty argument strings"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": [["make"]] * 33},
+                 "options.additional_validation_commands", "at most 32"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": [["x" * 70000]]},
+                 "options.additional_validation_commands", "64 KiB"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": [["make"], ["/usr/bin/codex", "exec"]]},
+                 "options.additional_validation_commands[1]", "never launch Codex or Claude Code"),
+                ("dk-pr-feedback-address", {"additional_validation_commands": [["claude", "-p", "check"]]},
+                 "options.additional_validation_commands[0]", "never launch Codex or Claude Code"),
                 ("dk-pr-feedback-reply", [], "options", "object")):
             with self.subTest(name=name, options=options):
                 self.rejected(self.entry(name, options=options), path, fragment)
@@ -374,12 +440,12 @@ class EntryRuns(unittest.TestCase):
         self.addCleanup(lambda: [ledger.close() for ledger in self.ledgers])
         self.native = 0
 
-    def preflight(self, name=None, instructions="Address the feedback on PR 7."):
+    def preflight(self, name=None, instructions="Address the feedback on PR 7.", options=None):
         engine = FakeTransport()
         arguments = {"request": {"pr": PR_URL, "instructions": instructions}, "deployment": DEPLOYMENT,
                      "repository": self.root, "transport": engine, "home": self.base / "home"}
         if name:
-            result = dk_pr_feedback.preflight(name, **arguments)
+            result = dk_pr_feedback.preflight(name, options=options, **arguments)
         else:
             result = fix_preflight.preflight(configuration=None, invocation=None, **arguments)
         self.assertEqual(result["preflight"], "admitted", result)
@@ -387,7 +453,9 @@ class EntryRuns(unittest.TestCase):
         return result
 
     def plan(self, prepared, provider=None):
-        controls = {key: value for key, value in prepared["inputs"].items() if key != "request"}
+        name = prepared["entry"]["name"] if "entry" in prepared else None
+        controls = (entry_controls(name, prepared["inputs"]) if name else
+                    {key: value for key, value in prepared["inputs"].items() if key != "request"})
         result = prepare(self.root, prepared["state"]["request_document"], controls, "exec-1",
                          provider or self.github)
         return read_artifact(self.root, result["plan"])
@@ -637,6 +705,78 @@ class EntryRuns(unittest.TestCase):
         self.assertTrue(self.accept(plan, ledger, read, self.feedback(assessments(view)[3:4]), 1)["complete"])
         self.assertTrue(app.coverage(self.root, self.github, ledger, plan, {})["complete"])
         self.assertEqual(self.native, 2)
+
+    def test_entry_workflows_plan_exactly_what_preflight_admitted(self):
+        # The entry workflow runs main.yml's bundled adapters, not the preflight's copies:
+        # both must yield the same occurrences, assignments and stages.
+        for name in dk_pr_feedback.ENTRIES:
+            with self.subTest(name=name):
+                prepared = self.preflight(name)
+                admitted = {key: fix_preflight._adapter(prepared["snapshot"]["adapters"][key])
+                            for key in prepared["entry"]["adapters"]}
+                direct = {**{key: value for key, value in prepared["inputs"].items() if key != "request"},
+                          **dk_pr_feedback.preset(name), "adapters": admitted}
+                expected = read_artifact(self.root, prepare(self.root, prepared["state"]["request_document"], direct,
+                                                            "exec-1", self.github)["plan"])
+                plan = self.plan(prepared)
+                self.assertEqual((plan["tasks"], plan["stages"], plan["options"]),
+                                 (expected["tasks"], expected["stages"], expected["options"]))
+                self.assertNotIn("validation_commands", plan)
+
+    def test_validation_commands_reach_only_the_address_session_and_must_pass(self):
+        commands = [["python3", "-c", "print('ok')"], ["make", "check"]]
+        plan = self.plan(self.preflight("dk-pr-feedback-address", options={"additional_validation_commands": commands}))
+        self.assertEqual(plan["validation_commands"], commands)
+        ledger, view = self.ledger(plan), self.view(plan)
+        read = self.claim(plan, ledger, "read-feedback")
+        self.assertNotIn("validation_commands", read["task_input"])
+        self.assertTrue(self.accept(plan, ledger, read, self.feedback(assessments(view)))["complete"])
+        reconcile = self.claim(plan, ledger, "reconcile-decisions")
+        self.assertNotIn("validation_commands", reconcile["task_input"])
+        self.accept(plan, ledger, reconcile, self.report())
+        address = self.claim(plan, ledger, "address-feedback")
+        self.assertEqual(address["task_input"]["validation_commands"],
+                         {"commands": commands, "contract": app.VALIDATION_CONTRACT})
+        decided = assessments(view, rename="fixed")
+        fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count"}
+
+        def report(results):
+            value = self.feedback(decided)
+            if results is not None:
+                value["deliverables"]["validation_commands"] = results
+            return {**value, **fix}
+        passed = [{"argv": command, "exit_code": 0} for command in commands]
+        for round_number, results, error in (
+                (0, None, "each of the 2 configured validation commands"),
+                (1, [passed[0], {"argv": ["make", "test"], "exit_code": 0}], "command 2 must run exactly"),
+                (2, [passed[0], {"argv": commands[1], "exit_code": 2}], "command 2 failed with exit code 2")):
+            result = self.accept(plan, ledger, address, report(results), round_number)
+            self.assertFalse(result["complete"])
+            self.assertIn(error, result["feedback"]["contract_error"])
+        self.assertEqual(self.commits(), 1, "a rejected report commits nothing")
+        # A same-session correction that runs every command exactly and passes is accepted and committed.
+        self.assertTrue(self.accept(plan, ledger, address, report(passed), 3)["complete"])
+        self.assertEqual(self.commits(), 2)
+        self.assertEqual(self.native, 3, "one read, one reconciliation and one corrected address session")
+
+    def test_validation_commands_are_bounded_by_the_installed_helper(self):
+        prepared = self.preflight("dk-pr-feedback-address")
+        controls = entry_controls("dk-pr-feedback-address", prepared["inputs"])
+        for commands, error in (([["make", ""]], "nonempty argument"), ("make check", "nonempty argument"),
+                                ([["make"]] * 33, "at most 32")):
+            with self.subTest(commands=commands):
+                with self.assertRaisesRegex(ValueError, error):
+                    prepare(self.root, prepared["state"]["request_document"],
+                            {**controls, "validation_commands": commands}, "exec-1", self.github)
+        # Incoming review addresses no feedback.
+        review = {**controls, "tasks": ["read-feedback", {"stage": "reviews"}], "reviewers": ["review"],
+                  "mode": "review", "validation_commands": [["make", "check"]]}
+        with self.assertRaisesRegex(ValueError, "incoming review"):
+            prepare(self.root, prepared["state"]["request_document"], review, "exec-1", self.github)
+        self.assertEqual(self.github.calls["capture"], 0, "rejected inputs capture nothing")
+        # A composed dk-pr-fix plan without commands gives its address session none.
+        plan = self.plan(self.preflight())
+        self.assertNotIn("validation_commands", plan)
 
     def test_the_reply_preset_prepares_one_shared_responder_stage(self):
         plan = self.plan(self.preflight("dk-pr-feedback-reply"))

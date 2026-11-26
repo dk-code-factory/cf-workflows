@@ -85,9 +85,9 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-code-simplify` | shared_workflow | pending | #29 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-reviewers-run` | shared_workflow | pending | #29 | not listed | 3 / 2 / 2 |
 | `cf-workflows:dk-pr-approvers` | boundary | pending | #29 | not listed | 3 / 1 / 2 |
-| `cf-workflows:dk-pr-feedback-read` | shared_workflow | pending | #30 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-feedback-address` | shared_workflow | pending | #30 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-pr-feedback-read` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
+| `cf-workflows:dk-pr-feedback-address` | shared_workflow | pending | #30 | listed | 3 / 1 / 2 |
+| `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | not listed | 3 / 1 / 2 |
 | `cf-workflows:dk-pr-description` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | not listed | 2 / 1 / 3 |
@@ -100,10 +100,11 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-commit-message` | shared_workflow | pending | #32 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 
-`dk-pr-fix` and `dk-pr-review` are the only rows in the plugin descriptor. The
-other 27 are library procedures or presets over the shared workflow. The
-installed workflow refuses those presets until each one runs as an
-engine-managed session.
+`dk-pr-fix`, `dk-pr-review` and the three feedback entries are the rows in the
+plugin descriptor. Listing a row claims no runtime support: none of them has
+run through a released engine. The other 24 are library procedures or presets
+over the shared workflow. The installed workflow refuses those presets until
+each one runs as an engine-managed session.
 
 ## Inherited defects
 
