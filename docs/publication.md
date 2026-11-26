@@ -19,6 +19,7 @@ helper sends a write. This implements the exact-intent part of the
 | `request_review` | `request_review` | `request_review` |
 | `ci_rerun` | `rerun_ci` | `rerun_ci` |
 | `submit_review` (`COMMENT` or `REQUEST_CHANGES`) | `post_findings` | `post_findings` |
+| `approve_pr` (`APPROVE`, incoming review only) | `approve_pr` | `approve_pr` |
 | `merge` | `merge` | `merge` |
 
 A write needs both the permission input and an explicit request authorization
@@ -33,7 +34,6 @@ at preflight, and their kinds deny at preparation:
 
 | Action | Owner |
 | --- | --- |
-| `approve_pr` | #31 |
 | `create_issue`, `edit_issue` | #32 |
 | `approve_fork_ci` | #35 |
 
@@ -43,6 +43,13 @@ one dispatch call, a read-only observation that recognizes only the exact
 effect, an effect key when it creates a unique object, and preparation,
 dispatch and reconciliation fixtures with response loss before and after the
 effect. Until then it stays in `EXTENSIONS` and denies.
+
+`approve_pr` follows that contract (#31). Its proposal comes only from
+`approval_proposal`, which needs current complete clean independent review of
+the exact head. Dispatch rechecks that through the `approval` callback and never
+approves the actor's own PR. It shares the review kinds' pending-review checks,
+and its receipt is the actor's exact `APPROVED` review. See
+[publication entries](publication-skills.md#approval).
 
 Replies to feedback sources and thread resolutions come from the selected
 [response stage](responses.md) through the `responses` listing. Incoming
@@ -267,7 +274,8 @@ upstream #138 fixtures for the guard itself.
 - The pending-review classifier matches the exact 422 body reported
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.
-- Approval, issue and fork-CI kinds: #31, #32 and #35.
+- Issue and fork-CI kinds: #32 and #35. Approval (#31) is supported; see
+  [publication entries](publication-skills.md#approval).
 - While analysis is [provisional](provisional.md), nothing is listed, prepared
   or dispatched.
 - GitHub publication conformance needs separate authorization; these fixtures

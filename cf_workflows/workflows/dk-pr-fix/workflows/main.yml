@@ -118,6 +118,7 @@ name: cf-workflows:dk-pr-fix
           request_review: false
           post_findings: false
           rerun_ci: false
+          approve_pr: false
           merge: false
       ci:
         type: object
@@ -217,6 +218,32 @@ jobs:
     - prepare
     - cycles
     if: ${{ needs.prepare.outputs.result.findings_authorized and needs.cycles.status != 'canceled' }}
+  approval_proposal:
+    # Incoming review: a separately authorized approval of the exact head once the
+    # review is complete and clean; never implied by findings or merge.
+    uses: workflows/helper.yml
+    with:
+      operation: approval_proposal
+      payload:
+        plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - cycles
+    if: ${{ needs.prepare.outputs.result.approval_authorized and needs.cycles.status != 'canceled' }}
+  approve:
+    uses: workflows/publication.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+      proposal: ${{ needs.approval_proposal.outputs.result.proposal }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - approval_proposal
+    if: ${{ needs.prepare.outputs.result.approval_authorized and needs.approval_proposal.outputs.result.invoke }}
   completion:
     uses: workflows/helper.yml
     with:

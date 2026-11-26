@@ -23,7 +23,7 @@ MERGE = "d" * 40
 AUTH = {"request_id": "user-1", "instruction": "Fix and publish this PR; merge when ready", "source": "chat:1"}
 # Authority is per contract action; an iteration grant authorizes no write.
 ACTIONS = ("push", "edit_pr", "reply", "resolve_thread", "request_review", "create_pr",
-           "rerun_ci", "post_findings", "merge")
+           "rerun_ci", "post_findings", "approve_pr", "merge")
 GRANTS = {action: AUTH for action in ACTIONS}
 
 

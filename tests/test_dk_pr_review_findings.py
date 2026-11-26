@@ -313,7 +313,10 @@ class EventsAndAuthority(Fixture):
         proposal = publishing.merge_proposal(self.root, self.github, ledger, plan, {})
         self.assertEqual(proposal["invoke"], False)
         self.assertEqual(self.writes(), 1)
-        with self.assertRaisesRegex(PublicationError, "approve_pr is an extension kind"):
+        # Approval is its own action (#31): a post_findings or merge grant never authorizes it.
+        self.assertEqual(publishing.approval_proposal(self.root, self.github, ledger, plan, {}),
+                         {"invoke": False, "proposal": {}})
+        with self.assertRaisesRegex(PublicationError, "explicit user authorization required for approve_pr"):
             publishing._publication(self.root, self.github, ledger, plan).prepare(
                 {"kind": "approve_pr", "head": self.commit, "target": self.target, "payload": {}, "sources": ["x"]})
         self.assertEqual(self.writes(), 1)

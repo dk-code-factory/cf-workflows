@@ -110,7 +110,7 @@ starts no session and runs nothing.
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission
-   rejects, and so do approval, issue and fork-CI actions (see
+   rejects, and so do approval (incoming review only), issue and fork-CI actions (see
    [exact-intent publication](publication.md)). Merge also needs the engine's
    `merge_guard` capability ([merge readiness](publication.md#merge-readiness)).
    Every other input is `false`.

@@ -33,17 +33,16 @@ ROLES = {role: f'workflows/agents/{role}.yaml' for role in admission.ADMITTED_RO
 # The workflow's permission inputs; each defaults to false.
 PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_feedback',
                      'resolve_threads', 'create_draft_prs', 'request_review', 'post_findings',
-                     'rerun_ci', 'merge')
+                     'rerun_ci', 'approve_pr', 'merge')
 # Contract actions the exact-intent publication path supports, mapped to the
 # inputs they enable. History rewrites have no contract action yet, so
 # rewrite_commits stays false.
 PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'reply_to_feedback',
                        'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
                        'request_review': 'request_review', 'post_findings': 'post_findings',
-                       'rerun_ci': 'rerun_ci', 'merge': 'merge'}
+                       'rerun_ci': 'rerun_ci', 'approve_pr': 'approve_pr', 'merge': 'merge'}
 # Actions this release denies, with the work that owns them.
 UNAVAILABLE_ACTIONS = {
-    'approve_pr': 'PR approval is an extension kind owned by #31',
     'create_issue': 'issue creation is an extension kind owned by #32',
     'edit_issue': 'issue edits are an extension kind owned by #32',
     'approve_fork_ci': 'fork-CI approval is an extension kind owned by #35',
@@ -52,8 +51,9 @@ UNAVAILABLE_ACTIONS = {
 
 # Bundled adapters whose procedure is an entry's helper side, never a plain workflow task.
 ENTRY_ONLY = ('discover-approvers',)
-# Incoming review publishes only its verified findings; merge keeps its own grant and readiness.
-REVIEW_ACTIONS = {'post_findings', 'merge'}
+# Incoming review publishes only its verified findings and a separately authorized
+# approval of a clean review; merge keeps its own grant and readiness.
+REVIEW_ACTIONS = {'post_findings', 'approve_pr', 'merge'}
 
 
 def _review_plan(snapshot):
@@ -235,6 +235,10 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     for action in sorted(snapshot['request']['authorizations']):
         if action in UNAVAILABLE_ACTIONS:
             return _reject(result, 'request.authorizations.' + action, UNAVAILABLE_ACTIONS[action])
+        if mode != 'review' and action == 'approve_pr':
+            return _reject(result, 'request.authorizations.' + action,
+                           'approval belongs to incoming review (dk-pr-review, dk-pr-review-post); '
+                           'a maintained PR is never approved by its maintainer run')
         if mode == 'review' and action not in REVIEW_ACTIONS:
             return _reject(result, 'request.authorizations.' + action,
                            'incoming review never writes the PR branch, description or discussion')

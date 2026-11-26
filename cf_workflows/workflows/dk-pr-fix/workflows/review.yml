@@ -66,6 +66,7 @@ name: cf-workflows:dk-pr-review
         type: object
         default:
           post_findings: false
+          approve_pr: false
           merge: false
       ci:
         type: object

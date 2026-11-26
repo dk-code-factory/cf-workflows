@@ -101,7 +101,7 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
         from prfix import responses
         handler = responses.settle if operation == "responses_settle" else responses.status
         return handler(root, provider, ledger, plan, inputs)
-    if operation.startswith("publication_") or operation == "merge_proposal":
+    if operation.startswith("publication_") or operation in ("merge_proposal", "approval_proposal"):
         from prfix.publishing import dispatch as publish
         return publish(operation, root, provider, ledger, plan, inputs)
     raise ValueError("unknown portable application operation")

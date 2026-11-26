@@ -135,6 +135,12 @@ and count sessions, pages, commits and writes across resume and composed runs.
 through the installed helpers at capacity one and uncapped, and dk-pr-approvers
 with a disposable repository, a fake GitHub transport and a fake engine. They
 count native dispatches, sessions and GitHub reads.
+[Publication entry](publication-skills.md#verification) tests
+(`tests/test_publication_skills.py`) drive dk-pr-publish and dk-pr-review-post
+directly and from dk-pr-fix and dk-pr-review plans on a fail-closed fake GitHub.
+They count review, edit, request and merge writes and native dispatches across
+denial, payload drift, pending drafts, body-only findings, approval and lost
+effects.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

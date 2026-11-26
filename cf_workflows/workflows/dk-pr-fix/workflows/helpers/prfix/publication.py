@@ -92,7 +92,7 @@ def pending_review_rejection(intent, failure):
     additional 422 errors, malformed bodies and any current draft observation
     are not.
     """
-    if intent.get("kind") != "submit_review" or not isinstance(failure, dict):
+    if intent.get("kind") not in REVIEW_KINDS or not isinstance(failure, dict):
         return None
     body = failure.get("body")
     if (failure.get("type") != "HTTPFailure" or failure.get("status") != 422
@@ -215,12 +215,19 @@ SUPPORTED = {
     "request_review": ("request_review", "request_review"),
     "ci_rerun": ("rerun_ci", "rerun_ci"),
     "submit_review": ("post_findings", "post_findings"),
+    # A review approval (#31): its own action and permission, never implied by
+    # finding publication or merge. The ``approval`` callback must show current
+    # clean independent review of the exact head, and the actor never approves
+    # its own PR.
+    "approve_pr": ("approve_pr", "approve_pr"),
     "merge": ("merge", "merge"),
 }
 # Extension contract: these kinds are reserved for their owning PRs. Each needs
 # its own payload, dispatch, read-only observation, effect key and fixtures
 # before it is added to SUPPORTED; until then preparation denies it.
-EXTENSIONS = {"approve_pr": "#31", "create_issue": "#32", "edit_issue": "#32", "approve_fork_ci": "#35"}
+EXTENSIONS = {"create_issue": "#32", "edit_issue": "#32", "approve_fork_ci": "#35"}
+# Kinds that create a pull request review; a pending review owned by the actor holds both.
+REVIEW_KINDS = {"submit_review", "approve_pr"}
 KINDS = set(SUPPORTED)
 PERMISSIONS = {kind: setting for kind, (_, setting) in SUPPORTED.items()}
 PERMISSION_INPUTS = sorted(set(PERMISSIONS.values()))
@@ -228,6 +235,7 @@ STATES = ("prepared", "pending", "applied", "not_applied", "blocked")
 TERMINAL = {"not_applied", "blocked"}
 FRESH_ATTEMPTS = 3
 REVIEW_EVENTS = {"COMMENT": "COMMENTED", "REQUEST_CHANGES": "CHANGES_REQUESTED"}
+APPROVED = "APPROVED"
 _COLUMNS = "id,fingerprint,value,state,receipt,audience"
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -292,7 +300,7 @@ def effect_key(intent, receipt):
         return ("comment:" if kind == "reply" else "review_comment:") + str(result.get("id"))
     if kind == "split_pr":
         return "pull:" + str(result.get("number"))
-    if kind == "submit_review":
+    if kind in REVIEW_KINDS:
         return "review:" + str(result.get("review", {}).get("id"))
     if kind == "merge":
         return "merge:" + str(result.get("commit", {}).get("sha"))
@@ -339,7 +347,7 @@ def original_discussion(ledger, plan, discussion):
             before = intent["before"].get("thread")
             if before is not None:
                 result["threads"] = [copy.deepcopy(before) if thread == observed else thread for thread in result["threads"]]
-        elif kind == "submit_review" and isinstance(observed, dict):
+        elif kind in REVIEW_KINDS and isinstance(observed, dict):
             review = observed.get("review")
             created = {c.get("id") for c in observed.get("comments", [])}
             result["reviews"] = [item for item in result["reviews"] if item != review]
@@ -353,17 +361,21 @@ class Publication:
 
     ``readiness`` must recapture accepted application review/verification and CI
     for the supplied exact intent. No callback means merge is unavailable.
+    ``approval`` must recapture current clean independent review of the exact
+    intent head; no callback means approval is unavailable.
     ``source_validator`` validates original accepted report references, including
     their current artifact bytes. Python never reads the engine database.
     """
 
     def __init__(self, ledger, provider, root: Path, plan: dict,
-                 readiness: Callable | None = None, source_validator: Callable | None = None):
+                 readiness: Callable | None = None, source_validator: Callable | None = None,
+                 approval: Callable | None = None):
         self.ledger = ledger
         self.provider = provider
         self.root = Path(root)
         self.plan = plan
         self.readiness = readiness
+        self.approval = approval
         self.source_validator = source_validator
         self.pr = plan["pr"]
         self.repo = f"repos/{self.pr['owner']}/{self.pr['name']}"
@@ -468,7 +480,7 @@ class Publication:
                   str(head.get("repo", {}).get("full_name", "")).lower())
         if actual != expected:
             raise Drift("PR head, target, branch or repository lease changed")
-        if intent["kind"] == "submit_review":
+        if intent["kind"] in REVIEW_KINDS:
             pending = self._pending_reviews(intent["actor_id"], ev)
             if pending:
                 # Never discard, submit, overwrite or adopt another draft.
@@ -507,6 +519,7 @@ class Publication:
             "split_push": {"branch", "new_head", "paths", "reason"},
             "split_pr": {"title", "body", "head", "base", "draft", "push_operation"},
             "submit_review": {"event", "body", "comments"},
+            "approve_pr": {"body"},
         }
         if kind in exact:
             expected = exact[kind]
@@ -520,6 +533,11 @@ class Publication:
             if key in payload:
                 if kind == "submit_review" and key == "body" and payload["comments"] and payload[key] == "":
                     # Inline findings need no body; an empty body is never padded with prose.
+                    continue
+                if kind == "approve_pr" and key == "body":
+                    # An approval carries no operational prose; an empty body is the default.
+                    if not isinstance(payload[key], str) or "\x00" in payload[key] or len(payload[key]) > 65536:
+                        raise PublicationError("approval body must be bounded text without NUL")
                     continue
                 if kind == "edit_pr" and key == "body":
                     if not isinstance(payload[key], str) or "\x00" in payload[key]:
@@ -684,8 +702,10 @@ class Publication:
             threads = [thread for thread in ev.get("threads", []) if thread.get("id") == payload["thread_id"]]
             if len(threads) == 1:
                 intent["before"]["thread"] = copy.deepcopy(threads[0])
-        elif kind == "submit_review":
+        elif kind in REVIEW_KINDS:
             intent["before"]["review_ids"] = [_positive(r.get("id"), "review ID") for r in ev.get("reviews", [])]
+            if kind == "approve_pr":
+                self._not_own(ev)
         elif kind == "split_pr":
             pushed = self._load(payload["push_operation"])
             if pushed["state"] != "applied" or pushed["intent"]["kind"] != "split_push" or not self.validate(pushed["id"], pushed["receipt"]):
@@ -854,6 +874,28 @@ class Publication:
             raise PublicationError("inline answer belongs to a different thread")
         return thread
 
+    def _not_own(self, ev):
+        """The actor never approves its own PR, nor one by a configured personal account."""
+        author = ev["metadata"].get("user", {}).get("id")
+        _positive(author, "PR author")
+        accounts = self.plan.get("options", {}).get("accounts", [])
+        if author == ev["viewer"]["id"] or any(
+                str(account.get("host", "")).lower() == self.pr.get("host", "github.com")
+                and account.get("id") == author for account in accounts):
+            raise PublicationError("the authenticated account never approves its own PR")
+
+    def _approval_gate(self, intent, ev):
+        self._not_own(ev)
+        if self.approval is None:
+            raise PublicationError("current clean-review verification for approval unavailable")
+        evidence = self.approval(intent)
+        # Finding publication, merge readiness and a selected plan never imply approval.
+        if not isinstance(evidence, dict) or evidence.get("approve") is not True:
+            raise PublicationError("approval needs current complete clean independent review")
+        if evidence.get("head") != intent["head"] or evidence.get("target") != intent["target"]:
+            raise PublicationError("approval evidence belongs to another head or target")
+        _strings(evidence.get("evidence"), "approval review evidence")
+
     def _merge_gate(self, intent, ev):
         if self.readiness is None:
             raise PublicationError("live application merge-readiness verification unavailable")
@@ -921,6 +963,8 @@ class Publication:
                 raise PublicationError("rerun diagnosis no longer matches the failed exact attempt")
         elif kind == "merge":
             self._merge_gate(intent, ev)
+        elif kind == "approve_pr":
+            self._approval_gate(intent, ev)
 
     def execute(self, ident, audience):
         saved = self._load(ident)
@@ -1016,7 +1060,7 @@ class Publication:
         Read-only. Needs exactly one dispatch, no acknowledged response and
         exactly one retained failure that the classifier accepts.
         """
-        if saved["intent"].get("kind") != "submit_review":
+        if saved["intent"].get("kind") not in REVIEW_KINDS:
             return None
         events = self.events(saved["id"])
         names = [event["event"] for event in events]
@@ -1100,6 +1144,9 @@ class Publication:
             return self._request("POST", self.pr_path + "/reviews", {
                 "commit_id": intent["head"], "event": payload["event"], "body": payload["body"],
                 "comments": payload["comments"]})
+        if kind == "approve_pr":
+            return self._request("POST", self.pr_path + "/reviews", {
+                "commit_id": intent["head"], "event": "APPROVE", "body": payload["body"], "comments": []})
         if kind == "merge":
             response = self._request("PUT", self.pr_path + "/merge", {**payload, "sha": intent["head"]})
             if response.get("merged") is not True:
@@ -1169,10 +1216,10 @@ class Publication:
             result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
             found = result.get("head_sha") == intent["head"] and result.get("run_attempt") == payload["attempt"] + 1
             # Same-attempt state can be a delayed request; no automatic replay.
-        elif kind == "submit_review":
+        elif kind in REVIEW_KINDS:
             known = self._known(saved)
             wanted = known.get("review", known).get("id") if known else None
-            state = REVIEW_EVENTS[payload["event"]]
+            state = APPROVED if kind == "approve_pr" else REVIEW_EVENTS[payload["event"]]
             matches = [r for r in ev.get("reviews", [])
                        if isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
                        and r.get("user", {}).get("id") == intent["actor_id"] and r.get("state") == state
@@ -1186,7 +1233,7 @@ class Publication:
                 comments = self._request("GET", f"{self.pr_path}/reviews/{review['id']}/comments?per_page=100")
                 if isinstance(comments, list) and len(comments) < 100:
                     observed = sorted((c.get("path"), c.get("line"), c.get("side"), c.get("body")) for c in comments)
-                    expected = sorted((c["path"], c["line"], c["side"], c["body"]) for c in payload["comments"])
+                    expected = sorted((c["path"], c["line"], c["side"], c["body"]) for c in payload.get("comments", []))
                     found = observed == expected and all(c.get("user", {}).get("id") == intent["actor_id"] for c in comments)
                     result = {"review": review, "comments": comments}
         elif kind == "merge":

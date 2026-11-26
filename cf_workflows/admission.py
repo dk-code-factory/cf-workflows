@@ -178,6 +178,15 @@ ENTRY_ADAPTERS = {
             {'id': 'assignment', 'text': 'Perform the assigned stage only, over the whole branch.'},
             {'id': 'evidence', 'text': 'Cite repository files for every decision and option.'},
             {'id': 'scope', 'text': 'Keep comparisons private; a selection grants no edit or publication permission.'}]},
+    # cf-workflows:dk-pr-publish (docs/publication-skills.md): proposals only; helpers publish exact intents.
+    'prepare-publication': {'kind': 'task', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Turn the exact original request into the exact PR publication operations it asks for, with exact payloads '
+        'and sources. Propose only operations that a retained authorization covers. Never propose merge, approval, '
+        'finding publication, fork-CI approval or issue writes. Do not edit, commit or publish.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Propose only what the exact request asks to publish.'},
+            {'id': 'evidence', 'text': 'Cite the current sources each payload relies on.'},
+            {'id': 'scope', 'text': 'Keep private workflow details out of payloads; never expand authority.'}]},
 }
 # Prose cleanup finalizers of cf-workflows:dk-plain-english and dk-asd-ste100 (docs/prose.md). They
 # write only through cf_workflows.prose, which bounds the edits and commits them.
