@@ -102,6 +102,12 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
         handler = {"decisions_gate": decisions.gate, "decisions_answer": decisions.answer,
                    "decisions_status": decisions.status}[operation]
         return handler(root, provider, ledger, plan, inputs)
+    if operation in {"split_build", "split_validate", "split_apply"}:
+        # The splitting entries' local operation, gated by per-commit validation (workflows/splitting.yml).
+        from prfix import splitting
+        handler = {"split_build": splitting.build, "split_validate": splitting.validate,
+                   "split_apply": splitting.apply}[operation]
+        return handler(root, provider, ledger, plan, inputs)
     if operation in {"responses_settle", "responses_status"}:
         from prfix import responses
         handler = responses.settle if operation == "responses_settle" else responses.status

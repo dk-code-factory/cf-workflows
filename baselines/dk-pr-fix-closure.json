@@ -460,6 +460,30 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/issue.yml",
       "reason": "Issue preset over main.yml (#32); no upstream counterpart (docs/drafting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/splitting.py",
+      "reason": "Splitting procedure of inspect-commits and assess-scope under the dk-commit-split and dk-pr-split entries (#34), installed so helper containers run it; no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-commit-split/SKILL.md",
+      "reason": "Commit organization skill entry point (#34); no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-split/SKILL.md",
+      "reason": "PR splitting skill entry point (#34); no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/commit-split.yml",
+      "reason": "Commit organization preset over main.yml (#34); no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/pr-split.yml",
+      "reason": "PR splitting preset over main.yml (#34); no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/splitting.yml",
+      "reason": "Build, per-commit validation and apply of a splitting entry's local operation before its publication barrier (#34); no upstream counterpart (docs/splitting.md)."
     }
   ],
   "corrections": [

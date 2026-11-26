@@ -91,8 +91,8 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | listed | 4 / 1 / 3 |
 | `cf-workflows:dk-pr-description` | shared_workflow | pending | #32 | listed | 5 / 2 / 5 |
 | `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | listed | 4 / 3 / 5 |
-| `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 3 |
-| `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 6 |
+| `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 5 |
 | `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |
 | `cf-workflows:dk-ci-approve` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-ci` | shared_workflow | pending | #35 | not listed | 3 / 2 / 2 |
@@ -103,14 +103,17 @@ native execution and live acceptance are `pending` and every parity status is
 `dk-pr-iter`, `dk-pr-fix`, `dk-pr-review`, the three feedback entries,
 `dk-pr-publish`, `dk-pr-review-post`, `dk-plain-english`, `dk-asd-ste100`,
 `dk-pr-decisions`, the three reviewer entries, `dk-pr-description`,
-`dk-commit-message` and `dk-issue` are the rows in the plugin descriptor.
-`dk-pr-iter` routes to the `dk-pr-fix` or `dk-pr-review` workflow
-([routing](review.md#installed-entry)). The two prose entries are presets over the installed workflow
+`dk-commit-message`, `dk-issue`, `dk-commit-split` and `dk-pr-split` are the
+rows in the plugin descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
+`dk-pr-review` workflow ([routing](review.md#installed-entry)). The two prose
+entries are presets over the installed workflow
 ([prose cleanup](prose.md)), `dk-pr-decisions` presets reconciliation and
-publication ([decisions](decisions.md#installed-workflow)) and the three drafting
-entries preset one drafting occurrence ([drafting](drafting.md#installed-workflow)).
+publication ([decisions](decisions.md#installed-workflow)), the three drafting
+entries preset one drafting occurrence ([drafting](drafting.md#installed-workflow))
+and the two splitting entries preset one assessment and its local operation
+([splitting](splitting.md#installed-workflow)).
 Listing a row claims no runtime support: none of them has run through a released
-engine. The other 12 are library procedures or presets over the shared workflow.
+engine. The other 10 are library procedures or presets over the shared workflow.
 The installed workflow refuses those presets until each one runs as an
 engine-managed session.
 

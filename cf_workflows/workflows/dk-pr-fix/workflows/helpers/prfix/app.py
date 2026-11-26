@@ -175,6 +175,13 @@ def _snapshot(root, provider, plan):
     if len(chain) > 1:
         active["allow_local_head"] = current
         active["local_chain"] = chain
+    from . import splitting
+    if splitting.occurrence(plan) is not None:
+        # The revisions an applied splitting operation of this run moved the checkout from (splitting.py).
+        moved = splitting.origins(root, plan, current)
+        if moved:
+            active["allow_split_head"] = current
+            active["split_origins"] = moved
     snapshot = capture(root, provider, active)
     if getattr(provider, "last_capture", None) is not None and not getattr(provider, "read_only", False):
         snapshot["evidence_reference"] = artifact(root, provider.last_capture)
@@ -247,6 +254,11 @@ def _fingerprint(snapshot, task, ledger=None):
     if decisions.role(task):
         # Discussion, request, guidance, settings and answers; never the diff (decisions.py).
         return decisions.binding(snapshot, task, ledger)
+    from . import splitting
+    split = splitting.binding(ledger, task, snapshot)
+    if split is not None:
+        # dk-pr-split's own applied split keeps the assessment it records current (splitting.py).
+        return split
     result = fingerprint(snapshot, task)
     if ledger is not None and task["kind"] in {"verification", "fix"} and task["id"] != "ci_repair":
         originals = candidates(ledger.root, ledger, None)
@@ -413,6 +425,13 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             assignment["drafting"] = drafting.context(root, provider, plan, task, snapshot)
         except drafting.Blocked as error:
             raise ValueError("drafting evidence unavailable: " + str(error)) from None
+    from . import splitting
+    if splitting.role(task):
+        # Read-only commit and scope evidence and the result contract (splitting.py).
+        try:
+            assignment["splitting"] = splitting.context(root, provider, plan, task, snapshot)
+        except splitting.Blocked as error:
+            raise ValueError("splitting evidence unavailable: " + str(error)) from None
     from .responses import context as feedback_context, role as feedback_role
     if feedback_role(task):
         # Feedback occurrences receive the retained assessments, so standalone and composed
@@ -695,7 +714,7 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
-    from . import decisions, drafting
+    from . import decisions, drafting, splitting
     from .feedback import FeedbackError
     from .responses import check_feedback, retain_feedback, role as feedback_role
     validated = decided = None
@@ -749,6 +768,12 @@ def accept(root, provider, ledger, plan, inputs):
                 drafting.check(root, plan, report, assignment)
             except drafting.Blocked as error:
                 raise ReportContractError("drafting: " + str(error)) from error
+        elif splitting.role(task) and complete:
+            # A verified series or split that proposes no operations; the publication stage builds it.
+            try:
+                splitting.check(root, plan, report, assignment)
+            except splitting.Blocked as error:
+                raise ReportContractError("splitting: " + str(error)) from error
         elif decisions.role(task) and complete:
             # Sourced decisions, user-only resolution and refresh through changed sources only.
             try:

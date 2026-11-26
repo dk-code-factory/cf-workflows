@@ -47,6 +47,15 @@ jobs:
       github_token: ${{ secrets.github_token }}
     needs: tasks
     if: ${{ inputs.stage.kind == 'tasks' and inputs.stage.decisions and needs.tasks.status == 'succeeded' }}
+  splitting:
+    # A splitting entry's publication stage first builds, validates and applies its
+    # local operation (splitting.yml); the barrier then lists only its exact intents.
+    uses: workflows/splitting.yml
+    with:
+      plan: ${{ inputs.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    if: ${{ inputs.stage.kind == 'publication' and inputs.stage.splitting }}
   publication:
     uses: workflows/publication-barrier.yml
     with:
@@ -54,7 +63,9 @@ jobs:
       turns: ${{ inputs.turns }}
     secrets:
       github_token: ${{ secrets.github_token }}
-    if: ${{ inputs.stage.kind == 'publication' }}
+    needs: splitting
+    if: ${{ inputs.stage.kind == 'publication' and needs.splitting.status != 'failed' and needs.splitting.status != 'needs_attention'
+      and needs.splitting.status != 'canceled' }}
   identities:
     # CI belongs to the PR metadata head; while analysis is provisional it is
     # neither observed nor repaired, and coverage reports current-head CI missing.

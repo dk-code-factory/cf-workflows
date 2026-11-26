@@ -477,9 +477,11 @@ def _pin(root, provider, pr, plan, metadata_head, local_head):
     revision) remains an error.
     """
     chain = plan.get("local_chain", []) if plan.get("allow_local_head") == local_head else []
+    # Revisions a recorded splitting operation of this run rewrote or extended into the checkout.
+    moved = plan.get("split_origins", []) if plan.get("allow_split_head") == local_head else []
 
     def covers(revision):
-        if local_head == revision:
+        if local_head == revision or revision in moved:
             return True
         if revision not in chain:
             return False

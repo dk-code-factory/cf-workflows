@@ -43,8 +43,9 @@ PERMISSION_INPUTS = ('push_commits', 'rewrite_commits', 'edit_pr', 'reply_to_fee
                      'resolve_threads', 'create_draft_prs', 'request_review', 'post_findings',
                      'rerun_ci', 'approve_pr', 'approve_fork_ci', 'merge', 'create_issue', 'edit_issue')
 # Contract actions the exact-intent publication path supports, mapped to the
-# inputs they enable. History rewrites have no contract action yet, so
-# rewrite_commits stays false.
+# inputs they enable. A history rewrite publishes under push, but only the
+# dk-commit-split entry enables rewrite_commits (cf_workflows.splitting.installed);
+# here it stays false.
 PUBLICATION_ACTIONS = {'push': 'push_commits', 'edit_pr': 'edit_pr', 'reply': 'reply_to_feedback',
                        'resolve_thread': 'resolve_threads', 'create_pr': 'create_draft_prs',
                        'request_review': 'request_review', 'post_findings': 'post_findings',

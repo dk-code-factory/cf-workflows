@@ -112,6 +112,12 @@ STORES = {
         'tables': {'meta': IDENTITY, 'results': 'analysis: accepted series and split proposals',
                    'rejections': 'evidence: rejected session results',
                    'operations': 'recovery: ledgered local Git operations and their reports'}},
+    'split_operations': {
+        'path': RUN + r'\.split-operations\.sqlite', 'kind': 'split_operations_state', 'version': 1,
+        'tables': {'meta': IDENTITY,
+                   'operations': 'recovery: built, applying and applied local operations of the installed '
+                                 'splitting entries',
+                   'validations': 'evidence: validation results of each new intermediate commit'}},
     'writer': {
         'path': NAMESPACE + r'workspace-writer\.sqlite', 'kind': None, 'version': 0,
         'tables': {'writer': 'recovery: the one writer fencing the shared Git index'}},
@@ -154,8 +160,8 @@ ROWS = {
     'dk-pr-review-post': ('run',),
     'dk-pr-description': ('drafting', 'run'),
     'dk-pr-decisions': ('decisions', 'reconciliation', 'run'),
-    'dk-commit-split': ('splitting', 'drafting', 'run'),
-    'dk-pr-split': ('splitting', 'run'),
+    'dk-commit-split': ('splitting', 'split_operations', 'drafting', 'run'),
+    'dk-pr-split': ('splitting', 'split_operations', 'run'),
     'dk-pr-publish': ('run',),
     'dk-ci-approve': ('run',),
     'dk-ci': ('run',),
@@ -529,19 +535,21 @@ def unsettled(state):
                 db.close()
         if claims or intents:
             result[(path.parents[1].name, run)] = {'claims': claims, 'publications': intents, 'operations': []}
-    for path in sorted(Path(state).glob('repositories/*/runs/*.splitting.sqlite')):
+    for path in sorted([*Path(state).glob('repositories/*/runs/*.splitting.sqlite'),
+                        *Path(state).glob('repositories/*/runs/*.split-operations.sqlite')]):
         with tempfile.TemporaryDirectory() as scratch:
             copy = Path(scratch) / path.name
             shutil.copyfile(path, copy)
             db = _connect(copy)
             try:
                 run = dict(db.execute('SELECT key, value FROM meta').fetchall())['logical_run']
+                # A built installed operation has not moved a ref yet; an applying one resumes.
                 applying = [row[0] for row in db.execute("SELECT id FROM operations WHERE state = 'applying'")]
             finally:
                 db.close()
         if applying:
             entry = result.setdefault((path.parents[1].name, run), {'claims': [], 'publications': [], 'operations': []})
-            entry['operations'] = applying
+            entry['operations'] = sorted(entry['operations'] + applying)
     return result
 
 

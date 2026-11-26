@@ -157,6 +157,15 @@ DRAFTING_ENTRIES = {
     "dk-issue": ("draft-issue", ["tasks", "publication"], ("create_issue", "edit_issue")),
 }
 ISSUE_ACTIONS = ("create_issue", "edit_issue")
+# Splitting entries (#34; docs/splitting.md): each runs exactly its adapter, then the
+# shared publication stage, which first builds, validates and applies the local
+# operation (workflows/splitting.yml). Each accepts only its own actions and enables
+# only the permission inputs its intents need. History rewrites belong to
+# dk-commit-split alone.
+SPLITTING_ENTRIES = {
+    "dk-commit-split": ("inspect-commits", ("push",), ("rewrite_commits",)),
+    "dk-pr-split": ("assess-scope", ("create_pr", "push"), ("create_draft_prs", "push_commits")),
+}
 # Actions that other entries own; no publication entry dispatches them.
 ENTRY_OWNERS = {
     "approve_fork_ci": "fork workflow approval belongs to cf-workflows:dk-ci-approve",
@@ -328,7 +337,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if mode not in MODES:
         raise ValueError("unsupported plan mode")
     entry = controls.get("entry", "")
-    preset = drafting_entry = None
+    preset = drafting_entry = splitting_entry = None
     requested = request.get("authorizations", {})
     if entry in REVIEW_ENTRIES:
         if mode != "review":
@@ -342,6 +351,13 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             raise ValueError("cf-workflows:" + entry + " runs in fix mode only")
         if not isinstance(requested, dict) or set(requested) - set(drafting_entry[2]):
             raise ValueError("cf-workflows:" + entry + " accepts only " + (", ".join(drafting_entry[2]) or "no")
+                             + " authorization")
+    elif entry in SPLITTING_ENTRIES:
+        splitting_entry = SPLITTING_ENTRIES[entry]
+        if mode != "fix":
+            raise ValueError("cf-workflows:" + entry + " runs in fix mode only")
+        if not isinstance(requested, dict) or set(requested) - set(splitting_entry[1]):
+            raise ValueError("cf-workflows:" + entry + " accepts only " + ", ".join(splitting_entry[1])
                              + " authorization")
     elif isinstance(requested, dict) and set(requested) & set(ISSUE_ACTIONS):
         action = sorted(set(requested) & set(ISSUE_ACTIONS))[0]
@@ -387,6 +403,12 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         raise ValueError("incoming review enables no branch or feedback publication input")
     if entry != "dk-issue" and any(permissions.get(name) for name in ISSUE_ACTIONS):
         raise ValueError("issue writes belong to cf-workflows:dk-issue; no other plan enables them")
+    if entry != "dk-commit-split" and permissions.get("rewrite_commits"):
+        raise ValueError("history rewrites belong to cf-workflows:dk-commit-split; no other plan enables them")
+    if splitting_entry and any(value for name, value in permissions.items() if name not in splitting_entry[2]):
+        raise ValueError("cf-workflows:" + entry + " enables only " + ", ".join(splitting_entry[2]))
+    if entry not in SPLITTING_ENTRIES and "splitting" in controls.get("settings", {}):
+        raise ValueError("settings.splitting belongs to cf-workflows:dk-commit-split and dk-pr-split")
     if mode != "review" and permissions.get("approve_pr"):
         raise ValueError("approval belongs to incoming review; a maintained PR is never approved by its maintainer run")
     if mode != "review" and permissions.get("approve_fork_ci"):
@@ -555,6 +577,21 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         if ([stage["kind"] for stage in stages] != kinds or any(stage["phase"] != "tasks" for stage in stages)
                 or [task["skill"] for task in tasks] != [adapter]):
             raise ValueError("cf-workflows:" + entry + " runs exactly its preset")
+    if splitting_entry:
+        adapter = splitting_entry[0]
+        if ([stage["kind"] for stage in stages] != ["tasks", "publication"]
+                or any(stage["phase"] != "tasks" for stage in stages)
+                or [task["skill"] for task in tasks] != [adapter] or tasks[0]["writes"]):
+            raise ValueError("cf-workflows:" + entry + " runs exactly its preset")
+        # The occurrence runs the splitting procedure, and the publication stage first
+        # builds, validates and applies its local operation (splitting.py).
+        tasks[0]["splitting"] = entry
+        stages[1]["splitting"] = entry
+        from . import splitting
+        try:
+            splitting.settings({"settings": controls.get("settings", {})}, entry)
+        except splitting.Blocked as error:
+            raise ValueError(str(error)) from None
     if any(task["kind"] == "review" for task in tasks):
         # Incoming review verifies findings independently and never fixes them.
         for key, kind, role, assignment in [

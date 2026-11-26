@@ -20,7 +20,8 @@ The suite state home is `$XDG_STATE_HOME/cf-workflows` (fallback
 | `reconciliation` | `…/runs/<run>.reconciliation.sqlite` | dk-pr-decisions, dk-pr-fix, dk-pr-iter (installed workflow) |
 | `alignment` | `…/runs/<run>[.whole-problem].alignment.sqlite` | the four alternatives entries |
 | `drafting` | `…/runs/<run>.drafting.sqlite` | dk-pr-description, dk-commit-message, dk-issue, dk-commit-split |
-| `splitting` | `…/runs/<run>.splitting.sqlite` | dk-commit-split, dk-pr-split |
+| `splitting` | `…/runs/<run>.splitting.sqlite` | dk-commit-split, dk-pr-split (library procedure) |
+| `split_operations` | `…/runs/<run>.split-operations.sqlite` | dk-commit-split, dk-pr-split (installed workflow) |
 | `writer` | `repositories/<id>/workspace-writer.sqlite` | writing runs |
 
 Each namespace also holds its ownership marker and the content-addressed

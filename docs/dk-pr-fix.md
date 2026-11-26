@@ -85,8 +85,8 @@ Adaptations to the example:
   [publication entries](publication-skills.md) `workflows/publish.yml`,
   `workflows/review-post.yml` and their `SKILL.md` files. A `validation_commands`
   input carries `dk-pr-feedback-address`'s `additional_validation_commands` to the
-  address session, and an `entry` input names a publication or drafting entry
-  whose preset `prepare` enforces. `accounts` are `{host, id}`
+  address session, and an `entry` input names a publication, drafting or
+  splitting entry whose preset `prepare` enforces. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
 - A tasks stage that holds the `reconcile-decisions` occurrence is followed by
@@ -103,6 +103,18 @@ Adaptations to the example:
   [drafting](drafting.md#installed-workflow). `prfix/drafting.py`, the presets
   `workflows/description.yml`, `commit-message.yml` and `issue.yml` and their
   `SKILL.md` files are `authored`.
+- Under the `dk-commit-split` and `dk-pr-split` entries, the `inspect-commits` or
+  `assess-scope` occurrence runs the splitting procedure: its claim carries the
+  commit and scope evidence, and the accepted report returns a checked series or
+  split and proposes no operations. The entry's publication stage first runs
+  `workflows/splitting.yml`, which builds the result under the explicit local
+  grant, validates each new commit and moves the refs, and then lists only its
+  exact `rewrite`, or `split_push`, `split_pr` and source `push` intents. A
+  composed dk-pr-fix plan runs both adapters as ordinary read-only tasks, and
+  `prepare` rejects `rewrite_commits` in every other plan. See
+  [splitting](splitting.md#installed-workflow). `prfix/splitting.py`,
+  `workflows/splitting.yml`, the presets `workflows/commit-split.yml` and
+  `pr-split.yml` and their `SKILL.md` files are `authored`.
 
 ## Configuration split
 
