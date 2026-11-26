@@ -37,6 +37,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Incoming review and immutable-identity author routing](docs/review.md)
 - [Configuration, preferences and repository onboarding entries](docs/configuration-skills.md)
 - [Sourced PR decisions and reconciliation](docs/decisions.md)
+- [Plain-English and ASD-STE100 prose cleanup entries](docs/prose.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 

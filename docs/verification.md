@@ -114,6 +114,11 @@ dk-pr-decisions directly and from a dk-pr-fix plan with the same fake engine and
 the fail-closed fake GitHub transport. They count sessions, gates and writes across
 conflicting and later instructions, changed sources, clarification, unchanged
 reuse and uncertain section publication.
+[Prose cleanup](prose.md#verification) tests (`tests/test_prose.py`) drive
+dk-plain-english and dk-asd-ste100 with a disposable repository, the real
+acceptance and prose ledgers, and a fake engine whose claim-reconciled sessions
+edit the checkout. They count sessions across rejected edits, lost responses,
+interrupted commits and selective source, preference and reference refreshes.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

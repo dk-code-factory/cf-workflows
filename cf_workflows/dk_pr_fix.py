@@ -206,6 +206,11 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         # Their proposals are applied only by the configuration entries (cf_workflows.entries).
         return _reject(result, 'options.tasks', 'configuration adapters run only in cf-workflows:dk-config '
                        'and cf-workflows:dk-preferences')
+    prose = [task for task in snapshot['plan']['tasks'] if task['adapter'] in admission.PROSE_ADAPTERS]
+    if prose:
+        # The installed graph would run them as generic writers without the bounded prose procedure.
+        return _reject(result, prose[0]['path'], 'prose cleanup runs through cf_workflows.prose; the installed '
+                       'dk-pr-fix workflow does not invoke its bounded procedure yet')
     if any(snapshot['custom'].values()):
         return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
                        'dk-pr-fix workflow yet')
