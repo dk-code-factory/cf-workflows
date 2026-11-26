@@ -74,8 +74,18 @@ def _head(value, label='head'):
     return value
 
 
-def allowance(stage):
-    return 'alignment' if stage in CURRENT else 'architecture'
+def allowance(stage, account=None):
+    """The allowance a stage reserves from; an account (such as a logical run) keeps its own count."""
+    name = 'alignment' if stage in CURRENT else 'architecture'
+    if account is not None:
+        require(isinstance(account, str) and _ID.fullmatch(account) is not None, 'invalid allowance account')
+        name += ':' + account
+    return name
+
+
+def _base(name):
+    require(isinstance(name, str) and name.split(':', 1)[0] in LIMITS, 'unknown allowance')
+    return LIMITS[name.split(':', 1)[0]]
 
 
 def key(stage, decision=None):
@@ -161,10 +171,18 @@ CREATE TABLE grants (id TEXT PRIMARY KEY, name TEXT NOT NULL, amount INTEGER NOT
 """
 
 
-def ledger_path(state_directory, logical_run):
-    """The logical run's alignment record, next to its run ledger; run text never forms a path."""
+SCOPES = ('branch', 'whole-problem')
+
+
+def ledger_path(state_directory, logical_run, scope='branch'):
+    """The logical run's alignment record, next to its run ledger; run text never forms a path.
+
+    The branch scope (PR architecture) keeps its original name. Whole-problem analysis
+    (cf-workflows:dk-issue-alternatives) has its own record and never shares stage keys.
+    """
+    require(scope in SCOPES, 'unknown alternatives scope')
     name = hashlib.sha256(_text(logical_run, 'logical run').encode()).hexdigest()
-    return Path(state_directory) / 'runs' / (name + '.alignment.sqlite')
+    return Path(state_directory) / 'runs' / (name + ('' if scope == 'branch' else '.' + scope) + '.alignment.sqlite')
 
 
 def dumps(value):
@@ -178,14 +196,21 @@ def _reference(row):
 class Ledger:
     """Retained architectural analysis, current alignment and allowances for one logical run and PR."""
 
-    def __init__(self, path, *, logical_run, pr):
+    def __init__(self, path, *, logical_run, pr=None, subject=None, scope='branch'):
+        """A PR's record binds its URL. Whole-problem analysis without a PR binds its repository
+        subject instead and never invents a PR identity."""
+        require(scope in SCOPES and (pr is None) != (subject is None) and (pr is not None or scope != 'branch'),
+                'alignment ledger requires a PR, or a subject for whole-problem analysis')
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         require(not self.path.is_symlink(), 'alignment ledger must not be a symlink')
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
         self.db.row_factory = sqlite3.Row
         os.chmod(self.path, 0o600)
-        expected = {'suite': admission.SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr['url'].lower()}
+        expected = {'suite': admission.SUITE, 'kind': KIND, 'logical_run': logical_run}
+        expected.update({'pr': pr['url'].lower()} if pr is not None else {'subject': _text(subject, 'subject')})
+        if scope != 'branch':
+            expected['scope'] = scope
         try:
             with self.transaction():
                 version = self.db.execute('PRAGMA user_version').fetchone()[0]
@@ -250,7 +275,7 @@ class Ledger:
         first = self.db.execute('SELECT limit_value FROM reservations WHERE name = ? ORDER BY rowid LIMIT 1',
                                 (name,)).fetchone()
         granted = self.db.execute('SELECT COALESCE(SUM(amount), 0) FROM grants WHERE name = ?', (name,)).fetchone()[0]
-        ceiling = first[0] if first else LIMITS[name]
+        ceiling = first[0] if first else _base(name)
         return {'allowance': name, 'used': used, 'limit': ceiling + granted, 'exhausted': used >= ceiling + granted}
 
     # -- Dependencies ----------------------------------------------------------------------
@@ -307,7 +332,7 @@ class Ledger:
 
     # -- Attempts -------------------------------------------------------------------------
 
-    def prepare(self, stage, decision=None, *, inputs, head, operation, request=None, limit=None):
+    def prepare(self, stage, decision=None, *, inputs, head, operation, request=None, limit=None, account=None):
         """Decide one stage's next action: reuse, resume or run.
 
         reuse: an accepted result with the same binding; no session or allowance.
@@ -316,12 +341,13 @@ class Ledger:
         run: a new attempt under this operation, reserving one unit of its allowance.
         A settled architectural stage whose binding changed raises
         AuthorizationRequired unless a distinct direct user request covers it.
+        account keeps a separate count of the stage's allowance (for example per logical run).
         """
         stage_key = key(stage, decision)
         _text(operation, 'engine operation')
         _head(head)
-        name = allowance(stage)
-        ceiling = LIMITS[name] if limit is None else limit
+        name = allowance(stage, account)
+        ceiling = _base(name) if limit is None else limit
         require(type(ceiling) is int and ceiling >= 0, 'allowance limit requires a nonnegative integer')
         if request is not None:
             direct_request(request)
@@ -344,8 +370,9 @@ class Ledger:
                         f'authorize repeating it without a direct user request for {DIRECT_SKILL}',
                         AuthorizationRequired)
                 # Any earlier attempt of this stage under the request consumed it, not only the latest.
-                consumed = self.db.execute('SELECT 1 FROM attempts WHERE key = ? AND request = ?',
-                                           (stage_key, request['id'])).fetchone()
+                # A superseded or abandoned attempt did not settle the request's work.
+                consumed = self.db.execute("SELECT 1 FROM attempts WHERE key = ? AND request = ? "
+                                           "AND state = 'complete'", (stage_key, request['id'])).fetchone()
                 require(consumed is None,
                         f'{stage_key} already ran under direct request {request["id"]}; '
                         'a distinct direct user request is required', AuthorizationRequired)
@@ -389,9 +416,19 @@ class Ledger:
         require(used < ceiling + granted, 'retained allowance exhausted: ' + name, AllowanceExhausted)
         self.db.execute('INSERT INTO reservations VALUES (?, ?, ?)', (name, operation, ceiling))
 
+    def abandon(self, operation):
+        """Close a claim whose native result was rejected. Its reservation stays consumed, and the
+        next prepare starts a new attempt instead of resuming the rejected one."""
+        with self.transaction():
+            row = self.db.execute('SELECT * FROM attempts WHERE operation = ?', (operation,)).fetchone()
+            require(row is not None, 'unknown engine operation')
+            if row['state'] == 'claimed':
+                self.db.execute("UPDATE attempts SET state = 'superseded' WHERE seq = ?", (row['seq'],))
+            return self._record(self.db.execute('SELECT * FROM attempts WHERE seq = ?', (row['seq'],)).fetchone())
+
     def grant(self, request_id, name, amount, authorization):
         """An explicit continuation adds capacity to one allowance; replay adds nothing."""
-        require(name in LIMITS, 'unknown allowance')
+        _base(name)
         require(type(amount) is int and 1 <= amount <= 10, 'continuation amount out of bounds')
         _text(request_id, 'continuation request')
         _text(authorization, 'continuation authorization')
@@ -426,7 +463,7 @@ class Ledger:
 
 # -- Gate ------------------------------------------------------------------------------------
 
-def gate(ledger, *, head, inputs, identities=None, receipts=()):
+def gate(ledger, *, head, inputs, identities=None, receipts=(), account=None):
     """Whether ordinary review may proceed at head under the current alignment inputs.
 
     Settled architectural stages are read as they are. Alignment and verification
@@ -475,7 +512,7 @@ def gate(ledger, *, head, inputs, identities=None, receipts=()):
     _, binding = ledger.binding('alignment', inputs=inputs, head=head)
     alignment = ledger.latest('alignment')
     if alignment is None or alignment['binding'] != binding:
-        value = {**base, 'outcome': 'alignment_required', 'allowance': ledger.usage('alignment'),
+        value = {**base, 'outcome': 'alignment_required', 'allowance': ledger.usage(allowance('alignment', account)),
                  'next': {'stage': 'alignment', 'decision': None}}
         claim = ledger.open_claim('alignment')
         if claim is not None and claim['binding'] == binding:
@@ -495,7 +532,7 @@ def gate(ledger, *, head, inputs, identities=None, receipts=()):
         return {**base, 'outcome': 'released', 'release': True, 'references': references}
     if result == 'uncertain':
         return {**base, 'outcome': 'alignment_uncertain', 'references': references, 'refresh': 'new_evidence',
-                'allowance': ledger.usage('alignment')}
+                'allowance': ledger.usage(allowance('alignment', account))}
     verification = current('verification')
     if verification is None:
         return pending('verification')

@@ -106,6 +106,7 @@ starts no session and runs nothing.
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
    Prose adapters reject until the workflow calls their bounded procedure
    ([prose cleanup](prose.md)).
+   The staged alternatives adapters reject ([alternatives](alternatives.md)).
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission
