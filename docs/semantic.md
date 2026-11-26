@@ -115,7 +115,8 @@ an `admitted` result is mapped and staged. A
 replays the answered gate and admits the revision again.
 
 After acceptance the custom inputs reach the shared workflow through declared
-inputs of `main.yml` and `review.yml`:
+inputs of `main.yml` and `review.yml` (and `iter.yml`, which passes them to one of
+the two):
 
 | Custom input | Workflow input | In the plan |
 | --- | --- | --- |
