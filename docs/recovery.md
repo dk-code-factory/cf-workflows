@@ -51,7 +51,10 @@ directory:
    committed between the first and the last (`PRAGMA data_version` on separate
    probe connections) and no store appeared. Otherwise it retries, up to
    `attempts` times, and then fails. Committed WAL records are included, and an
-   uncommitted transaction is not. Each copy is a self-contained file.
+   uncommitted transaction is not. Stores are opened read-write (never
+   created) so SQLite rolls back the hot journal a writer killed mid-commit
+   leaves in a rollback-journal store; only reads are issued. Each copy is a
+   self-contained file.
 3. It copies the marker, the upgrade journal, the checkpoints and the requests,
    and then the artifacts they reference. Each content-addressed file must match
    its name.
@@ -147,7 +150,8 @@ adapters record native dispatches. The cases cover the following:
   its child to another between snapshots. The snapshot is retaken, and with the
   check disabled the copies disagree. A writer that never pauses fails the
   backup without leaving a partial one. Committed WAL records are captured, and a
-  writer killed mid-transaction is not. Tampered, extra, incomplete, foreign and
+  writer killed mid-transaction is not; the hot journal of a rollback-journal
+  writer killed mid-commit is rolled back by backup and upgrade. Tampered, extra, incomplete, foreign and
   newer backups and nonempty targets reject before any change. The saved
   configuration is restored only into an empty place, and dk-workflows settings
   reject. The engine bundle needs a stopped controller and is restored together.

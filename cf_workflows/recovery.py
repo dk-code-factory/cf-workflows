@@ -195,9 +195,14 @@ def _json(path):
         raise RecoveryError(f'unreadable {Path(path).name}: {error}') from error
 
 
-def _connect(path, write=False):
-    return sqlite3.connect(Path(path).resolve().as_uri() + ('' if write else '?mode=ro'), uri=True,
-                           isolation_level=None, timeout=30)
+def _connect(path):
+    """An existing store, opened read-write but never created.
+
+    Only reads are issued. Write access lets SQLite roll back the hot journal a
+    writer killed mid-commit leaves in a rollback-journal store, which a
+    read-only connection cannot do, and which is exactly when recovery runs.
+    """
+    return sqlite3.connect(Path(path).resolve().as_uri() + '?mode=rw', uri=True, isolation_level=None, timeout=30)
 
 
 # -- Catalog ---------------------------------------------------------------------------------
@@ -299,6 +304,13 @@ def _changed(before, after):
 
 def _snapshot(suite, target, attempts):
     """Copy every store as of one instant; returns {relative: version}."""
+    try:
+        return _snapshot_once(suite, target, attempts)
+    except sqlite3.DatabaseError as error:
+        raise RecoveryError('a store could not be snapshotted: ' + str(error)) from error
+
+
+def _snapshot_once(suite, target, attempts):
     for _ in range(attempts):
         stores = audit(suite)['stores']
         relatives = sorted(stores)

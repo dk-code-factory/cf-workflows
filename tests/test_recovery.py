@@ -354,6 +354,34 @@ class Backup(unittest.TestCase):
             deadlines = ledger.db.execute('SELECT count(*) FROM deadlines').fetchone()[0]
         self.assertEqual((names, deadlines), (['review_cycles'], 1))
 
+    def test_a_hot_journal_left_by_a_killed_rollback_journal_writer_is_rolled_back(self):
+        path = feedback.ledger_path(self.ns, 'run')
+        self.feedback.db.execute("INSERT INTO sources VALUES ('kept', 'identity')")
+        process = subprocess.Popen(
+            [sys.executable, '-I', '-c', 'import sqlite3,sys,time\n'
+             'db = sqlite3.connect(sys.argv[1], isolation_level=None)\n'
+             'db.execute("PRAGMA cache_size=1")\n'  # Spill pages into the file before the commit.
+             'db.execute("BEGIN IMMEDIATE")\n'
+             'for n in range(3000):\n'
+             '    db.execute("INSERT INTO sources VALUES (?, ?)", ("lost%d" % n, "x" * 2000))\n'
+             'print("ready", flush=True); time.sleep(60)', str(path)],
+            stdout=subprocess.PIPE)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        self.assertEqual(process.stdout.readline().strip(), b'ready')
+        process.kill()  # Killed mid-commit: a hot journal remains.
+        process.wait()
+        self.feedback.close()
+        self.assertTrue(Path(str(path) + '-journal').is_file())
+        manifest = recovery.backup(self.home, self.destination())
+        self.assertIn(path.relative_to(self.home / recovery.SUITE_DIR).as_posix(), manifest['stores'])
+        self.assertEqual(recovery.upgrade(self.home)['status'], 'applied')
+        self.ledger.close()
+        self.other.close()
+        self.restored(self.destination())
+        restored = sqlite3.connect(path)
+        self.assertEqual([row[0] for row in restored.execute('SELECT key FROM sources')], ['kept'])
+        restored.close()
+
     def test_restore_verifies_everything_before_it_changes_anything(self):
         recovery.backup(self.home, self.destination())
         state = self.destination() / 'state' / NAMESPACE
