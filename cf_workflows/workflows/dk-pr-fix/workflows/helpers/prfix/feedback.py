@@ -35,7 +35,8 @@ COLLECTIONS = {'comment': 'comments', 'review': 'reviews', 'inline': 'inline'}
 ADDRESSEES = ('author', 'participant', 'none')
 IMPLEMENTATIONS = ('fixed', 'intentional', 'rejected', 'deferred', 'none')
 NO_REPLY = {'participant': 'addressed_to_participant', 'none': 'no_author_reply_needed'}
-REQUEST_FIELDS = {'id', 'excerpt', 'addressee', 'participant', 'category', 'implementation', 'instructed', 'response'}
+REQUEST_FIELDS = {'id', 'excerpt', 'addressee', 'participant', 'category', 'implementation', 'instructed', 'response',
+                  'paths'}
 _ID = re.compile(r'^[A-Za-z0-9_.:-]{1,64}$')
 _LOGIN = re.compile(r'^[A-Za-z0-9-]{1,39}(\[bot\])?$')
 
@@ -257,6 +258,13 @@ def validate(view, assessment):
         require(isinstance(request.get('instructed', False), bool), f'{ident}: instructed must be boolean')
         if 'category' in request:
             _text(request['category'], 'category')
+        if 'paths' in request:
+            # The repository paths a fixed decision changed; the address helpers verify them.
+            paths = request['paths']
+            require(request['implementation'] == 'fixed' and isinstance(paths, list) and 0 < len(paths) <= 64
+                    and all(isinstance(path, str) and path.strip() and '\0' not in path for path in paths)
+                    and len(set(paths)) == len(paths),
+                    f'{ident}: paths name the distinct repository paths of a fixed decision')
         _response(view, source, request)
     return {'source': source['key'], 'fingerprint': assessment['fingerprint'],
             'requests': sorted(requests, key=lambda request: request['id'])}

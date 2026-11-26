@@ -141,17 +141,25 @@ def _assessments(report):
     return value["assessments"]
 
 
-def check_feedback(root, provider, plan, task, report):
+def check_feedback(root, provider, plan, task, report, fixes=None):
     """Validate a read or address report's assessments without retaining them.
 
     Afterwards every current source must have a current assessment; a report may omit a
     source that already has one. A read decides no implementation. An address ``fixed``
-    decision needs this report's changes or an earlier retained ``fixed`` decision for the
-    same request, so a resumed or composed occurrence never implements it again. Every
-    ledger rule applies: obligations are never dropped and settled decisions never change.
+    decision cites the repository ``paths`` it changed: each must be a path this report
+    changes, or a path of an earlier accepted controlled fix of the same request whose
+    commit is still an ancestor of the local head with its bytes intact (``fixes``, from
+    the run ledger). So a resumed or composed occurrence never implements it again, and a
+    fix lost to a reset or force-push is never reported as fixed. Every ledger rule
+    applies: obligations are never dropped and settled decisions never change.
+
+    Returns the observation and the validated assessments; ``retain_feedback`` records
+    exactly those, never a later observation.
     """
     kind = role(task)
     assessments = _assessments(report)
+    changed = {change.get("path") for change in report.get("changes") or [] if isinstance(change, dict)}
+    fixes = fixes or {}
     _, view = _observe(provider, plan)
     record = _record(root, plan, read_only=True)
     try:
@@ -168,10 +176,11 @@ def check_feedback(root, provider, plan, task, report):
                     feedback.require(decision in ("none", settled.get(request["id"])),
                                      f"{request['id']}: reading feedback decides no implementation")
                 elif decision == "fixed":
-                    feedback.require(bool(report.get("changes"))
-                                     or record.decided(value["source"], request["id"], "fixed"),
-                                     f"{request['id']}: a fixed decision needs this report's changes or an "
-                                     "earlier retained fix")
+                    paths = set(request.get("paths", []))
+                    allowed = changed | fixes.get((value["source"], request["id"]), set())
+                    feedback.require(bool(paths) and paths <= allowed,
+                                     f"{request['id']}: a fixed decision must cite paths this report changes or "
+                                     "paths of its earlier controlled fix that remain intact")
         missing = [key for key, source in sorted(view.sources.items()) if key not in assessed
                    and record.current(key, feedback.View.fingerprint(source)) is None]
         feedback.require(not missing, "feedback sources left unassessed: " + ", ".join(missing))
@@ -180,9 +189,11 @@ def check_feedback(root, provider, plan, task, report):
     return view, assessments
 
 
-def retain_feedback(root, provider, plan, task, report):
-    """Retain an accepted read or address report's assessments after its effects are committed."""
-    view, assessments = check_feedback(root, provider, plan, task, report)
+def retain_feedback(root, plan, view, assessments):
+    """Retain exactly the assessments validated against ``view`` before the report's effects.
+
+    Nothing is observed again: a source that appears after validation is left for the next read.
+    """
     record = _record(root, plan, read_only=False)
     try:
         for assessment in assessments:

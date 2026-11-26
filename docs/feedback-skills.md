@@ -88,10 +88,22 @@ leaves that source unassessed. Coverage then lists the read as missing.
 
 `address-feedback` follows the same contract, with two differences:
 
-- A request decided `fixed` needs this report's changes, or an earlier retained
-  `fixed` decision for the same request.
-- The assessments are retained only after the controlled commit. A report that
-  is rejected or never committed leaves no decision behind.
+- A request decided `fixed` cites the repository `paths` it changed. Each path
+  must be one of these:
+  - a path this report changes;
+  - a path of an earlier accepted controlled fix of the same request. That fix's
+    commit must still be an ancestor of the local head, and the path's bytes
+    must be intact (`feedback_fixes()` in `prfix/app.py`). The address claim
+    lists these fixes as `feedback.fixes`.
+
+  A fix lost to a reset, force-push or rewrite therefore must be implemented
+  again. It is never reported as fixed. The helper checks paths, not meaning: a
+  change to a cited path backs the decision.
+- The assessments are retained after the controlled commit and before the claim
+  completes. A report that is rejected or never committed leaves no decision
+  behind. Retention records exactly the assessments validated before the
+  commit, against that observation. A source that appears in between waits for
+  the next read.
 
 The feedback record keeps these rules for every later task:
 

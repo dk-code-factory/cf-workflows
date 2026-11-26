@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from urllib.parse import parse_qsl, urlsplit
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
@@ -83,6 +84,8 @@ def discussion():
 
 
 def request(ident, excerpt, implementation="none", addressee="author", response=None, **extra):
+    if implementation == "fixed":
+        extra.setdefault("paths", ["code.py"])
     return {"id": ident, "excerpt": excerpt, "addressee": addressee, "implementation": implementation,
             "response": response or {"disposition": "reply"}, **extra}
 
@@ -464,7 +467,7 @@ class EntryRuns(unittest.TestCase):
         fix = {"changes": changes, "commit_message": "Rename value to count"}
         for round_number, report, error in (
                 (0, {**self.feedback(declined), **fix}, "concrete author request"),
-                (1, self.feedback(decided), "needs this report's changes")):
+                (1, self.feedback(decided), "must cite paths")):
             result = self.accept(plan, ledger, address, report, round_number)
             self.assertIn(error, result["feedback"]["contract_error"])
         self.assertEqual(self.commits(), 1, "a rejected report commits nothing")
@@ -515,6 +518,66 @@ class EntryRuns(unittest.TestCase):
         self.assertTrue(self.accept(composed, ledger, address, self.feedback(decided), 1)["complete"])
         self.assertEqual((self.native, self.commits()), (7, 2))
         self.assertEqual(set(self.github.calls), {"capture"})
+
+    def addressed(self):
+        """The address preset through a read and reconciliation, with its fix claim open."""
+        plan = self.plan(self.preflight("dk-pr-feedback-address"))
+        ledger, view = self.ledger(plan), self.view(plan)
+        self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, "read-feedback"),
+                                    self.feedback(assessments(view)))["complete"])
+        self.accept(plan, ledger, self.claim(plan, ledger, "reconcile-decisions"), self.report())
+        return plan, ledger, view, self.claim(plan, ledger, "address-feedback")
+
+    def test_a_source_arriving_during_acceptance_is_left_for_the_next_read(self):
+        # Review cycle 1: retention records exactly the validated assessments, never a later observation.
+        plan, ledger, view, address = self.addressed()
+        fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count"}
+        original = responses.retain_feedback
+
+        def late(*args):
+            self.github.evidence["comments"].append({"id": 99, "user": REVIEWER, "created_at": at(9),
+                                                     "html_url": PR_URL + "#issuecomment-99", "body": "Add a test."})
+            return original(*args)
+        with patch.object(responses, "retain_feedback", late):
+            result = self.accept(plan, ledger, address, {**self.feedback(assessments(view, rename="fixed")), **fix})
+        self.assertTrue(result["complete"])
+        self.assertEqual(self.commits(), 2)
+        covered = app.coverage(self.root, self.github, ledger, plan, {})
+        self.assertEqual(covered["feedback"]["sources"]["inline:30"]["requests"][0]["implementation"], "fixed")
+        self.assertEqual(covered["feedback"]["unassessed"], ["comment:99"])
+
+    def test_a_fixed_decision_needs_its_cited_paths_changed_and_intact(self):
+        plan, ledger, view, address = self.addressed()
+        before = git(self.root, "rev-parse", "HEAD")
+        fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count"}
+        # Review cycle 1: one changed file backs no fix cited elsewhere, nor a fix that cites nothing.
+        elsewhere = assessments(view, rename="fixed", migration="fixed")
+        elsewhere[3]["requests"][0]["paths"] = ["migrations/0002.py"]
+        uncited = assessments(view, rename="fixed")
+        del uncited[0]["requests"][0]["paths"]
+        for round_number, value in enumerate((elsewhere, uncited)):
+            result = self.accept(plan, ledger, address, {**self.feedback(value), **fix}, round_number)
+            self.assertIn("must cite paths", result["feedback"]["contract_error"])
+        self.assertTrue(self.accept(plan, ledger, address, {**self.feedback(assessments(view, rename="fixed")), **fix},
+                                    2)["complete"])
+        self.assertEqual(app.feedback_fixes(self.root, ledger), {("inline:30", "rename"): {"code.py"}})
+        # Review cycle 1: the fix is lost to a reset; a rerun must implement it again, not claim it.
+        git(self.root, "reset", "--hard", before)
+        self.assertEqual(app.feedback_fixes(self.root, ledger), {})
+        for adapter in ("read-feedback", "reconcile-decisions"):
+            claimed = self.claim(plan, ledger, adapter)
+            if claimed["invoke"]:
+                self.accept(plan, ledger, claimed, self.report())
+        address = self.claim(plan, ledger, "address-feedback")
+        self.assertTrue(address["invoke"])
+        self.assertEqual(address["task_input"]["feedback"]["fixes"], [])
+        result = self.accept(plan, ledger, address, self.feedback(assessments(view, rename="fixed")))
+        self.assertIn("must cite paths", result["feedback"]["contract_error"])
+        self.assertFalse(app.coverage(self.root, self.github, ledger, plan, {})["complete"])
+        fix = {"changes": self.change("code.py", "COUNT = 2\n"), "commit_message": "Rename value to count again"}
+        self.assertTrue(self.accept(plan, ledger, address, {**self.feedback(assessments(view, rename="fixed")), **fix},
+                                    1)["complete"])
+        self.assertEqual(self.commits(), 2)
 
     def test_an_edited_source_is_assessed_again_and_keeps_its_obligation(self):
         plan = self.plan(self.preflight("dk-pr-feedback-read"))
