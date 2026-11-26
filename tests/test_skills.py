@@ -201,8 +201,8 @@ class Bindings(Fixture):
         # Any deployed runtime may run the occurrence, so every runtime needs its own profile.
         offered = offering(*CLAUDE)
         offered['providers']['codex-app-server'].append(admission.CODEX_SKILL_PROFILE)
-        mixed = {**self.deployment, 'agents': {'claude': {'provider': 'claude-sdk'},
-                                               'codex': {'provider': 'codex-app-server'}}}
+        mixed = {**self.deployment, 'agents': {'claude': {'provider': 'claude-sdk', 'execution': {'mode': 'local'}},
+                                               'codex': {'provider': 'codex-app-server', 'execution': {'mode': 'local'}}}}
         with patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
             result = self.admit(invocation=invocation, transport=FakeTransport(offered), deployment=mixed)
             self.assertEqual(result['snapshot']['capabilities']['skill_profiles'],
@@ -224,7 +224,7 @@ class Bindings(Fixture):
         for sandbox, accepted in (('read-only', True), ('workspace-write', False)):
             with self.subTest(sandbox=sandbox), patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
                 deployment = {**self.deployment, 'agents': {'task': {'provider': 'codex-app-server',
-                                                                     'sandbox': sandbox}}}
+                                                                     'sandbox': sandbox, 'execution': {'mode': 'local'}}}}
                 result = self.admit(invocation={'options': {'tasks': TASKS, 'finalizers': []},
                                                 'skills': [self.skill()]},
                                     transport=FakeTransport(offered), deployment=deployment)
@@ -233,16 +233,19 @@ class Bindings(Fixture):
                 else:
                     self.assertRejected(result, 'deployment.agents.task.sandbox: '
                                                 'Codex supplied skills need a read-only sandbox')
-        # Neither runtime admits a supplied skill in container execution.
-        for provider in ('claude-sdk', 'codex-app-server'):
-            with self.subTest(provider=provider), patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
-                deployment = {**self.deployment, 'agents': {'task': {'provider': provider,
-                                                                     'execution': {'mode': 'container'}}}}
+        # Neither runtime admits a supplied skill in container execution, including the deployment's
+        # container execution an agent without its own inherits upstream.
+        for provider, execution in [(p, e) for p in ('claude-sdk', 'codex-app-server')
+                                    for e in ({'execution': {'mode': 'container'}}, {}, {'execution': {}})]:
+            with self.subTest(provider=provider, execution=execution), \
+                    patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
+                deployment = {**self.deployment, 'agents': {'task': {'provider': provider, **execution}}}
                 self.assertRejected(self.admit(invocation={'options': {'tasks': TASKS, 'finalizers': []},
                                                            'skills': [self.skill()]},
                                                transport=FakeTransport(offered), deployment=deployment),
                                     'deployment.agents.task.execution.mode: '
-                                    'supplied skills do not run in container execution')
+                                    'supplied skills need explicit local execution; '
+                                    'an agent without one inherits the container execution')
         result = self.admit_skill(arguments='exact arguments')
         selected = skills.session_plan(result)['occurrences'][2]
         self.assertEqual(selected['selection']['arguments'], 'exact arguments')
@@ -298,6 +301,18 @@ class Bindings(Fixture):
             with self.subTest(content=content[:40]):
                 self.write(self.skills_root, 'lint/SKILL.md', content)
                 self.assertEqual(self.admit_skill()['structural'], 'accepted')
+
+    def test_plain_metadata_scalars_resolve_as_yaml_v3_does(self):
+        # Tags checked against gopkg.in/yaml.v3 v3.0.1: every non-!!str plain scalar must reject.
+        for raw in ('0X1F', '0B101', '0O17', '+0x1F', '+0b101', '+0o17', '+0X_1f', '0b+1', '0o-7', '+00', '08',
+                    '1_000', '.0_5', '.5e1_0', '+._5', '1.', '+.INF', '.NaN', '~', 'FALSE', '<<'):
+            with self.subTest(raw=raw):
+                self.assertTrue(admission.yaml_non_string(raw))
+                with self.assertRaisesRegex(admission.AdmissionError, 'must be strings'):
+                    admission.frontmatter_value(raw, 'p')
+        for raw in ('0x', '0xG', '0B2', '.0_', '._0', '.e1', '0b+-1', 'yes', 'on', 'Null0', '1a', 'lint'):
+            with self.subTest(raw=raw):
+                self.assertFalse(admission.yaml_non_string(raw))
 
     def test_skill_directory_has_one_entry_and_no_symlinks(self):
         self.write(self.skills_root, 'lint/refs/SKILL.md', '---\nname: refs\ndescription: d\n---\n')

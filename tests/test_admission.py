@@ -99,7 +99,7 @@ class Fixture(unittest.TestCase):
 
     def skill_deployment(self, provider='claude-sdk'):
         """A deployment whose one runtime is a provider that admits supplied skills."""
-        return {**self.deployment, 'agents': {'task': {'provider': provider}}}
+        return {**self.deployment, 'agents': {'task': {'provider': provider, 'execution': {'mode': 'local'}}}}
 
     def configuration(self, scopes=(), resources=()):
         return {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',

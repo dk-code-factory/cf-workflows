@@ -75,7 +75,10 @@ The profile names are the ones upstream pins in `pkg/clirunner/skill.go`:
 | `codex-app-server` | `codex-app-server@0.167.1/local-skill-no-delegation-v1` | children, nonempty `arguments`, a `sandbox` other than `read-only` |
 | any other provider | none | every supplied skill |
 
-A provider outside the table, a runtime with `execution.mode: container`, a
+Every skill runtime must declare `execution: {mode: local}`. An agent without
+its own `execution` inherits the deployment's container execution upstream
+(`pkg/clirunner/config.go`), so it rejects like `execution.mode: container`.
+A provider outside the table, a runtime without explicit local execution, a
 Codex child, Codex arguments or a Codex `sandbox` other than `read-only` (unset
 is allowed) reject before the engine is queried. A missing profile rejects after the one capability query.
 The required profiles are recorded per runtime in the snapshot as
@@ -135,7 +138,7 @@ counts. These event sources are read:
 
 | Provider | Invocation | Children |
 | --- | --- | --- |
-| Claude | `Skill` tool use with only `skill` and `args`, completed by its own successful tool result (`success`, matching `commandName`); `args` must equal the admitted arguments | `Agent`/`Task` tool use whose `subagent_type`, `prompt`, `description` and `run_in_background: false` equal the declaration, `parent_tool_use_id`, then `task_started`/`task_notification` |
+| Claude | `Skill` tool use with only `skill` and `args`, completed by its own successful tool result (`success`, matching `commandName`); `args` must equal the admitted arguments | `Agent` tool use whose `subagent_type`, `prompt`, `description` and `run_in_background: false` equal the declaration, `parent_tool_use_id`, then `task_started`/`task_notification` |
 | Codex | the native `skills.selected_skill_instructions` user fragment on the session's thread and turn, with `skills` provenance and the exact admitted `SKILL.md` bytes. A `turn/start` `skill` input is only a request. | none: any `collabAgentToolCall` or `subAgentActivity` fails, because the profile disables delegation |
 
 | Status | Meaning |

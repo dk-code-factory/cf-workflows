@@ -254,7 +254,7 @@ class Preflight(PreflightFixture):
                  'sha256': admission.skill_digest(files),
                  'files': [{'path': 'SKILL.md', 'sha256': files['SKILL.md']}]}
         # Supplied skills run only on an Agent Workflow #139 provider profile.
-        skilled = {**self.deployment, 'agents': {'task': {'provider': 'claude-sdk'}}}
+        skilled = {**self.deployment, 'agents': {'task': {'provider': 'claude-sdk', 'execution': {'mode': 'local'}}}}
         offered = copy.deepcopy(CAPABILITIES)
         offered['providers']['claude-sdk'] = ['admitted_roles', 'native_session', admission.CLAUDE_SKILL_PROFILE]
         for invocation, transport, deployment in (

@@ -605,13 +605,31 @@ def resolve_skill(record, roots, path):
 
 
 FRONTMATTER_KEY = re.compile(r'(name|description):(?: (.*))?')
-# Plain YAML scalars that do not resolve to a string (yaml.v3): such metadata rejects upstream.
-YAML_NON_STRING = re.compile(r'~|null|Null|NULL|true|True|TRUE|false|False|FALSE|[-+]?(?:0|[1-9][0-9_]*)'
-                             r'|0[0-7_]+|0o[0-7_]+|0x[0-9a-fA-F_]+|0b[01_]+'
-                             r'|[-+]?(?:\.[0-9]+|[0-9][0-9_]*(?:\.[0-9_]*)?)(?:[eE][-+]?[0-9]+)?'
-                             r'|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)|<<'
-                             # yaml.v3 tries a timestamp for any plain scalar starting YYYY-; reject them all.
-                             r'|[0-9]{4}-.*')
+# How yaml.v3 (v3.0.1 resolve.go) resolves a plain scalar that is not a string: its map of
+# reserved words, strconv.ParseFloat for a leading '.', and for a leading digit or sign a
+# timestamp, then strconv.ParseInt/ParseUint (base 0: sign, case-insensitive 0x/0o/0b
+# prefixes, leading-0 octal) or its float pattern, all after removing every '_'.
+YAML_RESERVED = frozenset(('~', 'null', 'Null', 'NULL', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE',
+                           '.nan', '.NaN', '.NAN', '.inf', '.Inf', '.INF', '+.inf', '+.Inf', '+.INF',
+                           '-.inf', '-.Inf', '-.INF', '<<'))
+# strconv.ParseFloat takes '_' only between digits.
+YAML_DOT_FLOAT = re.compile(r'\.[0-9]+(?:_[0-9]+)*(?:[eE][-+]?[0-9]+(?:_[0-9]+)*)?')
+YAML_NUMBER = re.compile(r'[-+]?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
+                         r'|(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)'
+                         # Its 0b/0o fallback parses the rest with its own sign.
+                         r'|0b[-+]?[01]+|0o[-+]?[0-7]+')
+
+
+def yaml_non_string(raw):
+    """Whether yaml.v3 tags this plain scalar other than `!!str` (conservatively: any YYYY- prefix rejects)."""
+    if raw in YAML_RESERVED:
+        return True
+    if raw[0] == '.':
+        return bool(YAML_DOT_FLOAT.fullmatch(raw))
+    if raw[0] not in '+-0123456789':
+        return False
+    # yaml.v3 tries a timestamp for any plain scalar starting YYYY-; reject them all.
+    return bool(re.match(r'[0-9]{4}-', raw) or YAML_NUMBER.fullmatch(raw.replace('_', '')))
 
 
 def go_json_size(value):
@@ -643,7 +661,7 @@ def frontmatter_value(raw, path):
         return raw[1:-1].replace("''", "'")
     require(raw[0] not in '-?:,[]{}#&*!|>%@`' and ': ' not in raw and ' #' not in raw and not raw.endswith(':'),
             path, 'unsupported plain metadata value; quote it')
-    require(not YAML_NON_STRING.fullmatch(raw), path, 'metadata values must be strings; quote it')
+    require(not yaml_non_string(raw), path, 'metadata values must be strings; quote it')
     return raw
 
 
@@ -716,7 +734,8 @@ def skill_profiles(agent, selected, path):
     """The Agent Workflow #139 capability profiles a runtime needs to run the selected skills.
 
     Only the Claude SDK and Codex app-server runtimes admit supplied skills,
-    and neither in container execution. Codex disables native delegation and
+    and only with an explicit `execution: {mode: local}`: an agent without
+    its own execution inherits the deployment's container execution upstream. Codex disables native delegation and
     typed skill arguments and needs a read-only (or unset) sandbox, so a child
     declaration, nonempty arguments or a writable sandbox reject there before
     any claim.
@@ -724,8 +743,10 @@ def skill_profiles(agent, selected, path):
     provider = agent['provider']
     require(provider in SKILL_PROVIDERS, path + '.provider',
             'unsupported supplied-skill provider; use ' + ' or '.join(SKILL_PROVIDERS))
-    require(agent.get('execution', {}).get('mode', 'local') == 'local', path + '.execution.mode',
-            'supplied skills do not run in container execution')
+    # An agent without its own execution inherits the deployment's (container) execution upstream,
+    # so a skill runtime must state local execution explicitly.
+    require(agent.get('execution', {}).get('mode') == 'local', path + '.execution.mode',
+            'supplied skills need explicit local execution; an agent without one inherits the container execution')
     if provider == CODEX_PROVIDER:
         require(agent.get('sandbox', 'read-only') == 'read-only', path + '.sandbox',
                 'Codex supplied skills need a read-only sandbox')
