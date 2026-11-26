@@ -320,6 +320,26 @@ class ReviewPost(Helpers):
         self.assertIn("approval needs complete clean independent review", final["blockers"])
         self.assertEqual((self.writes(), self.native), (1, Counter({"review": 1, "verification": 1, "audience": 1})))
 
+    def test_review_post_options_keep_configured_settings_and_current_review(self):
+        # The settings dk-pr-review-post admits for configured {strict, request_changes: false}
+        # plus include_summary (Entries.test_review_post_options_set_only_their_settings_over_configuration).
+        configured = {"strict": True, "request_changes": False}
+        _, plan, ledger = self.review({}, {}, dict(configured))
+        self.reviewed(plan, ledger, [self.finding("subject", SUBJECT, "commit_message", ("rules",), commit=self.commit)])
+        _, post, ledger = self.review({"post_findings": grant("post")}, {"post_findings": True},
+                                      {**configured, "include_summary": True})
+        for skill, agent in (("review", AGENTS[3]), ("finding_verification", AGENTS[4])):
+            self.assertFalse(self.execute(post, ledger, skill, agent)["invoke"], "current review is reused")
+        self.barrier(post, ledger)
+        payload = self.github.posted[0]
+        self.assertEqual(payload["event"], "COMMENT", "configured request_changes: false is kept")
+        self.assertTrue(payload["body"].startswith("1 independently verified finding"))
+        self.assertEqual((self.writes(), self.native), (1, Counter({"review": 1, "verification": 1, "audience": 1})))
+        # Dropping an analysis setting such as strict would make the review stale.
+        _, dropped, ledger = self.review({"post_findings": grant("post")}, {"post_findings": True},
+                                         {"request_changes": False, "include_summary": True})
+        self.assertTrue(self.execute(dropped, ledger, "review", AGENTS[5])["invoke"])
+
     def test_partial_review_comments_and_is_never_approved(self):
         _, plan, ledger = self.review({"post_findings": grant("post"), "approve_pr": grant("approve")},
                                       {"post_findings": True, "approve_pr": True}, reviewers=[["review", "simplify"]])
@@ -670,6 +690,7 @@ class Entries(PreflightFixture):
                             options={'blocking_event': 'COMMENT', 'include_summary': True})
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
         self.assertEqual(result['inputs']['settings'], {'include_summary': True, 'request_changes': False})
+        self.assertEqual(self.transport.calls, Counter(capabilities=2))
         self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'post_findings', 'approve_pr'})
         self.assertEqual(result['inputs']['tasks'], dk_pr_review.DEFAULTS['tasks'])
         default = self.entry('dk-pr-review-post', {'post_findings': grant('p')}, self.enable('post_findings'))
@@ -711,6 +732,31 @@ class Entries(PreflightFixture):
                                     options=options)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
                 self.assertEqual(self.transport.calls, Counter())
+
+    def configuration(self, **body):
+        scope = {'id': 'all', 'selector': {'kind': 'repository', 'id': 'github.com/owner/repo'}, 'options': {},
+                 'permissions': {}, 'prompts': [], 'skills': [], 'preferences': [], **body}
+        return {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',
+                'resources': [], 'scopes': [scope],
+                'admission': {'structural': 'pending', 'semantic': None, 'request_id': None, 'context_digest': None,
+                              'resource_digest': None, 'capability_digest': None, 'evidence_refs': []}}
+
+    def test_review_post_options_set_only_their_settings_over_configuration(self):
+        configured = {'strict': True, 'request_changes': False}
+        configuration = self.configuration(options={'settings': dict(configured)})
+        cases = ((None, configured, 1),
+                 ({'include_summary': True}, {**configured, 'include_summary': True}, 2),
+                 ({'blocking_event': 'REQUEST_CHANGES'}, {**configured, 'request_changes': True}, 2),
+                 ({'blocking_event': 'COMMENT'}, configured, 1),
+                 ({'nonblocking_event': 'COMMENT'}, configured, 1))
+        for options, settings, queries in cases:
+            with self.subTest(options=options):
+                result = self.entry('dk-pr-review-post', {'post_findings': grant('p')}, self.enable('post_findings'),
+                                    configuration=configuration, options=options)
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+                self.assertEqual(result['inputs']['settings'], settings)
+                self.assertEqual(result['snapshot']['options']['settings']['value'], settings)
+                self.assertEqual(self.transport.calls, Counter(capabilities=queries))
 
     def test_configured_permission_never_supplies_missing_authority(self):
         configuration = {'schema_version': 1, 'kind': 'configuration', 'suite': 'cf-workflows', 'revision': 'rev-1',

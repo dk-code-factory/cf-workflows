@@ -169,19 +169,25 @@ def preflight(name, *, request, deployment, repository, transport, configuration
     merged = {'options': copy.deepcopy(preset['options'])}
     if selected == 'merge':
         merged['options']['merge_method'] = entry_options['default_merge_method']['value']
-    if name == 'dk-pr-review-post':
-        given = {key for key, value in entry_options.items() if value['source'] == 'invocation'}
-        if given & {'include_summary', 'blocking_event'}:
-            # Entry options given at invocation replace configured publication settings.
-            merged['options']['settings'] = {
-                'include_summary': entry_options['include_summary']['value'],
-                'request_changes': entry_options['blocking_event']['value'] == 'REQUEST_CHANGES'}
+    given = {}
+    if entry_options.get('include_summary', {}).get('source') == 'invocation':
+        given['include_summary'] = entry_options['include_summary']['value']
+    if entry_options.get('blocking_event', {}).get('source') == 'invocation':
+        given['request_changes'] = entry_options['blocking_event']['value'] == 'REQUEST_CHANGES'
     if permissions:
         merged['permissions'] = copy.deepcopy(permissions)
     arguments = dict(request=request, configuration=configuration, invocation=merged, deployment=deployment,
                      repository=repository, transport=transport, roots=roots, home=home, install=install)
     if preset['mode'] == 'review':
         result = dk_pr_review.preflight(**arguments)
+        configured = result.get('snapshot', {}).get('options', {}).get('settings', {}).get('value')
+        if result.get('preflight') == 'admitted' and given and {**configured, **given} != configured:
+            # Review-post options set only the publication settings they name; every other
+            # configured setting is kept, so analysis bindings do not change. A second
+            # admission binds the merged settings at invocation precedence.
+            arguments['invocation'] = {**merged, 'options': {**merged['options'],
+                                                             'settings': {**configured, **given}}}
+            result = dk_pr_review.preflight(**arguments)
         result['workflow'] = entry['skill'] if result.get('preflight') == 'admitted' else result.get('workflow')
     else:
         result = dk_pr_fix.preflight(**arguments, maintain_other=maintain_other, workflow=entry['skill'],

@@ -97,8 +97,10 @@ review mode. Approval establishes no merge readiness.
 | dk-pr-review-post | `blocking_event` | `REQUEST_CHANGES` | `settings.request_changes` (`COMMENT` sets it false) |
 | dk-pr-review-post | `nonblocking_event` | `COMMENT` | `COMMENT` only; partial reviews always comment |
 
-When a review-post option is given at invocation, it replaces the configured
-publication `settings`. Neither option can request `APPROVE`.
+A review-post option given at invocation sets only the setting it maps to.
+Every other configured setting is kept, so review analysis stays current. When
+the result differs from the configured settings, preflight admits the merged
+settings in a second capability query. Neither option can request `APPROVE`.
 
 ## Direct and composed use
 
