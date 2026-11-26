@@ -637,10 +637,19 @@ def apply_operations(document, operations, name, where, options, repository=None
                 del scope[section][operation[key]]
             changes['paths'].append(f"scopes.{scope['id']}.{section}.{operation[key]}")
         elif kind in ('set_entry_option', 'unset_entry_option'):
-            # One top-level option of an entry with saved options; its schema is checked on admission.
+            # One top-level option of an entry with saved options, checked against the entry's schema
+            # here as one saved layer, like the scope body check on write.
             fields(operation, at, ('op', 'scope', 'entry', 'key', *(('value',) if kind.startswith('set') else ())))
             require(operation['entry'] in entries.SAVED_OPTIONS, at + '.entry', 'no saved options for this entry')
             require(isinstance(operation['key'], str), at + '.key', 'must be a string')
+            if kind.startswith('set'):
+                require(operation['key'] in entries.ENTRIES[operation['entry']]['options'], at + '.key',
+                        'unsupported option for ' + entries.ENTRIES[operation['entry']]['skill'])
+                try:
+                    entries.check_options(operation['entry'], {operation['key']: operation['value']})
+                except AdmissionError as error:
+                    prefix = 'options.' + operation['key']
+                    raise AdmissionError(at + '.value' + error.path[len(prefix):], error.message) from None
             saved = scope.setdefault('entries', {})
             if kind.startswith('set'):
                 saved.setdefault(operation['entry'], {})[operation['key']] = copy.deepcopy(operation['value'])

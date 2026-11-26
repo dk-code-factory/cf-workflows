@@ -497,6 +497,14 @@ class Scope(Fixture):
         branch = self.pr_run('dk-pr-alternatives', branch_script(assessment=own), requirements=ticket)
         self.assertEqual((branch['status'], branch['stages'][0]['action']), ('complete', 'run'), branch)
         self.assertEqual(self.new_sessions(before)['assessment'], 1)
+        # An assessment made under other assessment options (here the scoring profile) is not adopted.
+        self.state = self.base / 'other scoring'
+        self.pr_run('dk-issue-alternatives', whole_script(), options={'scoring': {'profile': 'quality'}})
+        before = copy.copy(self.engine.sessions)
+        branch = self.pr_run('dk-pr-alternatives', branch_script(),
+                             options={'scoring': {'profile': 'minimal_change'}})
+        self.assertEqual((branch['status'], branch['stages'][0]['action']), ('complete', 'run'), branch)
+        self.assertEqual(self.new_sessions(before)['assessment'], 1)
 
     def test_reconciled_decisions_feed_the_inventory_and_bind_current_alignment(self):
         handoff = reconciled()
@@ -974,6 +982,10 @@ class SavedOptions(Fixture):
             result = self.pr_run('dk-pr-alternatives', {}, configuration=saved)
             self.assertEqual((result['status'], result['admission']['error']['path']), ('rejected', path), saved)
             self.calls()
+        # A malformed invocation is named as such, not as the configuration.
+        result = self.pr_run('dk-pr-alternatives', {}, configuration=document(), invocation={'prompts': 'x'})
+        self.assertEqual((result['status'], result['admission']['error']['path']), ('rejected', 'invocation'))
+        self.calls()
         self.assertFalse(self.state.exists())
         # Two scopes at one precedence that agree, or set different parts, are consistent.
         agreeing = document(
@@ -1011,6 +1023,15 @@ class SavedOptions(Fixture):
                           {'op': 'unset_entry_option', 'scope': 'repo', 'entry': 'dk-pr-alternatives', 'key': 'x'}):
             with self.assertRaises(admission.AdmissionError, msg=operation):
                 configuration.apply_operations(saved, [operation], 'dk-config', where, options)
+        # The saved option is checked against the entry's schema when it is set.
+        for key, value, path in (('unknown', 1, 'proposal.operations[0].key'),
+                                 ('selection', {'mode': 'sometimes'}, 'proposal.operations[0].value.mode'),
+                                 ('scoring', {'profile': 'fast'}, 'proposal.operations[0].value.profile')):
+            with self.assertRaises(admission.AdmissionError) as raised:
+                configuration.apply_operations(saved, [{'op': 'set_entry_option', 'scope': 'repo', 'entry':
+                                                        'dk-pr-alternatives', 'key': key, 'value': value}],
+                                               'dk-config', where, options)
+            self.assertEqual(raised.exception.path, path)
         # dk-preferences cannot save entry options.
         with self.assertRaises(admission.AdmissionError):
             configuration.apply_operations(saved, [{'op': 'set_entry_option', 'scope': 'repo', 'entry':

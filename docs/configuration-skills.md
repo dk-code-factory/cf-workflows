@@ -154,7 +154,8 @@ paths.
      `set_entry_option`/`unset_entry_option`. The last pair changes one
      top-level option of an entry with [saved options](alternatives.md#saved-options)
      in the scope's `entries` (currently `dk-issue-alternatives` and
-     `dk-pr-alternatives`).
+     `dk-pr-alternatives`). The key and value are checked against that entry's
+     option schema when the change is applied.
    - `dk-preferences`: `add_scope`, `set_preference` and `remove_preference`, in
      personal scopes or the target repository's scope only.
 

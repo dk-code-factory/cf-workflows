@@ -111,9 +111,13 @@ routes, sessions, heads and guidance versions.
 
 The two records of a PR share one assessment. When a record has no assessment
 and no open assessment claim, it adopts the other record's own settled
-assessment instead of running a session. The adopted result must pass this run's
-assessment checks, for example cite this run's requirements or files of its
-pinned head. Otherwise the scope runs its own. Adoption reserves no allowance.
+assessment instead of running a session. The origin must be bound to this run's
+assessment inputs: the same requirements, original instructions, guidance,
+prompts, `assessment_prompt`, `scoring` and `evaluation_prompt` (its binding
+equals this record's). The adopted result must also pass this run's assessment
+checks, for example cite files of its pinned head. Otherwise the scope runs its
+own; for example, saved per-entry options that give the two scopes different
+scoring profiles keep their assessments separate. Adoption reserves no allowance.
 The adopted attempt's reference names its origin
 (`assessment@shared:<scope>:<operation>`), and from then on it is this record's
 settled assessment. An issue-only run has no PR identity and shares nothing.
@@ -134,7 +138,8 @@ is `blocked` exactly while contradictions or blocking questions remain.
   count as one. Requirement sources cannot use the `git:` or `decision:` prefixes.
 - The handoff binds the inventory and current alignment. The inventory is
   settled like the rest of the analysis, so a new reconciliation refreshes only
-  current alignment.
+  current alignment. Commitments that a later reconciliation adds never reach the
+  settled inventory; only current alignment sees them.
 - On the fix route, an unresolved reconciliation blocks dependent
   implementation, not the analysis. The result is `decisions_blocked` with the
   unresolved contradictions and questions and no `handoff`. A resolved handoff
@@ -239,7 +244,8 @@ asserts its transport call counts or new sessions per stage.
   provenance and invocation overrides; a saved automatic mode that never asks;
   the compatibility entry applying its delegate's saved options; invalid,
   foreign, inapplicable and same-precedence contradictory scopes rejected with no
-  transport call; `dk-config` saving, showing and clearing them.
+  transport call; `dk-config` saving, showing and clearing them, and rejecting
+  an unknown key or invalid value when it is set.
 - **Presets.** Baseline role and stage prompt digests, options with provenance,
   no skill, rejected authority expansion, custom prompt options through the
   shared validator, and the installed workflow refusing the adapters.
@@ -247,7 +253,8 @@ asserts its transport call counts or new sessions per stage.
   engine claims; separate whole-problem and branch records; each scope's
   inventory and comparison contract; inherited decisions inventoried and compared;
   one assessment shared by both records in either order, reserving no allowance,
-  and not adopted when this run cannot cite it.
+  and not adopted when this run cannot cite it or its assessment inputs (such as
+  the scoring profile) differ.
 - **Reconciled decisions.** The handoff in the inventory and alignment context,
   `decision:` citations, alignment-only refresh on a new reconciliation,
   rejected unknown citations and malformed handoffs, and a fix handoff blocked

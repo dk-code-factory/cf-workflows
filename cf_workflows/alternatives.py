@@ -144,9 +144,12 @@ def admit(name, *, delegate, request, deployment, repository, transport, options
     manual entry passes them as the delegate's, like its invocation options.
     """
     adapter = entries.ENTRIES[delegate]['adapter']
+    where = 'configuration'  # The input being read, named by a malformed-input rejection.
     try:
         saved = saved_options(configuration, delegate, request)
+        where = 'options'
         values, extra = option_prompts(delegate, options, adapter, saved)
+        where = 'invocation'
         invocation = {} if invocation is None else invocation
         require(isinstance(invocation, dict) and set(invocation) <= {'prompts'}, 'invocation',
                 'the entry preset fixes tasks, finalizers, reviewers and permissions; only prompts may be added')
@@ -156,7 +159,7 @@ def admit(name, *, delegate, request, deployment, repository, transport, options
                 'error': {'path': error.path, 'message': error.message}}, None
     except (TypeError, KeyError, AttributeError, ValueError) as error:
         return {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None,
-                'error': {'path': 'configuration', 'message': 'malformed input: ' + type(error).__name__}}, None
+                'error': {'path': where, 'message': 'malformed input: ' + type(error).__name__}}, None
     admitted = entries.preflight(name, request=request, deployment=deployment, repository=repository,
                                  transport=transport, invocation={'prompts': prompts} if prompts else None,
                                  options=options if name == delegate else None, roots=roots, install=install,
@@ -570,14 +573,20 @@ class _Walk:
     def adopt(self, stage, check):
         """The other scope's settled assessment of this PR, adopted when this record has none.
 
-        It must pass this walk's own checks (for example, cite files of this pinned head);
-        otherwise this scope runs its own assessment.
+        It must be bound to this run's assessment inputs (the origin's binding equals this
+        record's) and pass this walk's own checks (for example, cite files of this pinned
+        head); otherwise this scope runs its own assessment.
         """
         if (stage not in alignment.SHARED or self.shared is None or self.ledger.latest(stage) is not None
                 or self.ledger.open_claim(stage) is not None):
             return None
         origin = self.shared()
         if origin is None:
+            return None
+        # Only an assessment of this run's own inputs (requirements, instructions, guidance, prompts,
+        # assessment and scoring options, evaluation prompt) is adopted; the binding digests them.
+        _, binding = self.ledger.binding(stage, inputs=self.inputs(stage), head=self.pins['head'])
+        if origin['binding'] != binding:
             return None
         try:
             check(copy.deepcopy(origin['result']))
@@ -827,7 +836,7 @@ def _shared(state, scope, pr):
         if found is None or found['operation'].startswith(alignment.SHARED_PREFIX):
             return None  # Adopted from this record, which then has it already.
         return {'scope': other, 'operation': found['operation'], 'session': found['session'],
-                'reference': found['reference'], 'result': found['result']}
+                'binding': found['binding'], 'reference': found['reference'], 'result': found['result']}
     return read
 
 
