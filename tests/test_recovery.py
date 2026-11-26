@@ -31,6 +31,7 @@ sys.dont_write_bytecode = True  # Never add caches to the installed closure.
 import dk_pr_fix as _helpers  # noqa: E402,F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture  # noqa: E402
 from prfix import app, core, feedback  # noqa: E402
+from prfix import decisions as installed_decisions  # noqa: E402
 from prfix.publication import Publication, UncertainEffect  # noqa: E402
 from cf_workflows import (acceptance, admission, alignment, decisions, dk_pr_fix, drafting, prose,  # noqa: E402
                           recovery, splitting, writes)
@@ -38,6 +39,7 @@ import test_alignment as alignment_tests  # noqa: E402
 import test_configuration_skills as configuration_tests  # noqa: E402
 import test_decisions as decision_tests  # noqa: E402
 import test_dk_pr_fix_continuation as continuation  # noqa: E402
+import test_dk_pr_fix_decisions as installed_decision_tests  # noqa: E402
 import test_dk_pr_fix_publication as publication_tests  # noqa: E402
 import test_drafting as drafting_tests  # noqa: E402
 import test_prose as prose_tests  # noqa: E402
@@ -180,6 +182,7 @@ class Catalog(unittest.TestCase):
             'prose': lambda path: prose.Ledger(path).close(),
             'feedback': lambda path: feedback.Ledger(path, logical_run='r', pr=pr).close(),
             'decisions': lambda path: decisions.Ledger(path, logical_run='r', pr=PUBLISHED_PR).close(),
+            'reconciliation': lambda path: installed_decisions.Record(path, logical_run='r', pr=pr).close(),
             'alignment': lambda path: alignment.Ledger(path, logical_run='r', pr=pr).close(),
             'drafting': lambda path: drafting.Ledger(path, logical_run='r', target=PUBLISHED_PR).close(),
             'splitting': lambda path: splitting.Ledger(path, logical_run='r', target=PUBLISHED_PR).close(),
@@ -187,6 +190,7 @@ class Catalog(unittest.TestCase):
         paths = {'configuration': suite / 'configuration.sqlite3',
                  'prose': prose.ledger_path(self.home, 'github.com/o/r'),
                  'feedback': feedback.ledger_path(ns, 'r'), 'decisions': decisions.ledger_path(ns, 'r'),
+                 'reconciliation': installed_decisions.ledger_path(ns, 'r'),
                  'alignment': alignment.ledger_path(ns, 'r'), 'drafting': drafting.ledger_path(ns, 'r'),
                  'splitting': splitting.ledger_path(ns, 'r')}
         for name, path in paths.items():
@@ -219,8 +223,8 @@ class Catalog(unittest.TestCase):
         for row, stores in recovery.ROWS.items():
             self.assertTrue(set(stores) <= set(recovery.STORES), row)
         # Each store a delivered row retains is exercised by a recovery scenario below.
-        covered = {'run', 'feedback', 'writer', 'configuration', 'prose', 'decisions', 'alignment', 'drafting',
-                   'splitting'}
+        covered = {'run', 'feedback', 'writer', 'configuration', 'prose', 'decisions', 'reconciliation', 'alignment',
+                   'drafting', 'splitting'}
         self.assertEqual({store for stores in recovery.ROWS.values() for store in stores}, covered)
         self.assertEqual(covered, set(recovery.STORES))
 
@@ -885,6 +889,41 @@ class DecisionRecovery(LedgerHome, decision_tests.Fixture):
         unchanged = self.reconcile(admitted, self.ledger(admitted))
         self.assertEqual(unchanged['status'], 'complete')
         self.assertEqual(sum(self.engine.sessions.values()), 1)
+
+
+class InstalledDecisionRecovery(installed_decision_tests.Fixture):
+    """dk-pr-decisions through the installed helpers: the reconciliation record survives backup and restore."""
+
+    def setUp(self):
+        super().setUp()
+        self.ledger.close()
+        self.home = Path(tempfile.mkdtemp(prefix='cfw home '))
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.state_dir = str(namespace(self.home))
+        env = patch.dict(os.environ, {'CF_WORKFLOWS_STATE': self.state_dir})
+        env.start()
+        self.addCleanup(env.stop)
+        self.ledger = self.open()
+
+    def test_retained_result_and_request_baseline_are_reused_after_restore(self):
+        first, accepted = self.reconciled()
+        self.ledger.close()
+        destination = Path(tempfile.mkdtemp(prefix='cfw backup ')) / 'backup'
+        self.addCleanup(shutil.rmtree, destination.parent, True)
+        recovery.backup(self.home, destination)
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        recovery.restore(destination, self.home)
+        self.ledger = self.open()
+        # A fresh session after restore reuses the retained result without a dispatch.
+        reused = self.claim()
+        self.assertEqual((reused['invoke'], reused['claim'], reused['report']),
+                         (False, first['claim'], accepted['report']))
+        # The restored results and request baseline still refresh only what an edit touches.
+        self.github.ev['comments'][3]['body'] = 'Log cache misses at info level.'
+        context = self.claim()['task_input']['decisions']
+        self.assertEqual((context['subjects']['sources'], context['subjects']['decisions']),
+                         (['comment:53'], ['miss-logging']))
+        self.assertEqual(self.sessions, 2)
 
 
 class DraftingRecovery(LedgerHome, drafting_tests.Fixture):

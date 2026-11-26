@@ -213,6 +213,10 @@ def publication_list(root, provider, ledger, plan, inputs):
             if proposal["id"] not in seen:
                 seen[proposal["id"]] = digest(proposal)
                 selected.append(proposal)
+    if selector != "merge":
+        # The bounded Decisions section of the current reconciliation, under its own edit_pr authority.
+        from . import decisions
+        selected = decisions.compose(root, provider, ledger, plan, snapshot, selected)
     return {"items": selected}
 
 

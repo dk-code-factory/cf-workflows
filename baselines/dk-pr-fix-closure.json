@@ -368,6 +368,22 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/registry.py",
       "reason": "Shared cross-PR registry of named CI test outcomes (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/decisions.py",
+      "reason": "Sourced PR decision reconciliation (#28), installed so helper containers run it; no upstream counterpart (docs/decisions.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/reconciliation.yml",
+      "reason": "Decision clarification after reconcile-decisions (#28); no upstream counterpart (docs/decisions.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-decisions/SKILL.md",
+      "reason": "Sourced PR decisions skill entry point (#28); no upstream counterpart (docs/decisions.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/decisions.yml",
+      "reason": "Sourced PR decisions preset over main.yml (#28); no upstream counterpart (docs/decisions.md)."
     }
   ],
   "corrections": [

@@ -64,7 +64,8 @@ class Descriptor(unittest.TestCase):
                          + [{'name': name, 'path': f'skills/{name}/SKILL.md', 'workflow': f'workflows/{entry}.yml'}
                             for name, entry in (('dk-pr-publish', 'publish'), ('dk-pr-review-post', 'review-post'),
                                                 ('dk-plain-english', 'plain-english'),
-                                                ('dk-asd-ste100', 'asd-ste100'))])
+                                                ('dk-asd-ste100', 'asd-ste100'),
+                                                ('dk-pr-decisions', 'decisions'))])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -388,7 +389,7 @@ class InventoryStatus(unittest.TestCase):
                                             for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-feedback-read',
                                                          'dk-pr-feedback-address', 'dk-pr-feedback-reply',
                                                          'dk-pr-publish', 'dk-pr-review-post', 'dk-plain-english',
-                                                         'dk-asd-ste100')])
+                                                         'dk-asd-ste100', 'dk-pr-decisions')])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}

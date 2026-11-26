@@ -92,6 +92,11 @@ STORES = {
         'path': RUN + r'\.decisions\.sqlite', 'kind': 'decisions_state', 'version': 1,
         'tables': {'meta': IDENTITY, 'results': 'analysis: sourced decision results',
                    'rejections': 'evidence: rejected session results'}},
+    'reconciliation': {
+        'path': RUN + r'\.reconciliation\.sqlite', 'kind': 'decisions_reconciliation', 'version': 1,
+        'tables': {'meta': IDENTITY + ', and the discussion baseline the request was issued against',
+                   'results': 'analysis: installed decision results and their source bindings',
+                   'answers': 'evidence: accepted clarification answers'}},
     'alignment': {
         'path': RUN + r'(?:\.whole-problem)?\.alignment\.sqlite', 'kind': 'alignment_state', 'version': 1,
         'tables': {'meta': IDENTITY, 'attempts': 'analysis: settled stage results and their bindings',
@@ -128,8 +133,8 @@ SKIPPED = re.compile(r'.*-(?:wal|shm|journal)|(?:.*/)?\.staged-[^/]*|' + UPGRADE
 # Where each inventory row retains state. Rows without stores keep none of their own:
 # their runs report, route or read only.
 ROWS = {
-    'dk-pr-iter': ('run', 'feedback', 'writer'),
-    'dk-pr-fix': ('run', 'feedback', 'writer'),
+    'dk-pr-iter': ('run', 'feedback', 'reconciliation', 'writer'),
+    'dk-pr-fix': ('run', 'feedback', 'reconciliation', 'writer'),
     'dk-pr-review': ('run',),
     'dk-repo-onboard': (),
     'dk-config': ('configuration',),
@@ -148,7 +153,7 @@ ROWS = {
     'dk-pr-feedback-reply': ('run', 'feedback'),
     'dk-pr-review-post': ('run',),
     'dk-pr-description': ('drafting', 'run'),
-    'dk-pr-decisions': ('decisions', 'run'),
+    'dk-pr-decisions': ('decisions', 'reconciliation', 'run'),
     'dk-commit-split': ('splitting', 'drafting', 'run'),
     'dk-pr-split': ('splitting', 'run'),
     'dk-pr-publish': ('run',),

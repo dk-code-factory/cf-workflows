@@ -1,0 +1,99 @@
+# cf-workflows decision reconciliation (#28); see ../../../../docs/decisions.md.
+# After the reconcile-decisions occurrence: ask once about unresolved decisions,
+# reconcile again with the answer, and release dependent work only when settled.
+name: Clarify unresolved decisions before dependent work
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      task:
+        type: string
+        required: true
+      cycle:
+        type: number
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      dependent_work:
+        value: ${{ jobs.status.outputs.result.dependent_work }}
+jobs:
+  gate:
+    uses: workflows/helper.yml
+    with:
+      operation: decisions_gate
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  question:
+    # One durable engine input gate per result; its claim is the evidence identity.
+    needs: gate
+    if: ${{ needs.gate.outputs.result.ask }}
+    steps:
+    - id: answer
+      uses: input/wait
+      with:
+        prompt: ${{ needs.gate.outputs.result.prompt }}
+        evidence-id: ${{ needs.gate.outputs.result.evidence_id }}
+        payload: ${{ needs.gate.outputs.result.payload }}
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      answer_id: ${{ steps.answer.outputs.answer_id }}
+      gate_id: ${{ steps.answer.outputs.gate_id }}
+      evidence_id: ${{ steps.answer.outputs.evidence_id }}
+  record:
+    needs:
+    - gate
+    - question
+    if: ${{ needs.gate.outputs.result.ask and needs.question.status == 'succeeded' }}
+    uses: workflows/helper.yml
+    with:
+      operation: decisions_answer
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+        answer: ${{ needs.question.outputs.answer }}
+        answer_id: ${{ needs.question.outputs.answer_id }}
+        gate_id: ${{ needs.question.outputs.gate_id }}
+        evidence_id: ${{ needs.question.outputs.evidence_id }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  refresh:
+    # The answer changes the occurrence's binding: a new claim reconciles with it as the newest user source.
+    # A question that ended without an answer records nothing, so it refreshes nothing either.
+    needs:
+    - gate
+    - question
+    - record
+    if: ${{ needs.gate.outputs.result.refresh and needs.question.status != 'failed' and needs.question.status != 'needs_attention'
+      and needs.question.status != 'canceled' and needs.record.status != 'failed' and needs.record.status != 'needs_attention'
+      and needs.record.status != 'canceled' }}
+    uses: workflows/task.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ${{ inputs.task }}
+      cycle: ${{ inputs.cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  status:
+    needs:
+    - gate
+    - refresh
+    if: ${{ needs.gate.status == 'succeeded' and needs.refresh.status != 'failed' and needs.refresh.status != 'needs_attention'
+      and needs.refresh.status != 'canceled' }}
+    uses: workflows/helper.yml
+    with:
+      operation: decisions_status
+      payload:
+        plan: ${{ inputs.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

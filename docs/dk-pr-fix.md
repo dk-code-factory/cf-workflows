@@ -87,6 +87,12 @@ Adaptations to the example:
   `prepare` enforces. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
+- A tasks stage that holds the `reconcile-decisions` occurrence is followed by
+  `reconciliation.yml`, which asks once about unresolved decisions and blocks
+  dependent work until they settle; the publication stage carries the bounded
+  Decisions section under `edit_pr`. See [decisions](decisions.md#installed-workflow).
+  `reconciliation.yml`, `prfix/decisions.py`, the preset `workflows/decisions.yml`
+  and `skills/dk-pr-decisions/SKILL.md` are `authored`.
 
 ## Configuration split
 

@@ -479,6 +479,12 @@ class EntryRuns(unittest.TestCase):
     def feedback(self, value):
         return self.report(deliverables={"feedback": {"assessments": value}})
 
+    def decided(self):
+        """A reconciliation with nothing to decide (prfix/decisions.py accepts only a sourced result)."""
+        return self.report(deliverables={"decisions": {
+            "summary": "No decisions in this discussion.", "decisions": [], "contradictions": [], "questions": [],
+            "language_review": {"passes": 1, "changed": [False], "ambiguities": []}}})
+
     def claim(self, plan, ledger, adapter, provider=None):
         claimed = app.prepare_claim(self.root, provider or self.github, ledger, plan,
                                     {"task": self.task(plan, adapter)["id"]})
@@ -522,7 +528,8 @@ class EntryRuns(unittest.TestCase):
             self.assertFalse(result["complete"])
             self.assertIn(error, result["feedback"]["contract_error"])
         self.assertTrue(self.accept(plan, ledger, read, self.feedback(assessments(view)), 2)["complete"])
-        self.accept(plan, ledger, self.claim(plan, ledger, "reconcile-decisions"), self.report())
+        self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, "reconcile-decisions"),
+                                    self.decided())["complete"])
 
         address = self.claim(plan, ledger, "address-feedback")
         retained = {item["source"]: item["current"] for item in address["task_input"]["feedback"]["sources"]}
@@ -543,9 +550,10 @@ class EntryRuns(unittest.TestCase):
         self.assertEqual(self.commits(), 2)
         # The commit changes the diff, so the shared workflow's next cycle reads again; every
         # source is already assessed, so that read adds no assessment and the fix stays current.
+        # The reconciliation binds no diff, so the commit alone reuses it without a session.
         self.assertFalse(app.coverage(self.root, self.github, ledger, plan, {})["complete"])
-        for adapter in ("read-feedback", "reconcile-decisions"):
-            self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, adapter), self.report())["complete"])
+        self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, "read-feedback"), self.report())["complete"])
+        self.assertFalse(self.claim(plan, ledger, "reconcile-decisions")["invoke"])
         self.assertFalse(self.claim(plan, ledger, "address-feedback")["invoke"])
 
         covered = app.coverage(self.root, self.github, ledger, plan, {})
@@ -556,14 +564,14 @@ class EntryRuns(unittest.TestCase):
         self.assertEqual(covered["feedback"]["replies_needed"], ["comment:40", "inline:30", "review:50"])
         self.assertEqual([item["source"] for item in covered["feedback"]["unanswered"]], ["comment:41"])
         self.assertEqual(covered["feedback"]["sources"]["comment:40"]["requests"][0]["implementation"], "rejected")
-        self.assertEqual(self.native, 5)
+        self.assertEqual(self.native, 4)
         self.assertEqual(set(self.github.calls), {"capture"}, "the address entry publishes nothing")
 
         # A resumed run of the same execution reuses every occurrence: no session, no commit.
         resumed = self.ledger(plan)
         for adapter in ("read-feedback", "reconcile-decisions", "address-feedback"):
             self.assertFalse(self.claim(plan, resumed, adapter)["invoke"])
-        self.assertEqual((self.native, self.commits()), (5, 2))
+        self.assertEqual((self.native, self.commits()), (4, 2))
 
         # The fix is published; a composed dk-pr-fix run then reaches the same occurrences.
         self.github.evidence["metadata"]["head"]["sha"] = git(self.root, "rev-parse", "HEAD")
@@ -584,7 +592,7 @@ class EntryRuns(unittest.TestCase):
         self.assertIn("settled implementation decision of migration", result["feedback"]["contract_error"])
         # The retained fix needs no new edit, so nothing is implemented or committed twice.
         self.assertTrue(self.accept(composed, ledger, address, self.feedback(decided), 1)["complete"])
-        self.assertEqual((self.native, self.commits()), (7, 2))
+        self.assertEqual((self.native, self.commits()), (6, 2))
         self.assertEqual(set(self.github.calls), {"capture"})
 
     def addressed(self):
@@ -593,7 +601,8 @@ class EntryRuns(unittest.TestCase):
         ledger, view = self.ledger(plan), self.view(plan)
         self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, "read-feedback"),
                                     self.feedback(assessments(view)))["complete"])
-        self.accept(plan, ledger, self.claim(plan, ledger, "reconcile-decisions"), self.report())
+        self.assertTrue(self.accept(plan, ledger, self.claim(plan, ledger, "reconcile-decisions"),
+                                    self.decided())["complete"])
         return plan, ledger, view, self.claim(plan, ledger, "address-feedback")
 
     def test_a_source_arriving_during_acceptance_is_left_for_the_next_read(self):
@@ -635,7 +644,8 @@ class EntryRuns(unittest.TestCase):
         for adapter in ("read-feedback", "reconcile-decisions"):
             claimed = self.claim(plan, ledger, adapter)
             if claimed["invoke"]:
-                self.accept(plan, ledger, claimed, self.report())
+                self.accept(plan, ledger, claimed,
+                            self.decided() if adapter == "reconcile-decisions" else self.report())
         address = self.claim(plan, ledger, "address-feedback")
         self.assertTrue(address["invoke"])
         self.assertEqual(address["task_input"]["feedback"]["fixes"], [])
@@ -670,7 +680,8 @@ class EntryRuns(unittest.TestCase):
         for adapter in ("read-feedback", "reconcile-decisions"):
             claimed = self.claim(plan, ledger, adapter)
             if claimed["invoke"]:
-                self.accept(plan, ledger, claimed, self.report())
+                self.accept(plan, ledger, claimed,
+                            self.decided() if adapter == "reconcile-decisions" else self.report())
         address = self.claim(plan, ledger, "address-feedback")
         self.assertEqual(address["task_input"]["feedback"]["unbacked"], [])
         self.assertTrue(self.accept(plan, ledger, address, self.report())["complete"])

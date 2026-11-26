@@ -31,9 +31,11 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   (`workflows/feedback-read.yml`, `feedback-address.yml` and
   `feedback-reply.yml`, which fix their task selection over `main.yml`), the
   [publication entries](publication-skills.md) `dk-pr-publish` and
-  `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`)
-  and the [prose presets](prose.md#installed-workflow) `dk-plain-english` and
-  `dk-asd-ste100` (`workflows/plain-english.yml` and `workflows/asd-ste100.yml`).
+  `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`),
+  the [prose presets](prose.md#installed-workflow) `dk-plain-english` and
+  `dk-asd-ste100` (`workflows/plain-english.yml` and `workflows/asd-ste100.yml`)
+  and the [decisions preset](decisions.md#installed-workflow) `dk-pr-decisions`
+  (`workflows/decisions.yml`).
   Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
@@ -70,7 +72,8 @@ It writes nothing.
    bit. Location, ownership, timestamps and read-only modes do not change it.
 
 The scanner reads only the reference forms these workflows use and rejects any
-other. It is a consistency check of the toolchain's inputs, not a packager. The
+other. The engine's own step actions `agent/run` and `input/wait` reference no
+plugin file. It is a consistency check of the toolchain's inputs, not a packager. The
 upstream `agent-workflow plugin check` is authoritative. The
 [build check](#reproducible-builds-against-unreleased-source) runs it from
 unreleased source; it is supported only once released.
@@ -215,7 +218,7 @@ capabilities. Two blockers remain:
 - **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
   with a container ("fixtures do not support job containers"). Every bound
   skill's closure has them (`helper.yml`, `publication.yml`), so `plugin test`
-  cannot run either skill, and no deterministic packaged smoke execution
+  cannot run any bound skill, and no deterministic packaged smoke execution
   exists. A real `plugin run` needs Docker, the pinned helper image, provider
   sessions and a released engine, which need separate authorization.
 

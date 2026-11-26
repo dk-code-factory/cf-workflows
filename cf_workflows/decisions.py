@@ -176,6 +176,47 @@ def preflight(*, request, configuration, deployment, repository, transport, invo
     return result
 
 
+ENTRY = 'workflows/decisions.yml'
+
+
+def installed(*, request, configuration, deployment, repository, transport, invocation=None, options=None,
+              roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of the installed entry (workflows/decisions.yml) and return its declared inputs.
+
+    The installed preset runs main.yml with the same tasks, finalizers and
+    reviewers as PRESET. Non-default language passes and heading are passed as
+    settings.decisions, which the installed helper validates again. The
+    installed workflow does not run the shared semantic validator, so a custom
+    reconciliation prompt and any invocation prompt reject here; preflight()
+    admits them for the library procedure. Writes nothing.
+    """
+    failure = {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None}
+    try:
+        entry_options = check_options(options)
+        require(isinstance(request, dict), 'request', 'must be an object')
+        authorizations = request.get('authorizations') or {}
+        require(isinstance(authorizations, dict) and set(authorizations) <= {ACTION}, 'request.authorizations',
+                SKILL + ' publishes only its bounded section (edit_pr)')
+        require(not invocation, 'invocation', 'the installed entry fixes its preset and runs no custom prompts yet')
+        prompt = entry_options['reconciliation_prompt']
+        require(prompt['value'] == OPTIONS['reconciliation_prompt'], 'options.reconciliation_prompt',
+                'a custom reconciliation prompt needs the shared semantic validator, which the installed workflow '
+                'does not run yet; use preflight() for the library procedure')
+    except AdmissionError as error:
+        return {**failure, 'error': {'path': error.path, 'message': error.message}}
+    result = dk_pr_fix.preflight(request=request, configuration=configuration, invocation=None,
+                                 deployment=deployment, repository=repository, transport=transport, roots=roots,
+                                 home=home, install=install, defaults=PRESET, workflow=SKILL, entry=ENTRY)
+    if result['preflight'] != 'admitted':
+        return result
+    chosen = {key: value['value'] for key, value in entry_options.items()
+              if value['source'] == 'invocation' and key != 'reconciliation_prompt'}
+    if chosen:
+        result['inputs']['settings'] = {**result['inputs']['settings'], 'decisions': chosen}
+    result['entry'] = {'skill': SKILL, 'options': entry_options}
+    return result
+
+
 def _task(admitted):
     tasks = [task for task in admitted['snapshot']['plan']['tasks'] if task['adapter'] == ADAPTER]
     require(len(tasks) == 1, 'plan.tasks', 'the plan must select ' + ADAPTER + ' exactly once')

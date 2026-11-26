@@ -46,7 +46,7 @@ UPSTREAM_BLOCKERS = (
     ('engine release', 'no published engine release contains agent-workflow #130-#133 (packaged run, plugin '
      'build, check, test and release validation), so the pinned version has no verified download'),
     ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs, so plugin test '
-     'cannot run either bound skill and no deterministic packaged smoke execution exists'),
+     'cannot run any bound skill and no deterministic packaged smoke execution exists'),
 )
 IDENTITY = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
@@ -293,6 +293,11 @@ def _block(lines, start, indent):
         yield line
 
 
+# Engine-provided step actions a workflow may use; they reference no plugin file.
+# input/wait is the durable external input gate (agent-workflow docs/EXTERNAL_INPUT.md).
+BUILTIN_STEPS = ('agent/run', 'input/wait')
+
+
 def _workflow(root, ref, closure, visited, active=()):
     """Add the local reusable-workflow closure of ref and its declared helper and agent paths."""
     if ref in active:
@@ -319,7 +324,7 @@ def _workflow(root, ref, closure, visited, active=()):
             # Flow or inline values would hide entries from this scanner; only block form is read.
             raise PackageError(at, key + ' must be a block list or mapping')
         if key == 'uses':
-            if value != 'agent/run':
+            if value not in BUILTIN_STEPS:
                 _workflow(root, workflow_ref(value, at), closure, visited, (*active, ref))
         elif key == 'files':
             for item in _block(lines, number, indent):

@@ -16,7 +16,8 @@ The suite state home is `$XDG_STATE_HOME/cf-workflows` (fallback
 | `prose` | `prose/<id>.sqlite3` | dk-plain-english, dk-asd-ste100 |
 | `run` | `repositories/<id>/runs/<run>.sqlite` | dk-pr-fix, dk-pr-review, dk-pr-iter and every row that runs over the shared workflow or publishes |
 | `feedback` | `…/runs/<run>.feedback.sqlite` | dk-pr-fix, the feedback entries |
-| `decisions` | `…/runs/<run>.decisions.sqlite` | dk-pr-decisions |
+| `decisions` | `…/runs/<run>.decisions.sqlite` | dk-pr-decisions (library procedure) |
+| `reconciliation` | `…/runs/<run>.reconciliation.sqlite` | dk-pr-decisions, dk-pr-fix, dk-pr-iter (installed workflow) |
 | `alignment` | `…/runs/<run>[.whole-problem].alignment.sqlite` | the four alternatives entries |
 | `drafting` | `…/runs/<run>.drafting.sqlite` | dk-pr-description, dk-commit-message, dk-issue, dk-commit-split |
 | `splitting` | `…/runs/<run>.splitting.sqlite` | dk-commit-split, dk-pr-split |
@@ -178,7 +179,9 @@ adapters record native dispatches. The cases cover the following:
 - **Entry stores.** Each entry store is exercised through its own entry's
   harness across a backup, a total loss and a restore: an accepted prose pass and
   draft are reused with no session; a lost decision response settles to its
-  original claim; an interrupted commit rewrite reconciles its original refs; a
+  original claim; the installed reconciliation record keeps its result and
+  request baseline, so a fresh session reuses it and an edit refreshes only what
+  it touches; an interrupted commit rewrite reconciles its original refs; a
   settled alternatives stage is reused while an open one resumes its original
   operation; and an uncertain configuration write is settled by readback.
 - **Cost.** Proxies stay apart from reported cost, a later session's run is

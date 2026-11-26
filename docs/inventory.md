@@ -20,9 +20,11 @@ and cannot establish implementation of its delegate.
 The three configuration rows (#26) have entry presets, adapter procedures and
 deterministic direct and composed fixtures ([configuration skills](configuration-skills.md)).
 They stay `not_implemented` until they run as engine-managed sessions through an
-installed workflow. The same holds for `dk-pr-decisions` (#28,
-[decisions](decisions.md)), the two prose rows (#33, [prose cleanup](prose.md))
+installed workflow. The same holds for the two prose rows (#33, [prose cleanup](prose.md))
 and the four alternatives rows (#27, [alternatives](alternatives.md)).
+`dk-pr-decisions` (#28, [decisions](decisions.md)) has an installed preset and
+is listed in the plugin descriptor, but it stays `not_implemented` until it runs
+as an engine-managed session through a released engine.
 
 The two publication rows (#31, [publication entries](publication-skills.md))
 are listed in the plugin descriptor with their own installed entry workflows,
