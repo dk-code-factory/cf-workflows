@@ -226,17 +226,6 @@ def reorganize(ctx, typo='Fix a typo in the notes\n'):
         'summary': 'Split the mixed commit and fold the fixup.', 'questions': []}
 
 
-def reswapped(ctx):
-    """On the rebuilt series, put the feature before the typo fix again."""
-    _, typo, feature = ctx['context']['commits']
-    return {'outcome': 'reorganize', 'assessments': assessed(ctx, 'Reordered.'), 'series': [
-        {'message': feature['message'], 'units': [{'commit': feature['sha'], 'paths': ['src/feature.py']}],
-         'reason': 'The feature first.'},
-        {'message': typo['message'], 'units': [{'commit': typo['sha'], 'paths': ['notes file.md']}],
-         'reason': 'Then the unrelated fix.'}],
-        'summary': 'Put the feature first.', 'questions': []}
-
-
 def scoped(ctx, path='notes file.md'):
     return [{'path': name, 'scope': 'unrelated' if name == path else 'core', 'reason': 'Assessed.'}
             for name in ctx['context']['changes']]
@@ -333,11 +322,10 @@ class CommitSplit(Fixture):
         self.assessed(plan, ledger, reorganize)
         applied = self.stage(plan, ledger)[1]
         rebuilt = self.head()
-        self.assertEqual(self.listed(plan, ledger)['items'], [])
-        # The second pass still proposes a change, but max_passes=1 is spent: nothing more is built.
-        self.assessed(plan, ledger, reswapped, agent=AGENTS[1])
+        # max_passes=1 is spent by the one applied pass: no second session runs and nothing more is built.
+        self.assertFalse(self.claim(plan, ledger)['invoke'])
         self.assertEqual(self.stage(plan, ledger)[0]['status'], 'exhausted')
-        self.assertEqual(self.head(), rebuilt)
+        self.assertEqual((self.head(), self.sessions), (rebuilt, Counter({'inspect-commits': 1})))
         listing = self.listed(plan, ledger)
         [item] = listing['items']
         self.assertEqual((item['kind'], item['head'], item['lease'], item['sources']),

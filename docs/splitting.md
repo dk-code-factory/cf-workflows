@@ -249,16 +249,19 @@ a verbatim copy of the library's, and a test keeps the two identical.
 - **Local head.** `capture` accepts the checkout at an applied operation's
   result while the PR shows the head it moved from. The recorded operation
   establishes this, not a caller flag. A dk-commit-split rewrite changes the
-  history, so the next cycle runs the next pass on the rebuilt series. A
-  dk-pr-split keeps the coverage of the assessment it applied, so it is not
+  history, so the next cycle runs the next pass on the rebuilt series, until
+  `max_passes` passes are applied. Then the last applied pass keeps its
+  coverage, and no further session runs. A dk-pr-split keeps the coverage of the assessment it applied, so it is not
   assessed again on its own result.
 - **Publication.** The barrier lists only the latest applied operation's
   intents, while the checkout is its result. dk-commit-split lists one
   `rewrite` from the first original head to the final series, once a pass
-  changed nothing. When `max_passes` runs out with the last pass still
-  proposing a change, it lists the last applied series, as the library
-  procedure does, and the listing carries the concern `stopped after
-  max_passes=<n> with the series still changing`. dk-pr-split lists each
+  changed nothing. After `max_passes` applied passes, each of which changed
+  the series, it lists the last applied series at once, with no confirming
+  pass, as the library procedure does. The `publication_list` result then
+  carries the concern `stopped after max_passes=<n> with the series still
+  changing`. The barrier forwards only the items, so the concern appears in
+  that helper job's output. dk-pr-split lists each
   `split_push` and draft `split_pr`, then the source `push`.
   `publication_prepare` refuses the source push until every split PR is
   applied. Each intent's source is `splitting:<operation>`, which counts only
@@ -325,10 +328,10 @@ sessions, pushes and writes. It covers:
   published as one rewrite, with Bob's commit and all authorship kept; a relist
   only reconciles. A failing validation command on the intermediate typo-fix
   commit moves and lists nothing, its retained result is not run again, and
-  the failed operation stays pending. With `max_passes` spent and the second
-  pass still proposing a change, nothing more is built and the last applied
-  series is listed with its concern. Without a local grant the series is only assessed; without push authority it
-  stays local. Same-session corrections for a rewritten fixed commit, a dropped
+  the failed operation stays pending. With `max_passes=1` spent by the one
+  applied pass, no second session runs, nothing more is built, and the last
+  applied series is listed with its concern. Without a local grant the series
+  is only assessed; without push authority it stays local. Same-session corrections for a rewritten fixed commit, a dropped
   unit and a proposed operation. An interrupted apply resumes, and a branch
   moved after the build blocks.
 - **dk-pr-split.** A split validated and applied, with the split on the target,

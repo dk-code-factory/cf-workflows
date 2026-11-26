@@ -759,6 +759,7 @@
         "test_splitting.CommitSplit.test_tree_preserving_reorder_keeps_authorship_dirty_work_and_a_recovery_ref",
         "test_splitting.CommitSplit.test_every_commit_is_assessed_and_an_unchanged_series_is_a_no_op_reused_without_a_session",
         "test_dk_pr_fix_splitting.CommitSplit.test_reorder_is_built_validated_applied_and_assessed_again_before_one_rewrite",
+        "test_dk_pr_fix_splitting.CommitSplit.test_exhausted_passes_publish_the_last_applied_series_with_a_concern",
         "test_dk_pr_fix_splitting.InstalledPreflight.test_direct_entries_map_onto_their_installed_presets"
       ],
       "composed": [

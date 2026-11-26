@@ -788,20 +788,30 @@ def origins(root, plan, head):
 
 
 def binding(ledger, task, snapshot):
-    """dk-pr-split's coverage while its own applied split is the checkout, else None.
+    """The coverage that keeps a splitting occurrence current on its own applied result, else None.
 
-    The split is the result of the accepted assessment it records, so the
-    occurrence stays current and is never assessed again on its own result.
+    dk-pr-split's split is the result of the accepted assessment it records, so
+    the occurrence is never assessed again on its own result. dk-commit-split's
+    rebuilt series is assessed by the next pass, except once ``max_passes``
+    passes are applied: as in the library procedure, no further session runs.
     """
-    if role(task) != 'dk-pr-split' or ledger is None:
+    name = role(task)
+    if name not in ENTRIES or ledger is None:
         return None
     path = store_path(ledger.root, ledger.logical_run)
     if path is None or not path.is_file():
         return None
     db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15)
     try:
+        if name == 'dk-commit-split':
+            rows = [json.loads(raw) for (raw,) in db.execute(
+                "SELECT value FROM operations WHERE entry = 'dk-commit-split' AND state = 'applied' ORDER BY seq DESC")]
+            if rows and rows[0]['final'] == snapshot['local_head'] and rows[0]['task'] == task['id'] \
+                    and len(rows) >= rows[0].get('max_passes', len(rows) + 1):
+                return rows[0]['coverage']
+            return None
         for (raw,) in db.execute("SELECT value FROM operations WHERE entry = 'dk-pr-split' "
-                                     "AND state IN ('applying', 'applied') ORDER BY seq DESC"):
+                                 "AND state IN ('applying', 'applied') ORDER BY seq DESC"):
             value = json.loads(raw)
             if value['final'] == snapshot['local_head'] and value['task'] == task['id']:
                 return value['coverage']
@@ -912,6 +922,10 @@ def build(root, provider, ledger, plan, inputs):
         pending = store.latest(name, ('built', 'applying'))
         if pending is not None:
             return {**_pending(store, pending), 'status': 'pending'}
+        if name == 'dk-commit-split' and extra['rewrite'] is not None \
+                and store.applied(name) >= values['max_passes']:
+            # No pass after the last allowed one: its series is published with a concern (listing).
+            return {'operation': None, 'items': [], 'status': 'exhausted'}
         snapshot = app._snapshot(root, provider, plan)
         current = app._current(ledger, snapshot, task)
         if current is None or not current['agent']:
@@ -933,8 +947,6 @@ def build(root, provider, ledger, plan, inputs):
             status = 'proposed'  # A manual-mode approval names a plan digest and runs through the library procedure.
         elif extra['rewrite'] is None:
             status = 'assessed'
-        elif name == 'dk-commit-split' and store.applied(name) >= values['max_passes']:
-            status = 'exhausted'
         if status is not None:
             return {'operation': None, 'items': [], 'status': status}
         original = evidence['pr']['head']
@@ -985,7 +997,8 @@ def build(root, provider, ledger, plan, inputs):
                      'branch': evidence['branch'], 'original': original, 'final': final, 'moved': moved,
                      'refs': [{'ref': recovery, 'old': None, 'new': original}, *refs,
                               {'ref': evidence['branch'], 'old': original, 'new': final}],
-                     'validate': created, 'commands': extra['validation_commands'], 'report': report}
+                     'validate': created, 'commands': extra['validation_commands'], 'report': report,
+                     **({'max_passes': values['max_passes']} if name == 'dk-commit-split' else {})}
         return {**_pending(store, store.build(ident, name, current['id'], operation)), 'status': 'built'}
 
 
@@ -1160,8 +1173,8 @@ def listing(root, provider, ledger, plan, snapshot):
 
     Only the latest applied operation, while the checkout or PR is its result,
     lists its intents: a dk-commit-split series once its occurrence is current
-    on it (the last pass changed nothing, or max_passes ran out, with a
-    concern), a dk-pr-split at once. Without enabled and authorized
+    on it (a later pass changed nothing, or max_passes passes were applied, with
+    a concern and no further pass), a dk-pr-split at once. Without enabled and authorized
     permissions the local result stays unpublished.
     """
     from . import app
@@ -1178,12 +1191,11 @@ def listing(root, provider, ledger, plan, snapshot):
             return {'items': [], 'unpublished': True,
                     'blockers': ['the rebuilt series is assessed by the next pass before it is published']}
         concerns = []
-        if name == 'dk-commit-split' and current['agent']:
-            # As the library procedure: with max_passes spent, the last applied series is published, with a
-            # concern while the last pass still proposed a change.
+        if name == 'dk-commit-split':
+            # As the library procedure: after max_passes applied passes, each of which changed the series,
+            # no further pass runs and the last applied series is published with a concern.
             limit = settings(plan, name)[0]['max_passes']
-            outcome = read_artifact(root, current['report'])['report']['deliverables']['split']['outcome']
-            if store.applied(name) >= limit and outcome != 'no_change':
+            if store.applied(name) >= limit:
                 concerns.append(f'stopped after max_passes={limit} with the series still changing')
         missing = _permitted(plan, name)
         if missing:
