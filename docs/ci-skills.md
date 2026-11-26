@@ -78,9 +78,11 @@ head, workflow path, job, test, run, job ID and attempt:
   normalized diagnostic lines of the failed-step logs.
 - **Passes.** At a head with a saved failure, `observe()` reads the complete
   logs (`job_logs`) of each successful exact attempt of that workflow and job
-  once and saves the named passes (`--- PASS:` or `PASSED`). An unreadable or
-  mismatched job saves nothing and is listed in `registry.gaps`; it never fails
-  the observation.
+  and saves the named passes (`--- PASS:` or `PASSED`). An attempt is read
+  once per set of saved failures of its job (`reads`), whether or not its logs
+  name one; a later saved failure reads it again. An unreadable or mismatched
+  job saves nothing and is listed in `registry.gaps`; it never fails the
+  observation.
 
 A trusted issue's `dk-flaky` block that names the exact context but does not
 affirm it (no `flaky` field) nominates a flake only with saved fail-then-pass
@@ -91,7 +93,8 @@ and the job) and their logs, and the issue must still declare the context.
 Expired logs, a changed attempt, a denial (`"flaky": false`), prose, another
 signature, an untrusted or later declaration, or a caller without the
 registry leave the check failed. Readiness uses the same history through a
-read-only registry and saves nothing.
+read-only registry and saves nothing, and applies each attempt's retained
+classification window without opening one.
 
 **Unavailable evidence never waives.** Each failed check is verified on its
 own. A missing log, a closed, unrelated or ambiguous issue, a failed search,
@@ -132,7 +135,8 @@ carries each one only when configured:
   failed exact attempt (check, run, job and attempt) gets a retained window
   (`ci-classification:<logical run>:<attempt digest>`) that opens when the
   attempt is first classified. Once it ends, the check stays failed with
-  `classification window exhausted` and no evidence is read. A proof whose
+  `classification window exhausted` and no evidence is read, in observation
+  and in readiness (`completion`) alike. A proof whose
   window ends while it is verified is discarded, never applied late. A rerun
   attempt is a new attempt with its own window. Without a configured value
   classification is unbounded.
@@ -196,9 +200,14 @@ no other action. In `main.yml`:
 
 1. `fork_ci` approves each eligible fork run attempt once the review and its
    finding publication settle, as above.
-2. `merge_ci` runs once the review is complete and `fork_ci` has not failed.
-   It is `ci-poll.yml` repeated until checks settle, inside the run's retained
-   CI window. An exhausted window fails it, so nothing merges.
+2. `merge_ci` runs once the review is complete, clean and verified and
+   `fork_ci` has not failed; an unclean review never waits. It is
+   `ci-poll.yml` repeated until checks settle. In review mode the retained
+   window and its pending-only extension belong to the exact head
+   (`ci:<logical run>:<head>`), so a later merge request after a pushed fix
+   gets that head's own window. A later request at a head whose window ended
+   observes once: settled checks are reported as they are, and checks still
+   pending are a timeout. A timeout fails `merge_ci`, so nothing merges.
 3. `merge_readiness` runs the `completion` readiness again after the wait.
    `merge_proposal` needs that fresh readiness, so a failed, pending or
    `no_checks` result never merges.
@@ -296,8 +305,11 @@ writes and native sessions are counted. It covers:
   the effect is reconciled, and an uncertain approval stays pending.
 - **Merge bridge.** Merge with a fork-approval grant admits only with both
   grants and permissions. The `main.yml` graph orders `fork_ci`, `merge_ci`,
-  `merge_readiness` and `merge_proposal`. A pending or failed wait never
-  merges, and the merge after success writes once beside the approval.
+  `merge_readiness` and `merge_proposal`, and `merge_ci` needs a clean,
+  verified review. A pending or failed wait never merges, and the merge after
+  success writes once beside the approval. Each head has its own window: a
+  later request reports settled checks at an ended head and waits anew for a
+  pushed head. Readiness keeps an attempt's exhausted classification window.
 - **Flake discovery.** Linked and candidate contexts, targets, limits and
   gaps. A session that links, unlinks, invents or drops a context is rejected.
   Failed reads block.

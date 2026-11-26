@@ -286,9 +286,10 @@ jobs:
     - prepare
     - cycles
   merge_ci:
-    # Standalone-to-merge bridge (#35): after the review completes and any
-    # separately authorized fork approvals settle, wait for exact-head CI within
-    # the retained window. A timeout fails this job, so the merge is skipped.
+    # Standalone-to-merge bridge (#35): after a complete, clean and verified review
+    # and any separately authorized fork approvals settle, wait for exact-head CI
+    # within that head's retained window. A timeout fails this job, so the merge
+    # is skipped; an unclean review never waits.
     uses: workflows/ci-poll.yml
     with:
       plan: ${{ needs.prepare.outputs.result.plan }}
@@ -298,8 +299,9 @@ jobs:
     - prepare
     - completion
     - fork_ci
-    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.completion.outputs.result.complete and needs.fork_ci.status
-      != 'failed' and needs.fork_ci.status != 'needs_attention' and needs.fork_ci.status != 'canceled' }}
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.completion.outputs.result.complete and needs.completion.outputs.result.clean_review
+      and needs.completion.outputs.result.verified and needs.fork_ci.status != 'failed' and needs.fork_ci.status != 'needs_attention'
+      and needs.fork_ci.status != 'canceled' }}
     repeat:
       max-attempts: 100
       until: ${{ iteration.outputs.settled }}

@@ -809,7 +809,8 @@
       ],
       "recovery": [
         "test_ci_skills.ForkApproval.test_lost_responses_are_reconciled_and_an_uncertain_approval_is_never_resent",
-        "test_ci_skills.ForkApproval.test_other_publication_or_merge_authority_never_implies_fork_approval"
+        "test_ci_skills.ForkApproval.test_other_publication_or_merge_authority_never_implies_fork_approval",
+        "test_ci_skills.Observation.test_merge_bridge_window_belongs_to_the_exact_head_of_each_merge_request"
       ],
       "status": {
         "parity": "not_implemented",
@@ -847,6 +848,7 @@
         "test_ci_skills.Observation.test_exhausted_extension_allowance_is_not_replenished_in_a_new_run_ledger_connection",
         "test_ci_skills.Observation.test_absent_checks_become_no_checks_after_a_retained_grace",
         "test_ci_skills.Observation.test_classification_window_is_retained_per_failed_attempt",
+        "test_ci_skills.Observation.test_readiness_keeps_an_exhausted_classification_window",
         "test_ci_skills.Observation.test_unavailable_or_changed_history_leaves_the_failure"
       ],
       "status": {

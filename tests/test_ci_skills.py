@@ -240,7 +240,8 @@ class Entries(PreflightFixture):
         self.assertIn('until: ${{ iteration.outputs.settled }}', jobs['merge_ci'])
         condition = ' '.join(re.search(r'if: \$\{\{(.*?)\}\}', jobs['merge_ci'], re.S)[1].split())
         self.assertEqual(condition, "needs.prepare.outputs.result.merge_authorized and "
-                         "needs.completion.outputs.result.complete and needs.fork_ci.status != 'failed' and "
+                         "needs.completion.outputs.result.complete and needs.completion.outputs.result.clean_review and "
+                         "needs.completion.outputs.result.verified and needs.fork_ci.status != 'failed' and "
                          "needs.fork_ci.status != 'needs_attention' and needs.fork_ci.status != 'canceled'")
         self.assertIn('operation: completion', jobs['merge_readiness'])
         self.assertEqual(needs('merge_readiness'), ['prepare', 'merge_ci'])
@@ -569,6 +570,59 @@ class Observation(unittest.TestCase):
         self.assertEqual(self.observe(self.plan(self.direct(), run='unbounded'), 'poll-4', 5000.0)['status'],
                          'success')
 
+    def test_merge_bridge_window_belongs_to_the_exact_head_of_each_merge_request(self):
+        """Review mode (main.yml merge_ci) keys the window by head: a later merge request is never stuck."""
+        plan = {**self.plan(self.direct(), run='review_bridge'), 'mode': 'review'}
+        self.pending()
+        first = self.observe(plan, 'merge-1', 1000.0)
+        self.assertEqual((first['status'], first['deadline']), ('pending', 1120.0))
+        # The first request's wait ends: still pending after the window and its extension is a timeout.
+        self.observe(plan, 'merge-2', 1121.0)
+        with self.assertRaisesRegex(TimeoutError, 'deadline exhausted during observation'):
+            self.observe(plan, 'merge-3', 1800.0)
+        # A request the next day at the same head reports CI that has settled since; it waits no longer.
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=1)
+        late = self.observe(plan, 'merge-4', 90000.0)
+        self.assertEqual((late['status'], late['ready'], late['deadline']), ('success', True, 1720.0))
+        self.github.checks[0]['conclusion'] = 'failure'
+        self.assertTrue(self.observe(plan, 'merge-5', 90001.0)['failed'])
+        self.pending()
+        with self.assertRaisesRegex(TimeoutError, 'deadline exhausted during observation'):
+            self.observe(plan, 'merge-6', 90002.0)
+        # The author pushes a fix: a merge request of the new head gets that head's own window.
+        self.github.head = 'b' * 40
+        fresh = self.observe(plan, 'merge-7', 90003.0)
+        self.assertEqual((fresh['status'], fresh['head'], fresh['deadline']), ('pending', 'b' * 40, 90123.0))
+        names = [row[0] for row in self.ledger('review_bridge').db.execute('SELECT name FROM deadlines ORDER BY name')]
+        self.assertEqual(names, ['ci-pending-extension:review_bridge:' + HEAD, 'ci:review_bridge:' + HEAD,
+                                 'ci:review_bridge:' + 'b' * 40])
+
+    def test_readiness_keeps_an_exhausted_classification_window(self):
+        self.github.failed(9, 2, 3)
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        plan = self.plan(controls)
+        observation = {'head': HEAD, 'checks': copy.deepcopy(self.github.checks), 'evidence': 'e'}
+        # The bridge's wait opens the window and rejects the attempt once it ends, before its issue exists.
+        self.observe(plan, 'poll-1', 1000.0)
+        self.github.issue(8, declaration())
+        late = self.observe(plan, 'poll-2', 1031.0)
+        self.assertEqual((late['status'], late['rejected'][0]['reason']), ('failed', 'classification window exhausted'))
+        reads = self.github.calls['request']
+        # Readiness applies the same retained end, reads no evidence and opens nothing.
+        window = ci.retained_classification_window(self.ledger(), plan)
+        with patch('prfix.ci.time.time', return_value=1032.0):
+            ready = ci.classify_current(self.github, plan, observation, window)
+        self.assertEqual((ready['status'], ready['rejected']),
+                         ('failed', [{'check_id': '9', 'reason': 'classification window exhausted'}]))
+        self.assertEqual(self.github.calls['request'], reads)
+        # An attempt whose window observation never opened is classified as a first observation would be.
+        other = self.plan(controls, run='never_observed')
+        fresh = ci.classify_current(self.github, other, observation,
+                                    ci.retained_classification_window(self.ledger('never_observed'), other))
+        self.assertEqual(fresh['status'], 'success')
+        self.assertEqual(self.ledger('never_observed').db.execute('SELECT count(*) FROM deadlines').fetchone()[0], 0)
+
     def test_a_window_that_ends_during_verification_discards_the_proof(self):
         self.github.failed(9, 2, 3)
         self.github.failed(10, 4, 5)
@@ -859,6 +913,25 @@ class Observation(unittest.TestCase):
         self.observe(self.plan(self.direct()), 'poll-3', 1002.0)
         self.assertEqual(self.github.calls['job_logs'], reads)
 
+    def test_a_successful_attempt_that_names_no_saved_failure_is_read_once(self):
+        self.github.failed(9, 2, 3)
+        self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2, lines=['--- PASS: TestOther (0.01s)'])
+        first = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual(first['registry'], {'recorded': 0, 'gaps': []})
+        reads = Counter(self.github.calls)
+        self.observe(self.plan(self.direct()), 'poll-3', 1002.0)
+        delta = self.github.calls - reads
+        self.assertEqual((delta['job_logs'], delta['actions/attempts'], delta['actions/jobs']), (0, 0, 0))
+        # A new saved failure of that job at the head is worth reading the same attempt again.
+        self.github.failed(10, 5, 6, lines=['=== RUN   TestOther', '    other.go:3: boom', '--- FAIL: TestOther (0.1s)',
+                                             'FAIL', 'exit status 1'])
+        self.observe(self.plan(self.direct()), 'poll-4', 1003.0)
+        self.assertEqual(self.github.calls['job_logs'] - reads['job_logs'], 0, 'the failure is saved after passes')
+        again = self.observe(self.plan(self.direct()), 'poll-5', 1004.0)
+        self.assertEqual((self.github.calls['job_logs'] - reads['job_logs'], again['registry']['recorded']), (1, 1))
+
     def test_saved_observations_are_inspected_without_github_reads(self):
         self.unaffirmed()
         self.history()
@@ -1011,7 +1084,8 @@ class ForkApproval(Helpers):
         self.assertTrue(final['invoke'], final)
         self.assertEqual(self.publish(plan, ledger, final['proposal'])['receipt']['kind'], 'merge')
         self.assertEqual((self.github.calls['approve'], self.writes()), (1, 2))
-        # An exhausted retained window ends the wait without a merge (merge_ci fails).
+        # A wait still pending when its head's retained window ends fails merge_ci, so nothing merges.
+        self.github.ci = {'status': 'in_progress', 'conclusion': None}
         with patch('prfix.ci.time.time', return_value=time.time() + 86400 * 2):
             with self.assertRaises(TimeoutError):
                 ci.observe(self.github, plan, ledger, 'merge-ci-4')

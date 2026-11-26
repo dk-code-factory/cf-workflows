@@ -609,8 +609,10 @@ def record_passes(provider, pr, observation, registry):
     """Save named passes of successful Actions checks at a head with a saved failure.
 
     Only a completed successful job of the exact head whose workflow and job
-    have a saved failure there is read. Missing or unreadable logs save no
-    pass and are returned as gaps; they never fail the observation.
+    have a saved failure there is read, once per set of saved failures of
+    that job (a later saved failure reads it again). Missing or unreadable
+    logs save no pass and are returned as gaps; they never fail the
+    observation.
     """
     head = observation["head"]
     failures = registry.failed_at(pr["repository"], head)
@@ -621,8 +623,10 @@ def record_passes(provider, pr, observation, registry):
         if (check.get("status") != "completed" or check.get("conclusion") != "success"
                 or check.get("name") not in names or not str(check.get("run_id", "")).isdigit()
                 or not str(check.get("job_id", "")).isdigit() or type(check.get("attempt")) is not int
-                or check["attempt"] < 1
-                or registry.recorded(pr["repository"], check["run_id"], check["job_id"], check["attempt"], "pass")):
+                or check["attempt"] < 1):
+            continue
+        read = digest(sorted({(row["workflow"], row["test"]) for row in failures if row["job"] == check["name"]}))
+        if registry.was_read(pr["repository"], check["run_id"], check["job_id"], check["attempt"], read):
             continue
         try:
             run = provider.request("GET", f'{prefix}/actions/runs/{check["run_id"]}/attempts/{check["attempt"]}')
@@ -634,6 +638,7 @@ def record_passes(provider, pr, observation, registry):
                 raise ValueError("successful job does not bind the exact head and attempt")
             wanted = {row["test"] for row in failures if (row["workflow"], row["job"]) == (workflow, job["name"])}
             if not wanted:
+                registry.mark_read(pr["repository"], check["run_id"], check["job_id"], check["attempt"], read)
                 continue
             logs = provider.job_logs(pr, str(check["run_id"]), str(check["job_id"]), check["attempt"])
             _, passed, _ = _lines(logs)
@@ -642,6 +647,7 @@ def record_passes(provider, pr, observation, registry):
                  "run_id": str(check["run_id"]), "job_id": str(check["job_id"]), "attempt": check["attempt"],
                  "completed": job.get("completed_at"), "lines": [], "logs_sha256": digest(logs)}
                 for test in passed if test in wanted])
+            registry.mark_read(pr["repository"], check["run_id"], check["job_id"], check["attempt"], read)
         except EVIDENCE_ERRORS as error:
             gaps.append({"check_id": str(check.get("id", "")), "reason": str(error)[:500]})
     return {"recorded": saved, "gaps": gaps}
@@ -725,15 +731,32 @@ def _extension(ledger, run, selected, original, create):
     return _timestamp(ledger.deadline(name, seconds, start=original))
 
 
-def _classification_window(ledger, run, seconds):
-    """Retained classification windows, one per failed exact attempt; None when unbounded."""
+def _classification_window(ledger, run, seconds, read_only=False):
+    """Retained classification windows, one per failed exact attempt; None when unbounded.
+
+    A read-only window (readiness) opens nothing: it applies an attempt's
+    retained end when observation opened one, and is unbounded for an attempt
+    whose window was never opened, as a first classification would be.
+    """
     if seconds is None:
         return None
 
     def window(check):
         key = ":".join(str(check.get(k, "")) for k in ("id", "run_id", "job_id", "attempt"))
-        return _timestamp(ledger.deadline("ci-classification:" + run + ":" + digest(key), seconds))
+        name = "ci-classification:" + run + ":" + digest(key)
+        if not read_only:
+            return _timestamp(ledger.deadline(name, seconds))
+        row = ledger.db.execute("SELECT value,started FROM deadlines WHERE name=?", (name,)).fetchone()
+        if row is None:
+            return None
+        return _timestamp(row[0] if row[1] is None else min(row[0], row[1] + seconds))
     return window
+
+
+def retained_classification_window(ledger, plan):
+    """The plan's classification windows as observation retained them, opening none (readiness)."""
+    seconds = _selection(plan.get("options", {}))["classification_timeout_seconds"]
+    return _classification_window(ledger, plan["logical_run"], seconds, read_only=True)
 
 
 def _no_checks(ledger, run, head, grace):
@@ -757,19 +780,31 @@ def observe(provider, plan, ledger, operation):
     not a repairable failure. A configured classification timeout bounds each
     failed attempt's classification by a retained window (see
     ``classify_current``). Neither restarts on resume.
+
+    Review mode (the merge bridge, main.yml merge_ci) keys the observation
+    window and its extension by the exact head, so a later merge request of a
+    pushed fix gets that head's own window. Its late observation of a head
+    whose window ended reports settled checks as they are and is a timeout
+    while they are still pending; the wait itself never renews.
     """
     selected = configuration(plan.get("options", {}))
     timeout = selected["timeout_seconds"]
     text(operation, "CI observation operation")
     run = plan["logical_run"]
-    original = _timestamp(ledger.deadline("ci:" + run, timeout))
-    extended = _extension(ledger, run, selected, original, create=False)
+    review = plan.get("mode") == "review"
+    head = None
+    if review:
+        # A merge request's wait belongs to the exact head it waits for.
+        head = provider.capture(plan["pr"])["metadata"]["head"]["sha"]
+    window = run if head is None else run + ":" + text(head, "CI head")
+    original = _timestamp(ledger.deadline("ci:" + window, timeout))
+    extended = _extension(ledger, window, selected, original, create=False)
     deadline = original if extended is None else extended
     eligible = bool(extended is None and selected["max_pending_extensions"] and selected["pending_extension_seconds"])
-    if time.time() >= deadline and not eligible:
+    if time.time() >= deadline and not eligible and not review:
         raise TimeoutError("retained CI deadline exhausted")
-    evidence = provider.capture(plan["pr"])
-    head = evidence["metadata"]["head"]["sha"]
+    if head is None:
+        head = provider.capture(plan["pr"])["metadata"]["head"]["sha"]
     observation = provider.observe_ci(plan["pr"], head)
     if observation.get("head") != head:
         raise ValueError("CI observer returned another head")
@@ -787,10 +822,10 @@ def observe(provider, plan, ledger, operation):
             and _no_checks(ledger, run, head, selected["no_checks_grace_seconds"])):
         result.update(status="no_checks", outcome="no_checks")
     if time.time() >= deadline:
-        if not eligible:
+        if not eligible and (result["status"] == "pending" or not review):
             raise TimeoutError("retained CI deadline exhausted during observation")
         if result["status"] == "pending":
-            extended = _extension(ledger, run, selected, original, create=True)
+            extended = _extension(ledger, window, selected, original, create=True)
             if extended is None or time.time() >= extended:
                 raise TimeoutError("retained CI deadline and pending extension exhausted")
             deadline = extended

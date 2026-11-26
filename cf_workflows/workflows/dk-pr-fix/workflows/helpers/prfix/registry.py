@@ -6,6 +6,8 @@ repository and keyed by that repository. It holds what CI observation read: a
 named failed test (with the diagnostic lines of its failed-step logs) or a
 named passed test, bound to the exact head, workflow path, job, run, job ID and
 attempt. Rows are append-only; one exact attempt and test is recorded once.
+A successful attempt's logs are read once per set of saved failures they could
+pass (``reads``), whether or not they name one of them.
 
 A saved row is evidence that was once read, never authority. Fail-then-pass
 history (``history``) only nominates a candidate; prfix/ci.py rereads the
@@ -36,6 +38,9 @@ CREATE TABLE IF NOT EXISTS observations(repository TEXT NOT NULL, head TEXT NOT 
  run_id TEXT NOT NULL, job_id TEXT NOT NULL, attempt INTEGER NOT NULL, completed TEXT NOT NULL,
  lines TEXT NOT NULL, logs_sha256 TEXT NOT NULL, source TEXT NOT NULL, recorded REAL NOT NULL,
  PRIMARY KEY(repository, run_id, attempt, job_id, test, outcome));
+CREATE TABLE IF NOT EXISTS reads(repository TEXT NOT NULL, run_id TEXT NOT NULL, job_id TEXT NOT NULL,
+ attempt INTEGER NOT NULL, wanted TEXT NOT NULL, recorded REAL NOT NULL,
+ PRIMARY KEY(repository, run_id, attempt, job_id, wanted));
 """
 _SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 _REPOSITORY = re.compile(r"^[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+$")
@@ -128,9 +133,19 @@ class Registry:
         """Saved failures at an exact head: the successful jobs worth reading for pass evidence."""
         return self._rows(repository, " AND head=? AND outcome='fail'", (head,))
 
-    def recorded(self, repository, run_id, job_id, attempt, outcome):
-        return bool(self._rows(repository, " AND run_id=? AND job_id=? AND attempt=? AND outcome=?",
-                               (str(run_id), str(job_id), attempt, outcome)))
+    def was_read(self, repository, run_id, job_id, attempt, wanted):
+        """Whether a successful exact attempt's logs were read for this digest of saved failures."""
+        if self.db is None:
+            return False
+        return self.db.execute("SELECT 1 FROM reads WHERE repository=? AND run_id=? AND job_id=? AND attempt=? "
+                               "AND wanted=?", (repository, str(run_id), str(job_id), attempt, wanted)).fetchone() is not None
+
+    def mark_read(self, repository, run_id, job_id, attempt, wanted):
+        """Remember one completed read; a new saved failure at the head changes ``wanted`` and reads again."""
+        if self.read_only or self.db is None:
+            return
+        self.db.execute("INSERT OR IGNORE INTO reads VALUES(?,?,?,?,?,?)",
+                        (repository, str(run_id), str(job_id), attempt, text(wanted, "read digest"), time.time()))
 
     def history(self, repository, context, signature):
         """The earliest saved fail-then-pass of one exact context at one commit, or None.
