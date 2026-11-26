@@ -187,6 +187,25 @@ reject `approve_fork_ci` outside review mode. In review mode, `main.yml` runs
 the `fork_ci` publication barrier after the cycles and the finding
 publication, gated on `fork_ci_authorized`.
 
+## Standalone-to-merge bridge
+
+A merge request (dk-pr-publish's merge preset, review mode) may also carry an
+`approve_fork_ci` grant (`dk_pr_publish.BRIDGES`). The grant still needs its
+own permission, and merge never implies it. dk-ci-approve itself still takes
+no other action. In `main.yml`:
+
+1. `fork_ci` approves each eligible fork run attempt once the review and its
+   finding publication settle, as above.
+2. `merge_ci` runs once the review is complete and `fork_ci` has not failed.
+   It is `ci-poll.yml` repeated until checks settle, inside the run's retained
+   CI window. An exhausted window fails it, so nothing merges.
+3. `merge_readiness` runs the `completion` readiness again after the wait.
+   `merge_proposal` needs that fresh readiness, so a failed, pending or
+   `no_checks` result never merges.
+
+A merge without the bridge grant also waits for CI before its readiness, but
+approves nothing.
+
 ## Flaky-test discovery
 
 `ci_flakes.inspect()` targets a PR or a repository and reads, within the
@@ -275,6 +294,10 @@ writes and native sessions are counted. It covers:
 
   A lost response before the effect is never resent. A lost response after
   the effect is reconciled, and an uncertain approval stays pending.
+- **Merge bridge.** Merge with a fork-approval grant admits only with both
+  grants and permissions. The `main.yml` graph orders `fork_ci`, `merge_ci`,
+  `merge_readiness` and `merge_proposal`. A pending or failed wait never
+  merges, and the merge after success writes once beside the approval.
 - **Flake discovery.** Linked and candidate contexts, targets, limits and
   gaps. A session that links, unlinks, invents or drops a context is rejected.
   Failed reads block.
@@ -290,8 +313,6 @@ writes and native sessions are counted. It covers:
   - The native failure-diagnosis role, and automatic reruns of unrelated
     retryable failures under a `user_retry` grant. Reruns publish through
     dk-pr-publish with the per-head allowance.
-  - The standalone-to-merge bridge. A merge request runs dk-pr-publish's merge
-    preset, which observes CI once and does not approve fork runs or wait.
 - **Live evidence.** GitHub's search, run-listing and fork-approval behavior is
   exercised only against fakes. Live provider adherence and GitHub
   conformance need separate authorization.

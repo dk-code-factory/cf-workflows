@@ -285,6 +285,37 @@ jobs:
     needs:
     - prepare
     - cycles
+  merge_ci:
+    # Standalone-to-merge bridge (#35): after the review completes and any
+    # separately authorized fork approvals settle, wait for exact-head CI within
+    # the retained window. A timeout fails this job, so the merge is skipped.
+    uses: workflows/ci-poll.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - completion
+    - fork_ci
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.completion.outputs.result.complete and needs.fork_ci.status
+      != 'failed' and needs.fork_ci.status != 'needs_attention' and needs.fork_ci.status != 'canceled' }}
+    repeat:
+      max-attempts: 100
+      until: ${{ iteration.outputs.settled }}
+  merge_readiness:
+    # Fresh readiness after the bridge; merge never relies on the earlier completion.
+    uses: workflows/helper.yml
+    with:
+      operation: completion
+      payload:
+        plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - merge_ci
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.merge_ci.status == 'succeeded' }}
   merge_proposal:
     uses: workflows/helper.yml
     with:
@@ -295,8 +326,8 @@ jobs:
       github_token: ${{ secrets.github_token }}
     needs:
     - prepare
-    - completion
-    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.completion.outputs.result.ready }}
+    - merge_readiness
+    if: ${{ needs.prepare.outputs.result.merge_authorized and needs.merge_readiness.outputs.result.ready }}
   merge:
     uses: workflows/publication.yml
     with:

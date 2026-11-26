@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -194,6 +195,60 @@ class Entries(PreflightFixture):
                 result = self.approve(authorizations, invocation)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
                 self.assertIn(message, result['error']['message'])
+
+    def test_merge_preset_bridges_a_separately_authorized_fork_approval(self):
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+
+        def publish(authorizations, permissions):
+            self.transport = FakeTransport(offered)
+            return dk_pr_publish.preflight('dk-pr-publish', request={**self.request, 'authorizations': authorizations},
+                                           deployment=self.deployment, repository=self.repo, home=self.home,
+                                           invocation={'permissions': permissions}, transport=self.transport,
+                                           install=self.clean)
+        both = {'merge': grant('merge'), 'approve_fork_ci': grant('fork')}
+        result = publish(both, {'merge': True, 'approve_fork_ci': True})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual((result['installation']['entry'], result['entry']['preset']), ('workflows/review.yml', 'merge'))
+        self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'merge', 'approve_fork_ci'})
+        self.assertEqual(result['entry']['capabilities']['approve_fork_ci']['entry'], 'dk-ci-approve')
+        # The bridge needs both grants and both permissions; merge never implies the approval.
+        cases = [
+            ({'approve_fork_ci': grant('fork')}, {'approve_fork_ci': True}, 'request.authorizations.approve_fork_ci',
+             'dk-ci-approve'),
+            (both, {'merge': True}, 'request.authorizations.approve_fork_ci', 'not enabled'),
+            ({**both, 'push': grant('push')}, {'merge': True, 'approve_fork_ci': True, 'push': True},
+             'request.authorizations', 'separate invocations'),
+        ]
+        for authorizations, permissions, path, message in cases:
+            with self.subTest(authorizations=sorted(authorizations), permissions=sorted(permissions)):
+                result = publish(authorizations, permissions)
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
+                self.assertIn(message, result['error']['message'])
+        # dk-ci-approve itself still takes no other action.
+        result = self.approve(both, {'permissions': {'merge': True, 'approve_fork_ci': True}})
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'request.authorizations.merge'))
+
+    def test_main_graph_runs_fork_approval_then_waits_for_ci_before_merge(self):
+        body = (fix_preflight.INSTALL / 'workflows/main.yml').read_text()
+        jobs = dict(re.findall(r'(?m)^  ([a-z_]+):\n((?:    .*\n|\s*\n)*)', body.split('\njobs:\n', 1)[1]))
+
+        def needs(name):
+            return re.findall(r'(?m)^    - (\w+)$', jobs[name])
+        self.assertIn('uses: workflows/ci-poll.yml', jobs['merge_ci'])
+        self.assertEqual(needs('merge_ci'), ['prepare', 'completion', 'fork_ci'])
+        self.assertIn('until: ${{ iteration.outputs.settled }}', jobs['merge_ci'])
+        condition = ' '.join(re.search(r'if: \$\{\{(.*?)\}\}', jobs['merge_ci'], re.S)[1].split())
+        self.assertEqual(condition, "needs.prepare.outputs.result.merge_authorized and "
+                         "needs.completion.outputs.result.complete and needs.fork_ci.status != 'failed' and "
+                         "needs.fork_ci.status != 'needs_attention' and needs.fork_ci.status != 'canceled'")
+        self.assertIn('operation: completion', jobs['merge_readiness'])
+        self.assertEqual(needs('merge_readiness'), ['prepare', 'merge_ci'])
+        self.assertIn("needs.merge_ci.status == 'succeeded'", jobs['merge_readiness'])
+        # Merge readiness comes only from the fresh check after the bridge.
+        self.assertEqual(needs('merge_proposal'), ['prepare', 'merge_readiness'])
+        self.assertIn('needs.merge_readiness.outputs.result.ready', jobs['merge_proposal'])
+        self.assertEqual(needs('merge'), ['prepare', 'merge_proposal'])
 
     def test_dk_pr_fix_never_approves_fork_workflows(self):
         result = self.preflight(request={**self.request, 'authorizations': {'approve_fork_ci': grant('fork')}},
@@ -932,6 +987,34 @@ class ForkApproval(Helpers):
                          {'invoke': False, 'proposal': {}})
         self.assertEqual(publishing.merge_proposal(self.root, self.github, ledger, plan, {}),
                          {'invoke': False, 'proposal': {}})
+
+    def test_merge_bridge_approves_fork_runs_then_merges_only_after_ci_succeeds(self):
+        self.github.gate(41)
+        result, plan, ledger = self.review({'merge': grant('merge'), 'approve_fork_ci': grant('fork')},
+                                           {'merge': True, 'approve_fork_ci': True})
+        self.assertTrue(result['merge_authorized'] and result['fork_ci_authorized'])
+        # main.yml fork_ci, then merge_ci: the approved run is executing, so CI is pending.
+        listing, receipts = self.fork_barrier(plan, ledger)
+        self.assertEqual(([item['payload'] for item in listing['items']], self.github.calls['approve']),
+                         ([{'run_id': 41, 'attempt': 1}], 1))
+        self.github.ci = {'status': 'in_progress', 'conclusion': None}
+        waiting = ci.observe(self.github, plan, ledger, 'merge-ci-1')
+        self.assertEqual((waiting['pending'], waiting['ready']), (True, False))
+        self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, plan, {})['invoke'])
+        # A failed run settles the wait without readiness: nothing merges.
+        self.github.ci = {'status': 'completed', 'conclusion': 'failure'}
+        self.assertEqual(ci.observe(self.github, plan, ledger, 'merge-ci-2')['failed'], True)
+        self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, plan, {})['invoke'])
+        self.github.ci = {'status': 'completed', 'conclusion': 'success'}
+        self.assertTrue(ci.observe(self.github, plan, ledger, 'merge-ci-3')['ready'])
+        final = publishing.merge_proposal(self.root, self.github, ledger, plan, {})
+        self.assertTrue(final['invoke'], final)
+        self.assertEqual(self.publish(plan, ledger, final['proposal'])['receipt']['kind'], 'merge')
+        self.assertEqual((self.github.calls['approve'], self.writes()), (1, 2))
+        # An exhausted retained window ends the wait without a merge (merge_ci fails).
+        with patch('prfix.ci.time.time', return_value=time.time() + 86400 * 2):
+            with self.assertRaises(TimeoutError):
+                ci.observe(self.github, plan, ledger, 'merge-ci-4')
 
     def test_no_gated_run_is_the_verified_noop(self):
         _, plan, ledger = self.review()
