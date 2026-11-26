@@ -149,7 +149,8 @@ count native dispatches, sessions and GitHub reads.
 directly and from dk-pr-fix and dk-pr-review plans on a fail-closed fake GitHub.
 They count review, edit, request and merge writes and native dispatches across
 denial, payload drift, pending drafts, body-only findings, approval and lost
-effects.
+effects. They also check that the installed `publish.yml` and `review-post.yml`
+routing rejects misrouted actions and preset overrides before any effect.
 [Drafting entry](drafting.md#verification) tests (`tests/test_drafting.py`)
 drive dk-pr-description, dk-commit-message and dk-issue directly and from
 shared plans, with repositories with and without templates. They use the fake

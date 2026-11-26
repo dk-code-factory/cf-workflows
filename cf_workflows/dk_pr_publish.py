@@ -7,17 +7,20 @@ and the helper operations in the installed prfix/publishing.py, findings.py and
 publication.py) and the entry's original options. Preflight is the shared
 dk-pr-fix or dk-pr-review preflight. No skill is loaded.
 
-- dk-pr-publish, changes preset (main.yml, fix mode): the bundled
-  ``prepare-publication`` leaf session turns the exact request into proposed
-  operations, then the shared publication stage prepares exact intents, obtains
-  an independent audience verdict, rechecks live state and reconciles uncertain
-  effects. It shares the PR's default logical run with dk-pr-fix.
-- dk-pr-publish, merge preset (review.yml, review mode): merge needs current
-  independent review, so a merge request runs the incoming-review preset and the
-  shared merge readiness (current head, CI, pending reviews and requests). It
-  shares the PR's incoming-review logical run, so current review is reused.
-- dk-pr-review-post (review.yml, review mode): verified findings inline or in
-  the body, and a separately authorized approval of a clean review.
+- dk-pr-publish, changes preset (publish.yml running main.yml in fix mode):
+  the bundled ``prepare-publication`` leaf session turns the exact request
+  into proposed operations, then the shared publication stage prepares exact
+  intents, obtains an independent audience verdict, rechecks live state and
+  reconciles uncertain effects. It shares the PR's default logical run with
+  dk-pr-fix.
+- dk-pr-publish, merge preset (publish.yml running main.yml in review mode):
+  merge needs current independent review, so a merge request runs the
+  incoming-review preset and the shared merge readiness (current head, CI,
+  pending reviews and requests). It shares the PR's incoming-review logical
+  run, so current review is reused.
+- dk-pr-review-post (review-post.yml running main.yml in review mode):
+  verified findings inline or in the body, and a separately authorized
+  approval of a clean review.
 - dk-ci-approve (review.yml, review mode, #35): one exact fork workflow
   approval per eligible run attempt of the reviewed head, after complete
   current incoming review (main.yml fork_ci job, publishing.fork_ci). Finding
@@ -25,7 +28,11 @@ dk-pr-fix or dk-pr-review preflight. No skill is loaded.
 
 Every public action has one declared capability below. Undeclared actions, and
 actions owned by another entry or issue, reject before any effect. A configured
-permission never supplies a missing authorization.
+permission never supplies a missing authorization. The installed helpers repeat
+the routing of dk-pr-publish and dk-pr-review-post inside the package
+(prfix/prepare.py ENTRY_ACTIONS, the entry_preset operation and prepare's
+`entry` control), so a direct run of their installed workflow rejects the same
+actions before any session or effect.
 
 Original role prompts and options come from the pinned dk-workflows baseline
 (MIT; see licenses/dk-workflows-MIT.txt).
@@ -37,10 +44,15 @@ from .admission import AdmissionError, require
 
 CHANGES = {'tasks': ['prepare-publication', {'stage': 'publication'}], 'finalizers': [], 'reviewers': []}
 REVIEW = copy.deepcopy(dk_pr_review.DEFAULTS)
+# Installed entry workflows (plugin.yaml). publish.yml routes its two presets; the merge
+# path takes dk-pr-review's selections under the review_ input names.
+PUBLISH = 'workflows/publish.yml'
+REVIEW_POST = 'workflows/review-post.yml'
+MERGE_INPUTS = {'tasks': 'review_tasks', 'reviewers': 'review_reviewers', 'adapters': 'review_adapters'}
 PRESETS = {
-    'changes': {'mode': 'fix', 'workflow': dk_pr_fix.ENTRY, 'options': CHANGES},
-    'merge': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
-    'review-post': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
+    'changes': {'mode': 'fix', 'workflow': PUBLISH, 'options': CHANGES},
+    'merge': {'mode': 'review', 'workflow': PUBLISH, 'options': REVIEW},
+    'review-post': {'mode': 'review', 'workflow': REVIEW_POST, 'options': REVIEW},
     'fork-ci': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
 }
 # Every public action: its entry and preset, the publication kinds it dispatches and its workflow input.
@@ -205,9 +217,13 @@ def preflight(name, *, request, deployment, repository, transport, configuration
                                                              'settings': {**configured, **given}}}
             result = dk_pr_review.preflight(**arguments)
         result['workflow'] = entry['skill'] if result.get('preflight') == 'admitted' else result.get('workflow')
+        if result.get('preflight') == 'admitted':
+            result['installation']['entry'] = preset['workflow']
+            if selected == 'merge':
+                result['inputs'] = {MERGE_INPUTS.get(key, key): value for key, value in result['inputs'].items()}
     else:
         result = dk_pr_fix.preflight(**arguments, maintain_other=maintain_other, workflow=entry['skill'],
-                                     entry=dk_pr_fix.ENTRY)
+                                     entry=preset['workflow'])
     result['entry'] = {'name': name, 'skill': entry['skill'], 'preset': selected, 'mode': preset['mode'],
                        'options': entry_options}
     if result['preflight'] != 'admitted':

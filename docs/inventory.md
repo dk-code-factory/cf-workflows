@@ -22,8 +22,13 @@ deterministic direct and composed fixtures ([configuration skills](configuration
 They stay `not_implemented` until they run as engine-managed sessions through an
 installed workflow. The same holds for `dk-pr-decisions` (#28,
 [decisions](decisions.md)), the two prose rows (#33, [prose cleanup](prose.md))
-the four alternatives rows (#27, [alternatives](alternatives.md)) and the two
-publication rows (#31, [publication entries](publication-skills.md)).
+and the four alternatives rows (#27, [alternatives](alternatives.md)).
+
+The two publication rows (#31, [publication entries](publication-skills.md))
+are listed in the plugin descriptor with their own installed entry workflows,
+`publish.yml` and `review-post.yml`, like `dk-pr-review`. They also stay
+`not_implemented`: no released engine has run those workflows as
+engine-managed sessions.
 
 The three feedback rows (#30, [feedback skills](feedback-skills.md)) are
 listed in the plugin descriptor with their own installed entry workflows over

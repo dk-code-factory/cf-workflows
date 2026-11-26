@@ -60,7 +60,9 @@ class Descriptor(unittest.TestCase):
                                                 {'name': 'dk-pr-review', 'path': 'skills/dk-pr-review/SKILL.md',
                                                  'workflow': 'workflows/review.yml'}]
                          + [{'name': f'dk-pr-feedback-{part}', 'path': f'skills/dk-pr-feedback-{part}/SKILL.md',
-                             'workflow': f'workflows/feedback-{part}.yml'} for part in ('read', 'address', 'reply')])
+                             'workflow': f'workflows/feedback-{part}.yml'} for part in ('read', 'address', 'reply')]
+                         + [{'name': name, 'path': f'skills/{name}/SKILL.md', 'workflow': f'workflows/{entry}.yml'}
+                            for name, entry in (('dk-pr-publish', 'publish'), ('dk-pr-review-post', 'review-post'))])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -382,7 +384,8 @@ class InventoryStatus(unittest.TestCase):
         status = package.inventory_status(self.descriptor())
         self.assertEqual(status['listed'], [{'skill': 'cf-workflows:' + name, 'parity_status': 'not_implemented'}
                                             for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-feedback-read',
-                                                         'dk-pr-feedback-address', 'dk-pr-feedback-reply')])
+                                                         'dk-pr-feedback-address', 'dk-pr-feedback-reply',
+                                                         'dk-pr-publish', 'dk-pr-review-post')])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}

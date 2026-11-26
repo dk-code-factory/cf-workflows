@@ -592,30 +592,33 @@
         31
       ],
       "behavior": [
-        "cf_workflows/dk_pr_publish.py"
+        "cf_workflows/dk_pr_publish.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/review-post.yml"
       ],
       "documentation": "docs/publication-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_publication_skills.ReviewPost.test_partial_review_comments_and_is_never_approved",
         "test_publication_skills.ReviewPost.test_clean_review_is_approved_once_with_an_empty_body",
-        "test_publication_skills.Entries.test_review_post_maps_options_and_keeps_actions_separate"
+        "test_publication_skills.Entries.test_review_post_maps_options_and_keeps_actions_separate",
+        "test_publication_skills.InstalledRouting.test_each_entry_runs_exactly_its_preset"
       ],
       "composed": [
         "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing"
       ],
       "recovery": [
         "test_publication_skills.ReviewPost.test_approval_needs_its_own_grant_and_never_approves_own_pr",
-        "test_publication_skills.ReviewPost.test_lost_approval_response_after_the_effect_settles_by_reconciliation"
+        "test_publication_skills.ReviewPost.test_lost_approval_response_after_the_effect_settles_by_reconciliation",
+        "test_publication_skills.InstalledRouting.test_installed_routing_rejects_before_any_session_or_effect"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as review-post.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-description",
@@ -747,29 +750,32 @@
       ],
       "behavior": [
         "cf_workflows/dk_pr_publish.py",
-        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publishing.py"
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publishing.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/publish.yml"
       ],
       "documentation": "docs/publication-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_publication_skills.Publish.test_direct_publication_uses_exact_intents_audience_and_receipts_once",
-        "test_publication_skills.Entries.test_changes_preset_runs_its_own_adapter_and_publication_stage_only"
+        "test_publication_skills.Entries.test_changes_preset_runs_its_own_adapter_and_publication_stage_only",
+        "test_publication_skills.InstalledRouting.test_installed_admit_job_routes_the_staged_request_once"
       ],
       "composed": [
         "test_publication_skills.Publish.test_composed_dk_pr_fix_publication_shares_the_journal_and_never_duplicates"
       ],
       "recovery": [
         "test_publication_skills.Publish.test_denied_action_rejects_before_any_write",
-        "test_publication_skills.Publish.test_lost_effects_are_reconciled_and_never_resent"
+        "test_publication_skills.Publish.test_lost_effects_are_reconciled_and_never_resent",
+        "test_publication_skills.InstalledRouting.test_installed_routing_rejects_before_any_session_or_effect"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as publish.yml (the changes preset and the merge-only path), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci-approve",

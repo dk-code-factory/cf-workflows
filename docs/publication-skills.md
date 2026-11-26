@@ -9,13 +9,31 @@ options. They add no orchestration, no second publication journal and no
 other effect owner: every write is an exact intent of the shared
 [publication boundary](publication.md). No skill is loaded.
 
+Both entries are listed in the plugin descriptor
+([`plugin.yaml`](../cf_workflows/workflows/dk-pr-fix/plugin.yaml)), each with
+its own `SKILL.md` and installed entry workflow, the same way `dk-pr-review`
+is exposed as `review.yml`:
+
+- [`publish.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/publish.yml)
+  first runs the installed `entry_preset` helper on the staged request. That
+  helper returns the request's one preset or rejects it. Then exactly one job
+  runs `main.yml`: `changes` in fix mode or `merge` in review mode. The merge
+  path takes dk-pr-review's selections as `review_tasks`, `review_reviewers`
+  and `review_adapters`.
+- [`review-post.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/review-post.yml)
+  runs `main.yml` in review mode, which publishes only through the shared
+  `findings` and `approval` jobs.
+
+Their `workflow_call` defaults carry the presets, and both pass an `entry`
+input to `main.yml`.
+
 ## Presets
 
 | Entry | Requested actions | Preset | Workflow and mode | Logical run |
 | --- | --- | --- | --- | --- |
-| `dk-pr-publish` | `push`, `edit_pr`, `reply`, `resolve_thread`, `request_review`, `create_pr`, `rerun_ci` | `prepare-publication`, then `{stage: publication}`; no finalizers or reviewers | `main.yml`, fix | The PR's default run, shared with dk-pr-fix |
-| `dk-pr-publish` | `merge` only | dk-pr-review's reviewers and verifier, then the merge job | `review.yml`, review | The PR's incoming-review run |
-| `dk-pr-review-post` | `post_findings`, `approve_pr` | dk-pr-review's reviewers and verifier, then the findings and approval jobs | `review.yml`, review | The PR's incoming-review run |
+| `dk-pr-publish` | `push`, `edit_pr`, `reply`, `resolve_thread`, `request_review`, `create_pr`, `rerun_ci` | `prepare-publication`, then `{stage: publication}`; no finalizers or reviewers | `publish.yml` (`changes` job), fix | The PR's default run, shared with dk-pr-fix |
+| `dk-pr-publish` | `merge` only | dk-pr-review's reviewers and verifier, then the merge job | `publish.yml` (`merge` job), review | The PR's incoming-review run |
+| `dk-pr-review-post` | `post_findings`, `approve_pr` | dk-pr-review's reviewers and verifier, then the findings and approval jobs | `review-post.yml`, review | The PR's incoming-review run |
 
 The adapter procedures:
 
@@ -62,6 +80,22 @@ following:
 
 An authorization without the enabled permission rejects, as in dk-pr-fix. A
 permission enabled by configuration but not authorized stays false.
+
+The installed helpers repeat this routing inside the package, so a direct run
+of `publish.yml` or `review-post.yml` that skips host preflight still rejects
+before any session or effect. `prfix/prepare.py` holds `ENTRY_ACTIONS` (each
+action's entry and preset), `ENTRY_OWNERS` (fork-CI approval and issue writes)
+and `ENTRY_PRESETS` (each preset's mode, stage kinds and leading adapter).
+These checks run inside the package:
+
+- **`entry_preset`.** The `admit` job of `publish.yml` runs it on the staged
+  request. It rejects a missing authorization, an action of the other entry or
+  of another owner, an undeclared action, and `merge` mixed with other actions.
+  Only a successful result starts a preset job, and the result is retained, so
+  a lost response is answered without a second read.
+- **`prepare`.** It runs again with the `entry` control. It applies the same
+  rules and also rejects the following: a preset in the wrong mode, any other
+  stage shape or leading adapter, a finalizer, and a writing task.
 
 ## Approval
 
@@ -129,6 +163,16 @@ dispatches and writes are counted. It covers:
   unsupported, mixed and unauthorized actions and preset overrides with zero
   engine calls. Configured permissions never supply authority, and dk-pr-fix
   rejects approval.
+- **Installed entries.** Each admitted preset's inputs are declared by its
+  installed entry workflow and passed to the right `main.yml` job with its mode
+  and `entry`. The installed defaults are the preset, and the descriptor rows
+  name the entry workflows. The installed `ENTRY_ACTIONS` table agrees with
+  `CAPABILITIES`. Each entry runs exactly its preset. The installed
+  `entry_preset` and `prepare` reject foreign, undeclared, owned-elsewhere,
+  unauthorized and mixed actions, wrong modes and preset overrides, with no
+  write and no session. The `admit` helper routes a staged request once,
+  answers a lost response from its retained result, and retains nothing for a
+  rejected request.
 - **dk-pr-publish changes.**
   - Exact intents, audience and receipts, published once and reconciled on
     rerun.
@@ -162,10 +206,13 @@ dispatches and writes are counted. It covers:
 
 ## What remains
 
-- **Runtime.** The installed graph and its sessions need Agent Workflow #129
-  and #130, which are still open. No local controller or launcher stands in
-  for them. Plugin `SKILL.md` and descriptor rows wait for that runtime, so both
-  inventory rows stay `not_implemented`.
+- **Runtime.** Both entries are in the descriptor, and `plugin check` from
+  Agent Workflow main accepts it. Running their installed workflows with
+  engine-managed sessions needs a released engine that contains Agent Workflow
+  #129, #130 and #139. Those issues are closed upstream, but no release ships
+  them yet, and the plugin pins the unreleased engine 0.2.2. No local
+  controller or launcher stands in for them, so both inventory rows stay
+  `not_implemented` and their native execution stays `pending`.
 - **Baseline features without an equivalent.**
   - Historical finding follow-ups: reusing an equivalent open thread, and
     follow-up publication for bot, human and earlier-run reports.

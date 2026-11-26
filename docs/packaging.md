@@ -27,10 +27,12 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   provider that `agents.yml` selects.
 - `skills` lists the inventory rows with an installed workflow: `dk-pr-fix`
   (`workflows/main.yml`), `dk-pr-review` (its [review-mode preset](review.md)
-  `workflows/review.yml`) and the three [feedback entries](feedback-skills.md)
+  `workflows/review.yml`), the three [feedback entries](feedback-skills.md)
   (`workflows/feedback-read.yml`, `feedback-address.yml` and
-  `feedback-reply.yml`, which fix their task selection over `main.yml`). Each
-  `SKILL.md`, such as
+  `feedback-reply.yml`, which fix their task selection over `main.yml`) and the
+  [publication entries](publication-skills.md) `dk-pr-publish` and
+  `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`).
+  Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
   runnable and list the prerequisites below. The shared toolchain adds the

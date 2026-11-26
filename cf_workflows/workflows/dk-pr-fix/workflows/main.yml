@@ -149,6 +149,11 @@ name: cf-workflows:dk-pr-fix
         # checks (dk-pr-feedback-address's additional_validation_commands; workflows/feedback-address.yml).
         type: array
         default: []
+      entry:
+        # A direct publication entry (workflows/publish.yml, review-post.yml) whose
+        # preset prepare enforces; empty for dk-pr-fix and dk-pr-review.
+        type: string
+        default: ''
     secrets:
       github_token:
         required: true
@@ -191,6 +196,7 @@ jobs:
           turns: ${{ inputs.turns }}
           mode: ${{ inputs.mode }}
           validation_commands: ${{ inputs.validation_commands }}
+          entry: ${{ inputs.entry }}
     secrets:
       github_token: ${{ secrets.github_token }}
     needs:
