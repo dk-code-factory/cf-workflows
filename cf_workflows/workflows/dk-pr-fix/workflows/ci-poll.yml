@@ -44,7 +44,7 @@ jobs:
       if: ${{ steps.ci.outputs.pending }}
       argv:
       - sleep
-      - '10'
+      - ${{ steps.ci.outputs.poll_interval }}
     outputs:
       settled: ${{ steps.ci.outputs.pending != true }}
       failed: ${{ steps.ci.outputs.failed }}

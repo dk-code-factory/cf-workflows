@@ -99,8 +99,9 @@ class Entries(PreflightFixture):
         self.assertEqual((inputs['tasks'], inputs['finalizers'], inputs['reviewers'], inputs['adapters']),
                          ([{'stage': 'ci'}], [], [], {}))
         self.assertEqual(inputs['limits']['ci_repairs_per_cycle'], 0)
-        self.assertEqual(inputs['ci'], {'timeout_seconds': 1800, 'pending_extension_seconds': 1800,
-                                        'max_pending_extensions': 1})
+        self.assertEqual(inputs['ci'], {'timeout_seconds': 1800, 'poll_interval_seconds': 30,
+                                        'classification_timeout_seconds': 60, 'no_checks_grace_seconds': 60,
+                                        'pending_extension_seconds': 1800, 'max_pending_extensions': 1})
         self.assertFalse(any(inputs['permissions'].values()))
         self.assertEqual((result['workflow'], result['installation']['entry']), ('cf-workflows:dk-ci',
                                                                                  'workflows/main.yml'))
@@ -116,13 +117,34 @@ class Entries(PreflightFixture):
         document = self.configuration({'ci': {'timeout_seconds': 600}, 'limits': {'ci_reruns_per_head': 1}})
         result = self.observe(configuration=document, options={'max_pending_extensions': 0})
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
-        self.assertEqual(result['inputs']['ci'], {'timeout_seconds': 600, 'pending_extension_seconds': 1800,
-                                                  'max_pending_extensions': 0})
+        self.assertEqual(result['inputs']['ci'], {'timeout_seconds': 600, 'poll_interval_seconds': 30,
+                                                  'classification_timeout_seconds': 60, 'no_checks_grace_seconds': 60,
+                                                  'pending_extension_seconds': 1800, 'max_pending_extensions': 0})
         self.assertEqual((result['inputs']['limits']['ci_reruns_per_head'],
                           result['inputs']['limits']['ci_repairs_per_cycle']), (1, 0))
         self.assertEqual(result['entry']['options']['max_pending_extensions'], {'value': 0, 'source': 'invocation'})
         result = self.observe(configuration=document, options={'timeout_seconds': 900})
         self.assertEqual(result['inputs']['ci']['timeout_seconds'], 900)
+        # Configured observation windows stay; an invocation option sets only its own.
+        document = self.configuration({'ci': {'poll_interval_seconds': 5, 'no_checks_grace_seconds': 0}})
+        result = self.observe(configuration=document, options={'classification_timeout_seconds': 120})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual({key: result['inputs']['ci'][key] for key in admission.CI_WINDOWS},
+                         {'poll_interval_seconds': 5, 'classification_timeout_seconds': 120,
+                          'no_checks_grace_seconds': 0})
+        self.assertEqual(result['entry']['options']['poll_interval_seconds'], {'value': 30, 'source': 'default'})
+        # Composed dk-pr-fix carries only the windows it is configured with.
+        composed = fix_preflight.preflight(request=self.request, configuration=document, invocation=None,
+                                           deployment=self.deployment, repository=self.repo, home=self.home,
+                                           transport=FakeTransport(), install=self.clean)
+        self.assertEqual(composed['preflight'], 'admitted', composed.get('error'))
+        self.assertEqual(composed['inputs']['ci'], {'timeout_seconds': 1800, 'poll_interval_seconds': 5,
+                                                    'no_checks_grace_seconds': 0})
+        for key, value in (('poll_interval_seconds', 0), ('classification_timeout_seconds', 3601),
+                           ('no_checks_grace_seconds', -1), ('poll_interval_seconds', True)):
+            with self.subTest(key=key, value=value):
+                result = self.observe(configuration=self.configuration({'ci': {key: value}}))
+                self.assertEqual(result['preflight'], 'rejected')
 
     def test_dk_ci_rejects_authority_overrides_and_unsupported_options(self):
         cases = [
@@ -130,8 +152,9 @@ class Entries(PreflightFixture):
              'dk-pr-publish'),
             ({'invocation': {'options': {'tasks': ['read-feedback']}}}, 'invocation', 'preset'),
             ({'invocation': {'permissions': {'rerun_ci': True}}}, 'invocation', 'preset'),
-            ({'options': {'poll_interval_seconds': 30}}, 'options.poll_interval_seconds', 'not supported yet'),
-            ({'options': {'no_checks_grace_seconds': 60}}, 'options.no_checks_grace_seconds', 'not supported yet'),
+            ({'options': {'poll_interval_seconds': 0}}, 'options.poll_interval_seconds', '1..3600'),
+            ({'options': {'classification_timeout_seconds': 0}}, 'options.classification_timeout_seconds', '1..3600'),
+            ({'options': {'no_checks_grace_seconds': -1}}, 'options.no_checks_grace_seconds', '0..86400'),
             ({'options': {'max_pending_extensions': 2}}, 'options.max_pending_extensions', '0..1'),
             ({'options': {'timeout_seconds': 0}}, 'options.timeout_seconds', '1..86400'),
             ({'options': {'lookback_days': 3}}, 'options.lookback_days', 'unsupported option'),
@@ -396,6 +419,102 @@ class Observation(unittest.TestCase):
         with self.assertRaises(ValueError):
             fresh.reserve('ci-pending-extension:pr_shared', 'another-extension', 1)
         self.assertEqual(self.grants(), 1)
+
+    # -- poll interval, absent-check grace and classification window -----------------------------
+
+    def test_poll_interval_comes_from_the_validated_plan(self):
+        self.pending()
+        self.assertEqual(self.observe(self.plan(self.direct()), 'poll-1', 1000.0)['poll_interval'], '10',
+                         'the composed default keeps the original delay')
+        result = self.observe(self.plan({**self.direct(), 'poll_interval_seconds': 45}), 'poll-2', 1001.0)
+        self.assertEqual(result['poll_interval'], '45')
+        # ci-poll.yml sleeps for exactly this output; an invalid plan value never reaches it.
+        poll = (fix_preflight.INSTALL / 'workflows/ci-poll.yml').read_text()
+        self.assertIn('- sleep\n      - ${{ steps.ci.outputs.poll_interval }}\n', poll)
+        for value in (0, 3601, '30', True):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'poll_interval_seconds'):
+                self.observe(self.plan({**self.direct(), 'poll_interval_seconds': value}), 'bad', 1002.0)
+
+    def test_absent_checks_become_no_checks_after_a_retained_grace(self):
+        controls = {**self.direct(), 'no_checks_grace_seconds': 60}
+        first = self.observe(self.plan(controls), 'poll-1', 1000.0)
+        self.assertEqual((first['status'], first['pending'], first['ready']), ('pending', True, False))
+        # A resumed observation (new ledger connection) with a larger grace keeps the original end.
+        resumed = self.observe(self.plan({**controls, 'no_checks_grace_seconds': 600}), 'poll-2', 1061.0)
+        self.assertEqual((resumed['status'], resumed['outcome'], resumed['pending'], resumed['failed'],
+                          resumed['ready']), ('no_checks', 'no_checks', False, False, False))
+        # A settled blocker: never a repairable failure and never CI success.
+        self.assertEqual(ci.classify({'head': HEAD, 'checks': []})['status'], 'pending')
+        # Checks that appear later are observed as usual.
+        self.github.checks = [{'id': '9', 'name': 'Test', 'status': 'completed', 'conclusion': 'success',
+                               'run_id': '', 'job_id': '', 'attempt': 0}]
+        self.assertEqual(self.observe(self.plan(controls), 'poll-3', 1062.0)['status'], 'success')
+        # A zero grace reports no_checks at once; without a grace absent checks stay pending until the deadline.
+        self.github.checks = []
+        self.assertEqual(self.observe(self.plan({**controls, 'no_checks_grace_seconds': 0}), 'poll-4', 1063.0,
+                                      self.ledger('zero'))['status'], 'no_checks')
+        self.assertEqual(self.observe(self.plan(self.direct(), run='none'), 'poll-5', 1000.0)['status'], 'pending')
+        late = self.observe(self.plan(self.direct(), run='none'), 'poll-6', 1119.0)
+        self.assertEqual(late['status'], 'pending')
+        # no_checks is settled, so a post-window capture takes no pending-only extension.
+        self.observe(self.plan(controls, run='late'), 'poll-7', 1000.0)
+        result = self.observe(self.plan(controls, run='late'), 'poll-8', 1121.0)
+        self.assertEqual((result['status'], result['extended']), ('no_checks', False))
+        self.assertEqual(self.grants('late'), 0)
+
+    def test_no_checks_never_satisfies_readiness_or_starts_a_repair(self):
+        controls = {**self.direct(), 'no_checks_grace_seconds': 0}
+        result = self.observe(self.plan(controls), 'poll-1', 1000.0)
+        self.assertEqual((result['status'], result['ready'], result['failed'], result['repair']),
+                         ('no_checks', False, False, False))
+
+    def test_classification_window_is_retained_per_failed_attempt(self):
+        self.github.failed(9, 2, 3)
+        self.github.issue(8, declaration())
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        # The first observation opens the window and classifies inside it.
+        self.assertEqual(self.observe(self.plan(controls), 'poll-1', 1000.0)['outcome'], 'known_flakes')
+        reads = self.github.calls['request']
+        # A resumed observation after the window ends neither renews it nor reads any evidence.
+        late = self.observe(self.plan({**controls, 'classification_timeout_seconds': 3600}), 'poll-2', 1031.0)
+        self.assertEqual((late['status'], late['rejected']),
+                         ('failed', [{'check_id': '9', 'reason': 'classification window exhausted'}]))
+        self.assertEqual(self.github.calls['request'], reads)
+        # A rerun attempt is another exact attempt with its own window.
+        self.github = CIGitHub()
+        self.github.failed(9, 2, 3, attempt=2)
+        self.github.issue(8, declaration())
+        self.assertEqual(self.observe(self.plan(controls), 'poll-3', 1032.0)['status'], 'success')
+        # Without a configured timeout classification is unbounded, as before.
+        self.assertEqual(self.observe(self.plan(self.direct(), run='unbounded'), 'poll-4', 5000.0)['status'],
+                         'success')
+
+    def test_a_window_that_ends_during_verification_discards_the_proof(self):
+        self.github.failed(9, 2, 3)
+        self.github.failed(10, 4, 5)
+        self.github.issue(8, declaration())
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        now = [1000.0]
+        read = self.github.request
+
+        def slow(method, path, payload=None):
+            # Check 9's issue reread ends its window; check 10's window opens only when it is classified.
+            if path.endswith('/issues/8') and now[0] == 1000.0:
+                now[0] = 1040.0
+            return read(method, path, payload)
+        with patch.object(self.github, 'request', side_effect=slow), \
+                patch('prfix.ci.time.time', side_effect=lambda: now[0]):
+            result = ci.observe(self.github, self.plan(controls), self.ledger(), 'poll-1')
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['rejected'], [{'check_id': '9',
+                                               'reason': 'classification window ended during verification'}])
+        # Check 10's own window opened when it was classified, so only its own proof applies.
+        self.assertEqual([proof['check_id'] for proof in result['classifications']], ['10'])
+        # A later observation never applies check 9's evidence late.
+        with patch('prfix.ci.time.time', return_value=1041.0):
+            again = ci.observe(self.github, self.plan(controls), self.ledger(), 'poll-2')
+        self.assertEqual([item['check_id'] for item in again['rejected']], ['9'])
+        self.assertEqual(again['rejected'][0]['reason'], 'classification window exhausted')
 
     # -- issue-backed flakes ---------------------------------------------------------------------
 

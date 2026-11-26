@@ -273,8 +273,8 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         'permissions': {name: name in {PUBLICATION_ACTIONS[action] for action in effective}
                         for name in PERMISSION_INPUTS},
         'ci': {'timeout_seconds': options['ci'].get('timeout_seconds', 1800),
-               **{key: options['ci'][key] for key in ('pending_extension_seconds', 'max_pending_extensions')
-                  if key in options['ci']}},
+               **{key: options['ci'][key] for key in ('pending_extension_seconds', 'max_pending_extensions',
+                                                      *admission.CI_WINDOWS) if key in options['ci']}},
         'merge_method': options['merge_method'], 'accounts': options['accounts'],
         'settings': options['settings'], 'resources': [], 'turns': options['turns'],
     }

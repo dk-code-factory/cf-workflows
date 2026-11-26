@@ -4,10 +4,12 @@ The entry adds no orchestration. Its preset is one `{stage: ci}` task stage of
 the installed dk-pr-fix workflow (main.yml, fix mode) with no finalizers or
 reviewers and a zero repair allowance, so it observes only: ci-poll.yml calls
 the installed `ci` helper operation (prfix/ci.py) until checks settle, and no
-repair session exists. It shares the PR's default logical run with dk-pr-fix,
-so a direct and a composed observation share one retained absolute deadline,
-one pending-only extension and the per-head rerun allowance; neither resumes
-nor a new head renews them. No skill is loaded.
+repair session exists. It polls at the configured interval, bounds each failed
+attempt's classification and reports `no_checks` once an absent-check grace
+ends; each window is retained in the ledger. It shares the PR's default
+logical run with dk-pr-fix, so a direct and a composed observation share one
+retained absolute deadline, one pending-only extension and the per-head rerun
+allowance; neither resumes nor a new head renews them. No skill is loaded.
 
 Only current success, verified issue-backed flakes (`known_flakes`) and
 verified configured exceptions (`accepted_exceptions`) satisfy CI. Unavailable
@@ -29,17 +31,13 @@ ENTRY = {
                    'flaky tests or exceptions.\n',
     'baseline_prompt': 'claude/skills/dk-ci/prompts/default.md',
     # Supported baseline options (claude/skills/dk-ci/config.json) and their defaults.
-    'options': {'timeout_seconds': 1800, 'pending_extension_seconds': 1800, 'max_pending_extensions': 1},
+    'options': {'timeout_seconds': 1800, 'poll_interval_seconds': 30, 'classification_timeout_seconds': 60,
+                'no_checks_grace_seconds': 60, 'pending_extension_seconds': 1800, 'max_pending_extensions': 1},
     'operations': ('ci', 'coverage', 'completion'),
 }
-# Baseline options without an equivalent in the installed workflow yet; an explicit value rejects.
-UNSUPPORTED = {
-    'poll_interval_seconds': 'the installed workflow polls every 10 seconds (ci-poll.yml)',
-    'classification_timeout_seconds': 'classification is one bounded helper operation per observation',
-    'no_checks_grace_seconds': 'absent checks stay pending until the retained deadline and never satisfy CI',
-}
 PRESET = {'tasks': [{'stage': 'ci'}], 'finalizers': [], 'reviewers': []}
-BOUNDS = {'timeout_seconds': (1, 86400), 'pending_extension_seconds': (0, 86400), 'max_pending_extensions': (0, 1)}
+BOUNDS = {'timeout_seconds': (1, 86400), 'pending_extension_seconds': (0, 86400), 'max_pending_extensions': (0, 1),
+          **admission.CI_WINDOWS}
 
 
 def check_options(options):
@@ -49,7 +47,6 @@ def check_options(options):
     result = {key: {'value': value, 'source': 'default'} for key, value in ENTRY['options'].items()}
     for key, value in options.items():
         path = 'options.' + str(key)
-        require(key not in UNSUPPORTED, path, 'not supported yet: ' + UNSUPPORTED.get(key, ''))
         require(key in ENTRY['options'], path, 'unsupported option for ' + ENTRY['skill'])
         low, high = BOUNDS[key]
         require(type(value) is int and low <= value <= high, path, f'must be an integer in {low}..{high}')

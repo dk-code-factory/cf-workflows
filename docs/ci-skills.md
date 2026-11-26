@@ -96,6 +96,31 @@ Composed dk-pr-fix gets the extension only when configured
 `pending_extension_seconds` and `max_pending_extensions` into the workflow's
 `ci` input.
 
+dk-ci also passes the baseline's observation controls. Composed dk-pr-fix
+carries each one only when configured:
+
+- **Poll interval** (`poll_interval_seconds`, 1..3600). `observe()` returns
+  the validated interval as `poll_interval`, and `ci-poll.yml` sleeps for
+  exactly that output between pending observations. Without a configured
+  value the composed workflow keeps its original 10 seconds.
+- **Classification window** (`classification_timeout_seconds`, 1..3600). Each
+  failed exact attempt (check, run, job and attempt) gets a retained window
+  (`ci-classification:<logical run>:<attempt digest>`) that opens when the
+  attempt is first classified. Once it ends, the check stays failed with
+  `classification window exhausted` and no evidence is read. A proof whose
+  window ends while it is verified is discarded, never applied late. A rerun
+  attempt is a new attempt with its own window. Without a configured value
+  classification is unbounded.
+- **Absent-check grace** (`no_checks_grace_seconds`, 0..86400). The grace for
+  a head (`ci-no-checks:<logical run>:<head>`) opens at its first observation
+  without checks. A head that still reports none when it ends is `no_checks`:
+  settled, never CI success and never a repairable failure, so it uses no
+  pending-only extension. Checks that appear later are observed as usual.
+  Without a configured value, absent checks stay pending until the deadline.
+
+Like the observation window, neither window restarts on resume, a new ledger
+connection or a larger configured value.
+
 ## Fork workflow approval
 
 `approve_fork_ci` is a supported publication kind under the
@@ -168,7 +193,9 @@ grants nothing.
 | dk-ci | `timeout_seconds` | `1800` | `ci.timeout_seconds` (1..86400) |
 | dk-ci | `pending_extension_seconds` | `1800` | `ci.pending_extension_seconds` (0..86400) |
 | dk-ci | `max_pending_extensions` | `1` | `ci.max_pending_extensions` (0 or 1) |
-| dk-ci | `poll_interval_seconds`, `classification_timeout_seconds`, `no_checks_grace_seconds` | | Reject: see [What remains](#what-remains) |
+| dk-ci | `poll_interval_seconds` | `30` | `ci.poll_interval_seconds` (1..3600) |
+| dk-ci | `classification_timeout_seconds` | `60` | `ci.classification_timeout_seconds` (1..3600) |
+| dk-ci | `no_checks_grace_seconds` | `60` | `ci.no_checks_grace_seconds` (0..86400) |
 | dk-ci-flakes | `lookback_days` | `30` | Run listing window (1..365) |
 | dk-ci-flakes | `max_runs` | `100` | Runs inspected (1..1000) |
 | dk-ci-flakes | `max_issues` | `500` | Open issues inspected (1..10000) |
@@ -191,7 +218,9 @@ writes and native sessions are counted. It covers:
 - **Deadlines.** A direct and a composed observation share one window. Resume,
   a changed head and a larger timeout renew nothing. The pending-only
   extension is granted once and only while pending; a settled late capture is
-  reported without one.
+  reported without one. The poll interval comes from the validated plan. The
+  absent-check grace and each attempt's classification window are retained
+  across resume; a window that ends during verification discards its proof.
   An interrupted wait resumes the same grant, and exhausted windows and
   allowances raise without observing.
 - **Flakes.** An exact issue declaration by a trusted author, opened before
@@ -218,12 +247,11 @@ writes and native sessions are counted. It covers:
 ## What remains
 
 - **Runtime.** The installed graph and its sessions need Agent Workflow #129
-  and #130, which are still open. No local controller or launcher stands in
+  and #130. Both are closed on upstream main but in no release yet (newest
+  v0.2.1). No local controller or launcher stands in
   for them. Plugin `SKILL.md` and descriptor rows wait for that runtime, so all
   three inventory rows stay `not_implemented`.
 - **Baseline features without an equivalent yet.**
-  - Configurable poll interval, classification timeout and absent-check
-    grace. Absent checks stay pending until the deadline and never satisfy CI.
   - Fail-then-pass flake evidence at the same commit, a shared cross-PR
     observation registry and saved-observation inspection of an earlier
     check. Flakes need an explicit issue declaration.

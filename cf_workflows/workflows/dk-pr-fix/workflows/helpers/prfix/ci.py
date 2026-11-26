@@ -15,7 +15,8 @@ failed check is verified on its own. Evidence that is unavailable, ambiguous or
 does not affirm the exact attempt leaves that check failed and is reported in
 ``rejected``; it never waives a failure, and one check's evidence never exempts
 another. The observation window is an absolute retained deadline with at most
-one pending-only extension; neither restarts on resume.
+one pending-only extension. A configured classification timeout and absent-check
+grace are retained windows too; none of them restarts on resume.
 """
 
 from __future__ import annotations
@@ -41,6 +42,9 @@ LEARN_TESTS = 20
 LEARN_ISSUES = 500
 # Issue authors whose flaky declarations a PR's own CI may learn from (GitHub author_association).
 TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+# Observation controls with their bounds (baseline dk-ci options; docs/ci-skills.md).
+WINDOWS = {"poll_interval_seconds": (1, 3600), "classification_timeout_seconds": (1, 3600),
+           "no_checks_grace_seconds": (0, 86400)}
 # Evidence failures that leave a check failed; anything else (a programming or fixture error) propagates.
 EVIDENCE_ERRORS = (ValueError, KeyError, TypeError, OSError, RuntimeError)
 
@@ -107,9 +111,16 @@ def configuration(options):
     """Validate declared controls before admission or any CI observation."""
     selected = options.get("ci", {})
     if not isinstance(selected, dict) or set(selected) - {"timeout_seconds", "classifications", "exceptions",
-                                                          "pending_extension_seconds", "max_pending_extensions"}:
+                                                          "pending_extension_seconds", "max_pending_extensions",
+                                                          *WINDOWS}:
         raise ValueError("unsupported CI controls; expected timeout_seconds/pending_extension_seconds/"
-                         "max_pending_extensions/classifications/exceptions object")
+                         "max_pending_extensions/poll_interval_seconds/classification_timeout_seconds/"
+                         "no_checks_grace_seconds/classifications/exceptions object")
+    for key, (low, high) in WINDOWS.items():
+        if key in selected:
+            value = selected[key]
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"CI {key} must be an integer in {low}..{high}")
     for values, key in ((selected, "timeout_seconds"), (options, "ci_timeout_seconds")):
         if key in values:
             timeout = values[key]
@@ -156,6 +167,12 @@ def _selection(options):
             # Off unless configured; cf-workflows:dk-ci passes its baseline one-extension default.
             "pending_extension_seconds": selected.get("pending_extension_seconds", 1800),
             "max_pending_extensions": selected.get("max_pending_extensions", 0),
+            # The composed default keeps the original 10-second poll; dk-ci passes its baseline 30.
+            "poll_interval_seconds": selected.get("poll_interval_seconds", 10),
+            # Unbounded classification and no absent-check grace unless configured: absent checks
+            # then stay pending until the retained deadline. dk-ci passes its baseline values.
+            "classification_timeout_seconds": selected.get("classification_timeout_seconds"),
+            "no_checks_grace_seconds": selected.get("no_checks_grace_seconds"),
             "classifications": selected.get("classifications", options.get("ci_classifications", [])),
             "exceptions": rules.get("entries", []) if isinstance(rules, dict) else rules}
 
@@ -497,7 +514,7 @@ def learn(provider, pr, check, trust):
     return candidates
 
 
-def classify_current(provider, plan, observation):
+def classify_current(provider, plan, observation, window=None):
     """Classify one supplied observation with freshly verified exception proofs.
 
     The caller owns capture freshness and any retained observation deadline.
@@ -506,6 +523,11 @@ def classify_current(provider, plan, observation):
     and issue-backed flakes learned from its exact attempt. A check whose
     evidence is unavailable or incomplete stays failed and is reported in
     ``rejected``; it never fails or exempts another check.
+
+    ``window(check)`` gives the retained absolute end of that failed attempt's
+    classification window, or None for no bound. A check whose window has
+    ended before its evidence is read, or ends while it is verified, stays
+    failed: its proofs are discarded, never applied late.
     """
     selected = _selection(plan.get("options", {}))
     configured = selected["classifications"]
@@ -522,13 +544,22 @@ def classify_current(provider, plan, observation):
     for check in failed:
         group = [candidate for candidate in configured
                  if isinstance(candidate, dict) and candidate.get("check_id") == check.get("id")]
+        end = None if window is None else window(check)
+        if end is not None and time.time() >= end:
+            rejected.append({"check_id": str(check.get("id", "")), "reason": "classification window exhausted"})
+            continue
         try:
             # Configured candidates are explicit; learning is the default for a check without them.
             group = group or learn(provider, plan["pr"], check, _trust(plan))
-            if group:
-                proofs.extend(verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"]))
+            verified = verify_exceptions(provider, plan["pr"], observation, group, selected["exceptions"]) if group else []
         except EVIDENCE_ERRORS as error:
             rejected.append({"check_id": str(check.get("id", "")), "reason": str(error)[:500]})
+            continue
+        if verified and end is not None and time.time() >= end:
+            rejected.append({"check_id": str(check.get("id", "")),
+                             "reason": "classification window ended during verification"})
+            continue
+        proofs.extend(verified)
     result = classify(observation, proofs)
     result["rejected"] = rejected
     return result
@@ -557,12 +588,38 @@ def _extension(ledger, run, selected, original, create):
     return _timestamp(ledger.deadline(name, seconds, start=original))
 
 
+def _classification_window(ledger, run, seconds):
+    """Retained classification windows, one per failed exact attempt; None when unbounded."""
+    if seconds is None:
+        return None
+
+    def window(check):
+        key = ":".join(str(check.get(k, "")) for k in ("id", "run_id", "job_id", "attempt"))
+        return _timestamp(ledger.deadline("ci-classification:" + run + ":" + digest(key), seconds))
+    return window
+
+
+def _no_checks(ledger, run, head, grace):
+    """Whether the absent-check grace for this head has ended; it starts at the first empty observation."""
+    if grace is None:
+        return False
+    if grace == 0:
+        return True
+    return time.time() >= _timestamp(ledger.deadline("ci-no-checks:" + run + ":" + head, grace))
+
+
 def observe(provider, plan, ledger, operation):
     """Observe once. A new process or head never silently renews the clock.
 
     After the retained window ends, one more observation may decide the
     pending-only extension: it is granted only while checks are still pending,
     at most once per logical run, and never after a failure or success.
+
+    With a configured absent-check grace, a head that still reports no checks
+    when its retained grace ends is ``no_checks``: settled, not satisfied and
+    not a repairable failure. A configured classification timeout bounds each
+    failed attempt's classification by a retained window (see
+    ``classify_current``). Neither restarts on resume.
     """
     selected = configuration(plan.get("options", {}))
     timeout = selected["timeout_seconds"]
@@ -579,7 +636,11 @@ def observe(provider, plan, ledger, operation):
     observation = provider.observe_ci(plan["pr"], head)
     if observation.get("head") != head:
         raise ValueError("CI observer returned another head")
-    result = classify_current(provider, plan, observation)
+    result = classify_current(provider, plan, observation,
+                              _classification_window(ledger, run, selected["classification_timeout_seconds"]))
+    if (result["status"] == "pending" and not result["checks"]
+            and _no_checks(ledger, run, head, selected["no_checks_grace_seconds"])):
+        result.update(status="no_checks", outcome="no_checks")
     if time.time() >= deadline:
         if not eligible:
             raise TimeoutError("retained CI deadline exhausted during observation")
@@ -591,7 +652,9 @@ def observe(provider, plan, ledger, operation):
         # A settled post-window capture is reported as it is; it consumes no extension.
     result.update(deadline=deadline, original_deadline=original, extended=extended is not None,
                   operation=operation, ready=result["status"] == "success", pending=result["status"] == "pending",
-                  failed=result["status"] == "failed", repair=False)
+                  failed=result["status"] == "failed", repair=False,
+                  # The delay before the next observation (ci-poll.yml), as an argv string.
+                  poll_interval=str(selected["poll_interval_seconds"]))
     return result
 
 

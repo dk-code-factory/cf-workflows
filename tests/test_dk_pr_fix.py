@@ -174,11 +174,14 @@ class InstalledClosure(unittest.TestCase):
                     self.assertFalse({'threading', 'multiprocessing', 'asyncio', 'socket'} & set(names), path)
         for name, body in workflow_files().items():
             # Only engine-owned agent/run steps start sessions; every helper step runs one action
-            # operation, apart from the bounded CI polling delay.
+            # operation, apart from the bounded polling delays. CI polls at the helper's validated
+            # configured interval (prfix/ci.py observe), never at a plan-supplied string.
             for argv in re.findall(r'argv:\s*\n((?:\s*- .*\n)+)', body):
                 argv = [line.strip()[2:] for line in argv.strip().splitlines()]
                 self.assertTrue(argv[:3] == ['python3', '-B', '/actions/helpers/action.py'] and len(argv) == 4
-                                or argv == ['sleep', "'10'"], name)
+                                or argv == ['sleep', "'10'"]
+                                or name == 'ci-poll.yml'
+                                and argv == ['sleep', '${{ steps.ci.outputs.poll_interval }}'], name)
             for argv in re.findall(r'argv: \[(.*)\]', body):
                 self.assertTrue(argv.startswith('python3, -B, /actions/helpers/action.py'), name)
             # Every helper step sees the mounted state namespace.
