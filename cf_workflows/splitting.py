@@ -40,6 +40,7 @@ import re
 import sqlite3
 import subprocess
 import tempfile
+import time
 
 from . import admission, configuration, decisions, dk_pr_fix, drafting, semantic
 from .admission import AdmissionError, digest, fields, require, text
@@ -841,6 +842,10 @@ class Ledger:
         return self._load(self.db.execute('SELECT * FROM operations WHERE entry = ? ORDER BY seq DESC LIMIT 1',
                                           (entry,)).fetchone(), 'value', 'report')
 
+    def operations(self, entry):
+        return [self._load(row, 'value', 'report') for row in self.db.execute(
+            'SELECT * FROM operations WHERE entry = ? ORDER BY seq DESC', (entry,))]
+
     def begin(self, ident, entry, value):
         """Record the exact ref updates before any of them happens."""
         with self.transaction():
@@ -1172,8 +1177,10 @@ def commit(admitted, report, *, repository, drafting_ledger, ledger, authorizati
         require(head, 'checkout', 'a commit to build on is required')
         ident = 'commit-' + digest({'run': admitted['snapshot']['request']['logical_run'],
                                     'draft': report['result_ref'], 'head': head})[:32]
-        done = [row for row in (ledger.operation(ident), ledger.latest('dk-commit-message')) if row]
-        for row in done:
+        # Only this draft's own operation is reused: one that made HEAD, or an interrupted one from HEAD.
+        for row in ledger.operations('dk-commit-message'):
+            if row['value']['report']['draft'] != report['result_ref']:
+                continue
             if row['value']['final'] == head or row['value']['original'] == head and row['state'] == 'applying':
                 _apply(repository, ledger, row['id'], row['value'])
                 _index(repository, row['value'])
@@ -1192,7 +1199,7 @@ def commit(admitted, report, *, repository, drafting_ledger, ledger, authorizati
         changed = set(_diff(repository, head, tree))
         require(changed == set(include), 'scope', 'the commit would differ from the included paths')
         identity = _identity(repository)
-        when = git(repository, 'log', '-1', '--format=%ad', '--date=raw', head).decode().strip()
+        when = f'{int(time.time())} +0000'  # Recorded with the operation; a resume reuses its commit.
         new = _commit(repository, tree, head, report['draft']['message'], {**identity, 'date': when}, identity, {})
         result = {'skill': 'cf-workflows:dk-commit-message', 'status': 'committed', 'commit': new, 'parent': head,
                   'included': sorted(include), 'excluded': report['draft']['scope']['excluded'],

@@ -175,8 +175,9 @@ reconciled from the service and is never resent.
 
 `commit` commits exactly the included paths through a private index. It
 updates only their index entries, so excluded and unrelated changes, staged or
-not, stay as they were. The commit is ledgered: a repeated call returns the
-same commit.
+not, stay as they were. The commit is dated when it is made and ledgered per
+draft. A repeated call with the same draft returns the same commit, and a
+later draft in the same run commits again.
 
 ## Direct and composed use
 

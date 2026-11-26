@@ -686,6 +686,36 @@ class CommitOnRequest(Fixture):
         self.assertEqual((again['commit'], again['reused']), (committed['commit'], True))
         self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), committed['commit'])
 
+    def test_successive_drafts_in_one_run_each_commit_once_at_the_current_time(self):
+        self.write('src/feature.py', 'def feature():\n    return helper() + 2\n')
+        admitted = drafting.preflight('dk-commit-message', request={'instructions': 'Commit it.', 'pr': PR},
+                                      configuration=self.configuration(), deployment=self.deployment,
+                                      repository=self.repo, transport=self.transport())
+        run = admitted['snapshot']['request']['logical_run']
+        drafts = drafting.Ledger(drafting.ledger_path(self.base / 'state', run), logical_run=run, target=PR)
+        self.addCleanup(drafts.close)
+        ledger = self.ledger(admitted)
+        commits = []
+        for subject, body in (('Return two more', 'helper() + 2'), ('Return three more', 'helper() + 3')):
+            self.write('src/feature.py', f'def feature():\n    return {body}\n')
+            output = commit_message(subject, included=('src/feature.py',), excluded=(),
+                                    claims=[{'text': 'The result grows.', 'sources': ['diff:unstaged']}])
+            report = drafting.draft('dk-commit-message', admitted, repository=self.repo, ledger=drafts,
+                                    transport=self.transport(session(output)))
+            with mock.patch.object(splitting.time, 'time', return_value=1800000000 + len(commits)):
+                done = splitting.commit(admitted, report, repository=self.repo, drafting_ledger=drafts,
+                                        ledger=ledger, authorization=LOCAL)
+            self.assertEqual((done['status'], done.get('reused')), ('committed', None), done)
+            commits.append(done['commit'])
+            again = splitting.commit(admitted, report, repository=self.repo, drafting_ledger=drafts, ledger=ledger,
+                                     authorization=LOCAL)
+            self.assertEqual((again['commit'], again['reused']), (done['commit'], True))
+        self.assertEqual(git(self.repo, 'rev-list', f'{self.head}..HEAD').split('\n'), commits[::-1])
+        self.assertEqual(git(self.repo, 'log', '--format=%s %ad %cd', '--date=raw', f'{self.head}..HEAD').split('\n'),
+                         ['Return three more 1800000001 +0000 1800000001 +0000',
+                          'Return two more 1800000000 +0000 1800000000 +0000'])
+        self.assertEqual(git(self.repo, 'status', '--porcelain'), '')
+
     def test_a_stale_draft_is_never_committed(self):
         self.write('src/feature.py', 'def feature():\n    return 2\n')
         admitted = drafting.preflight('dk-commit-message', request={'instructions': 'Commit it.', 'pr': PR},
