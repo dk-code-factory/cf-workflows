@@ -227,13 +227,25 @@ a verbatim copy of the library's, and a test keeps the two identical.
   recorded in `runs/<run>.split-operations.sqlite` before anything moves.
   `split_validate` then runs once per new intermediate commit (every rebuilt
   commit, or each split commit and the source commit). Each configured command
-  runs in a private checkout of that commit's tree, without the GitHub
-  credentials or the state mount in its environment. The first failing command
+  runs in a private checkout of that commit's tree. The first failing command
   stops it, and the result is retained, so a replay runs nothing again.
   `split_apply` moves the refs by compare-and-swap only when every commit
   passed. A missing or failed validation fails the step, and nothing is moved
-  or listed. An interrupted apply resumes from the ref values it finds, and a
-  branch moved by someone else blocks.
+  or listed. A failed operation stays pending for the rest of its logical run:
+  each later `split_build` returns it and each `split_apply` fails again, and
+  nothing discards it. Only a new logical run assesses and builds again. An
+  interrupted apply resumes from the ref values it finds, and a branch moved by
+  someone else blocks.
+- **Validation is opt-in and trusted.** Without `validation_commands`, the
+  series or split is applied with no per-commit validation. The commands run
+  the PR's code, including other authors' commits, as the helper in its
+  credentialed container. The GitHub token and state-mount variables are
+  removed from the command's environment, but this is not isolation: the
+  command can still read the helper's credentials (for example from
+  `/proc/<ppid>/environ`) and write the state mount, including the retained
+  validation results in `runs/<run>.split-operations.sqlite` that gate
+  `split_apply`. Configure validation commands only for a PR whose code you
+  would run with the helper's GitHub token.
 - **Local head.** `capture` accepts the checkout at an applied operation's
   result while the PR shows the head it moved from. The recorded operation
   establishes this, not a caller flag. A dk-commit-split rewrite changes the
@@ -243,11 +255,15 @@ a verbatim copy of the library's, and a test keeps the two identical.
 - **Publication.** The barrier lists only the latest applied operation's
   intents, while the checkout is its result. dk-commit-split lists one
   `rewrite` from the first original head to the final series, once a pass
-  changed nothing. dk-pr-split lists each `split_push` and draft `split_pr`,
-  then the source `push`. `publication_prepare` refuses the source push until
-  every split PR is applied. Each intent's source is `splitting:<operation>`,
-  which counts only while that operation is the latest applied one and the
-  checkout is its result. The audience must be independent of the session that
+  changed nothing. When `max_passes` runs out with the last pass still
+  proposing a change, it lists the last applied series, as the library
+  procedure does, and the listing carries the concern `stopped after
+  max_passes=<n> with the series still changing`. dk-pr-split lists each
+  `split_push` and draft `split_pr`, then the source `push`.
+  `publication_prepare` refuses the source push until every split PR is
+  applied. Each intent's source is `splitting:<operation>`, which counts only
+  while that operation is the latest applied one and the checkout is its
+  result. The audience must be independent of the session that
   produced the result. Without enabled and authorized permissions the local
   result stays unpublished.
 
@@ -308,8 +324,10 @@ sessions, pushes and writes. It covers:
   applied with a recovery ref, assessed again by a second pass and then
   published as one rewrite, with Bob's commit and all authorship kept; a relist
   only reconciles. A failing validation command on the intermediate typo-fix
-  commit moves and lists nothing, and its retained result is not run again.
-  Without a local grant the series is only assessed; without push authority it
+  commit moves and lists nothing, its retained result is not run again, and
+  the failed operation stays pending. With `max_passes` spent and the second
+  pass still proposing a change, nothing more is built and the last applied
+  series is listed with its concern. Without a local grant the series is only assessed; without push authority it
   stays local. Same-session corrections for a rewritten fixed commit, a dropped
   unit and a proposed operation. An interrupted apply resumes, and a branch
   moved after the build blocks.
@@ -346,7 +364,9 @@ GitHub conformance.
 - **Validation commands.** The installed workflow runs the configured commands
   on every new intermediate commit before any ref moves. The library procedure
   verifies trees, authorship and ownership only. Signed commits are listed,
-  and their signatures are not kept on rewritten commits.
+  and their signatures are not kept on rewritten commits. The commands are not
+  isolated from the helper's credentials or state mount (see Build, validate,
+  apply); running them in a job without either needs a separate design.
 - **Cross-links on the source PR.** Editing the source PR description to link
   the split PRs belongs to dk-pr-description.
 - **Live evidence.** Live provider adherence and GitHub publication

@@ -47,7 +47,9 @@ MAX_TEXT = 64 << 10
 # CLIs), each with a bounded runtime and retained output.
 VALIDATION_TIMEOUT = 600
 VALIDATION_OUTPUT = 4096
-# Never handed to a validation command: the helper's GitHub credentials and state mount.
+# Removed from a validation command's environment. This is hygiene, not isolation: the command runs as
+# the helper, in its container, so it can still reach the helper's credentials (/proc/<ppid>/environ) and
+# write the state mount. Validation commands are trusted (docs/splitting.md).
 PRIVATE_ENV = ('GH_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_TOKEN', 'CF_WORKFLOWS_STATE')
 
 # The baseline role prompts, adapters, actions and options of each entry (cf_workflows/splitting.py ENTRIES).
@@ -1158,8 +1160,9 @@ def listing(root, provider, ledger, plan, snapshot):
 
     Only the latest applied operation, while the checkout or PR is its result,
     lists its intents: a dk-commit-split series once its occurrence is current
-    on it (the last pass changed nothing), a dk-pr-split at once. Without
-    enabled and authorized permissions the local result stays unpublished.
+    on it (the last pass changed nothing, or max_passes ran out, with a
+    concern), a dk-pr-split at once. Without enabled and authorized
+    permissions the local result stays unpublished.
     """
     from . import app
     task = occurrence(plan)
@@ -1170,15 +1173,24 @@ def listing(root, provider, ledger, plan, snapshot):
         operation = store.latest(name, ('applied',))
         if operation is None or operation['value']['final'] != snapshot['local_head']:
             return {'items': []}
-        if app._current(ledger, snapshot, task) is None:
+        current = app._current(ledger, snapshot, task)
+        if current is None:
             return {'items': [], 'unpublished': True,
                     'blockers': ['the rebuilt series is assessed by the next pass before it is published']}
+        concerns = []
+        if name == 'dk-commit-split' and current['agent']:
+            # As the library procedure: with max_passes spent, the last applied series is published, with a
+            # concern while the last pass still proposed a change.
+            limit = settings(plan, name)[0]['max_passes']
+            outcome = read_artifact(root, current['report'])['report']['deliverables']['split']['outcome']
+            if store.applied(name) >= limit and outcome != 'no_change':
+                concerns.append(f'stopped after max_passes={limit} with the series still changing')
         missing = _permitted(plan, name)
         if missing:
             return {'items': [], 'unpublished': True,
                     'blockers': ['the local result needs explicit authority and configured permission: '
-                                 + ', '.join(missing)]}
-        return {'items': proposals(plan, store, operation)}
+                                 + ', '.join(missing)], **({'concerns': concerns} if concerns else {})}
+        return {'items': proposals(plan, store, operation), **({'concerns': concerns} if concerns else {})}
 
 
 def source(root, ledger, plan, reference, snapshot):

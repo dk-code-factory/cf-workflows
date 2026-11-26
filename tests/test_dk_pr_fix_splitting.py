@@ -226,6 +226,17 @@ def reorganize(ctx, typo='Fix a typo in the notes\n'):
         'summary': 'Split the mixed commit and fold the fixup.', 'questions': []}
 
 
+def reswapped(ctx):
+    """On the rebuilt series, put the feature before the typo fix again."""
+    _, typo, feature = ctx['context']['commits']
+    return {'outcome': 'reorganize', 'assessments': assessed(ctx, 'Reordered.'), 'series': [
+        {'message': feature['message'], 'units': [{'commit': feature['sha'], 'paths': ['src/feature.py']}],
+         'reason': 'The feature first.'},
+        {'message': typo['message'], 'units': [{'commit': typo['sha'], 'paths': ['notes file.md']}],
+         'reason': 'Then the unrelated fix.'}],
+        'summary': 'Put the feature first.', 'questions': []}
+
+
 def scoped(ctx, path='notes file.md'):
     return [{'path': name, 'scope': 'unrelated' if name == path else 'core', 'reason': 'Assessed.'}
             for name in ctx['context']['changes']]
@@ -254,7 +265,7 @@ class CommitSplit(Fixture):
                          [(False, True), (True, False), (True, False)])
         # The assessment changed nothing; the publication stage builds, validates, then moves the branch.
         self.assertEqual(self.head(), self.commit)
-        with mock.patch.dict(os.environ, {'GH_TOKEN': 'fixture-token'}):  # Never handed to a command.
+        with mock.patch.dict(os.environ, {'GH_TOKEN': 'fixture-token'}):  # Not in a command's environment.
             built, applied = self.stage(plan, ledger)
         self.assertEqual((built['status'], len(built['items']), applied['status']), ('built', 2, 'prepared'))
         rebuilt = self.head()
@@ -305,10 +316,33 @@ class CommitSplit(Fixture):
             splitting.apply(self.root, self.github, ledger, plan, {})
         self.assertEqual((self.head(), git(self.root, 'for-each-ref', 'refs/cf-workflows')), (self.commit, ''))
         self.assertEqual(self.listed(plan, ledger)['items'], [])
+        # The failed operation stays pending for this logical run: a rerun neither rebuilds nor moves anything.
+        self.assertEqual(splitting.build(self.root, self.github, ledger, plan, {})['status'], 'pending')
+        with self.assertRaisesRegex(ValueError, 'validation failed on intermediate commits'):
+            splitting.apply(self.root, self.github, ledger, plan, {})
         with self.assertRaisesRegex(ValueError, 'new intermediate commits'):
             splitting.validate(self.root, self.github, ledger, plan,
                                {'operation': built['operation'], 'commit': self.commit})
         self.assertEqual(self.pushes(), 0)
+
+    def test_exhausted_passes_publish_the_last_applied_series_with_a_concern(self):
+        plan = self.splitting_plan('dk-commit-split', authorizations={'push': grant('push')},
+                                   permissions={'rewrite_commits': True},
+                                   settings=self.local('dk-commit-split', max_passes=1))
+        ledger = self.ledger(plan)
+        self.assessed(plan, ledger, reorganize)
+        applied = self.stage(plan, ledger)[1]
+        rebuilt = self.head()
+        self.assertEqual(self.listed(plan, ledger)['items'], [])
+        # The second pass still proposes a change, but max_passes=1 is spent: nothing more is built.
+        self.assessed(plan, ledger, reswapped, agent=AGENTS[1])
+        self.assertEqual(self.stage(plan, ledger)[0]['status'], 'exhausted')
+        self.assertEqual(self.head(), rebuilt)
+        listing = self.listed(plan, ledger)
+        [item] = listing['items']
+        self.assertEqual((item['kind'], item['head'], item['lease'], item['sources']),
+                         ('rewrite', rebuilt, self.commit, ['splitting:' + applied['operation']]))
+        self.assertEqual(listing['concerns'], ['stopped after max_passes=1 with the series still changing'])
 
     def test_without_a_local_grant_the_verified_series_is_only_assessed(self):
         plan = self.splitting_plan('dk-commit-split', authorizations={'push': grant('push')},
