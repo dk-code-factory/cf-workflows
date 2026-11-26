@@ -94,10 +94,12 @@ class InstalledClosure(unittest.TestCase):
         files = workflow_files()
         # Every descriptor skill row names an entry: main.yml (dk-pr-fix), review.yml
         # (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
-        # review-post.yml (docs/publication-skills.md).
+        # review-post.yml (docs/publication-skills.md), plain-english.yml and
+        # asd-ste100.yml (docs/prose.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
         self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
-                                   'feedback-reply.yml', 'publish.yml', 'review-post.yml'])
+                                   'feedback-reply.yml', 'publish.yml', 'review-post.yml',
+                                   'plain-english.yml', 'asd-ste100.yml'])
         reachable, pending = set(), list(entries)
         while pending:
             name = pending.pop()

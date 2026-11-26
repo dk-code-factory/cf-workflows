@@ -634,16 +634,87 @@ class Composed(Fixture):
         self.assertIn('+Before builds, the user runs `make setup` so that the tool works.',
                       self.fake.tasks[0]['context']['units'][0]['patch'])
 
-    def test_installed_dk_pr_fix_does_not_run_prose_as_a_generic_writer(self):
+    def test_installed_dk_pr_fix_runs_prose_finalizers_in_plan_order(self):
         transport = self.transport()
         result = dk_pr_fix.preflight(
             request={'pr': PR, 'instructions': 'Fix it.'}, configuration=None, transport=transport,
-            invocation={'options': {'finalizers': ['inspect-commits', 'plain-english']}},
+            invocation={'options': {'finalizers': ['inspect-commits', 'plain-english', 'asd-ste100']}},
             deployment=self.deployment, repository=self.repo, home=self.base / 'state home')
-        self.assertEqual((result['preflight'], result['error']['path']),
-                         ('rejected', 'invocation.options.finalizers[1]'))
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual(result['inputs']['finalizers'], ['inspect-commits', 'plain-english', 'asd-ste100'])
+        for adapter in admission.PROSE_ADAPTERS:
+            self.assertEqual({key: result['inputs']['adapters'][adapter][key] for key in
+                              ('kind', 'writes', 'definition', 'assignment', 'checklist', 'history')},
+                             admission.ENTRY_ADAPTERS[adapter])
         self.calls(capabilities=1)
 
+
+class Installed(Fixture):
+    """The plugin entries: presets over the installed workflow (workflows/<adapter>.yml)."""
+
+    def installed(self, name, **changes):
+        arguments = {'request': {'pr': PR, 'instructions': 'Clean up the changed prose.'}, 'configuration': None,
+                     'deployment': self.deployment, 'repository': self.repo, 'home': self.base / 'state home'}
+        arguments.update(changes)
+        result = prose.installed_preflight(name, transport=self.transport(), **arguments)
+        self.assertFalse((self.base / 'state home').exists(), 'preflight writes nothing')
+        return result
+
+    def test_entries_map_onto_their_installed_workflows(self):
+        descriptor = (dk_pr_fix.INSTALL / 'plugin.yaml').read_text()
+        for name, entry in prose.ENTRIES.items():
+            with self.subTest(name):
+                result = self.installed(name)
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+                self.calls(capabilities=1)
+                self.assertEqual((result['workflow'], result['installation']['entry']),
+                                 (entry['skill'], prose.WORKFLOWS[name]))
+                inputs = result['inputs']
+                self.assertEqual((inputs['tasks'], inputs['finalizers'], inputs['reviewers']),
+                                 ([], [entry['adapter']], []))
+                self.assertEqual(set(inputs['adapters']), {entry['adapter']})
+                self.assertFalse(any(inputs['permissions'].values()))
+                self.assertEqual(result['state']['request_document']['authorizations'], {})
+                self.assertIn(f'  - name: {name}\n    path: skills/{name}/SKILL.md\n'
+                              f'    workflow: {prose.WORKFLOWS[name]}\n', descriptor)
+                # The entry runs main.yml in fix mode with every declared input and the bundled adapter text.
+                body = (dk_pr_fix.INSTALL / prose.WORKFLOWS[name]).read_text()
+                self.assertIn('uses: workflows/main.yml', body)
+                self.assertIn('mode: fix', body)
+                for key in inputs:
+                    self.assertRegex(body, rf'\n      {key}:\n')
+                    self.assertIn(f'{key}: ${{{{ inputs.{key} }}}}', body)
+                adapter = admission.ENTRY_ADAPTERS[entry['adapter']]
+                self.assertIn(json.dumps(adapter['assignment']), body)
+                for item in adapter['checklist']:
+                    self.assertIn(f'- id: {item["id"]}\n              text: {json.dumps(item["text"])}\n', body)
+
+    def test_saved_scopes_cannot_replace_the_entry_finalizer(self):
+        scope = {'id': 'repo', 'selector': {'kind': 'repository', 'id': REPOSITORY},
+                 'options': {'finalizers': ['inspect-commits'], 'tasks': ['read-feedback']},
+                 'permissions': {}, 'prompts': [], 'skills': [], 'preferences': []}
+        document = {**configuration.empty_configuration(), 'scopes': [scope]}
+        result = self.installed('dk-plain-english', configuration=document)
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual((result['inputs']['tasks'], result['inputs']['finalizers']), ([], ['plain-english']))
+
+    def test_installed_entries_reject_authority_expansion_and_custom_inputs(self):
+        grant = {'push': {'request_id': 'r1', 'instruction': 'push it', 'source': 'user'}}
+        prompt = [{'id': 'tone', 'slot': 'additional', 'text': 'Prefer short words.'}]
+        for label, changes, path in [
+                ('authorization', {'request': {'pr': PR, 'instructions': 'Clean.', 'authorizations': grant}},
+                 'request.authorizations'),
+                ('finalizers', {'invocation': {'options': {'finalizers': []}}}, 'invocation'),
+                ('permissions', {'invocation': {'permissions': {'push': True}}}, 'invocation'),
+                ('repository target', {'request': {'repository': REPOSITORY, 'instructions': 'Clean.'}}, None),
+                ('prompts', {'invocation': {'prompts': prompt}}, 'custom')]:
+            with self.subTest(label):
+                result = self.installed('dk-asd-ste100', **changes)
+                self.assertEqual(result['preflight'], 'rejected', result)
+                self.assertNotIn('inputs', result)
+                if path:
+                    self.assertEqual(result['error']['path'], path)
+                self.assertEqual(self.engine.sessions, Counter())
 
 if __name__ == '__main__':
     unittest.main()

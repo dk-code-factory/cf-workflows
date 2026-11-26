@@ -336,6 +336,11 @@ def prepare_claim(root, provider, ledger, plan, inputs):
     invocation = ledger.db.execute("SELECT count(*) FROM claims WHERE task=?", (task["id"],)).fetchone()[0]
     fingerprint = digest([fingerprint, invocation])
     key = "claim_" + digest([plan["logical_run"], task["id"], fingerprint, invocation])
+    from . import prose
+    record = prose.plan(root, ledger, plan, task, snapshot) if prose.entry(task) else None
+    if record is not None and not record["writes"]:
+        # No changed prose since the last accepted output: the occurrence completes without a session.
+        return _prose_settled(root, ledger, plan, task, snapshot, key, fingerprint, record)
     writer_lease(root, plan["logical_run"], key)
     # Fresh reviewers receive frozen source/specification/discussion, never
     # hypotheses from earlier or sibling reviewers. Verification and fixing
@@ -370,6 +375,10 @@ def prepare_claim(root, provider, ledger, plan, inputs):
                   "A fixed disposition without new changes requires verified_existing_fixes for that "
                   "original finding: the earlier controlled fix commit must remain an ancestor and "
                   "all its changed source bytes must remain intact. Do not make redundant edits."}
+    if record is not None:
+        # The bounded prose procedure (prose.py): candidate units, write scope and report contract.
+        assignment["prose"] = record
+        assignment["prose_contract"] = prose.report_contract(prose.entry(task))
     if task["kind"] == "review":
         # findings.py publishes only at the location a finding actually names.
         assignment["location_contract"] = (
@@ -435,6 +444,26 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             ledger.db.execute("INSERT INTO review_rounds VALUES(?,?,?)", (key, task["id"], basis))
     return {"claim": key, "invoke": True, "complete": False,
             "definition": task["definition"], "prompt": prompt, "task_input": assignment, "report": ""}
+
+
+def _prose_settled(root, ledger, plan, task, snapshot, key, fingerprint, record):
+    """Complete a prose occurrence that has no changed prose, with a helper record and no session."""
+    assignment = artifact(root, {"format": FORMAT, "claim": key, "task": task, "snapshot": snapshot,
+                                 "instructions": plan["instructions"], "prose": record})
+    reference = artifact(root, {"claim": key, "agent": "", "round": 0, "report": None,
+                                "prose": {"status": "reused", "units": {path: unit["mode"] for path, unit
+                                                                        in sorted(record["units"].items())},
+                                          "skipped": record["skipped"],
+                                          "reference_verification_limits": record["reference_limits"]}})
+    coverage = _fingerprint(snapshot, task, ledger)
+    with ledger.transaction():
+        if ledger.db.execute("SELECT 1 FROM claims WHERE id=?", (key,)).fetchone():
+            raise ValueError("unfinished logical claim: resume its originating engine execution")
+        ledger.db.execute("INSERT INTO claims(id,task,fingerprint,state,assignment,report,coverage) "
+                          "VALUES(?,?,?,?,?,?,?)", (key, task["id"], fingerprint, "complete", assignment,
+                                                    reference, coverage))
+    return {"claim": key, "invoke": False, "complete": True,
+            "definition": task["definition"], "prompt": "", "task_input": {}, "report": reference}
 
 
 def _claim(ledger, key):
@@ -673,6 +702,13 @@ def accept(root, provider, ledger, plan, inputs):
         report = decode_native_report(report)
         complete = verify_report(root, task, report)
         _dispositions(root, ledger, plan, task, report, agent, assignment)
+        if complete and "prose" in assignment:
+            # Edits stay within changed prose and the prose report matches them, before any commit.
+            from .prose import Blocked, check as check_prose
+            try:
+                check_prose(root, assignment["prose"], report)
+            except Blocked as error:
+                raise ReportContractError("prose cleanup: " + str(error)) from error
         if task["kind"] == "reply" and complete:
             # The responder must account for every current source and draft every owed reply.
             from .responses import accept as retain_responses
@@ -942,6 +978,13 @@ def coverage(root, provider, ledger, plan, inputs):
                 missing.append(task["id"])
                 continue
             wrapper = read_artifact(root, current["report"])
+            if not current["agent"] and wrapper.get("prose") and wrapper.get("report") is None:
+                # A prose occurrence settled without a session holds only while no prose changed since.
+                from .prose import entry, unchanged
+                record = read_artifact(root, current["assignment"]).get("prose")
+                if not entry(task) or not record or not unchanged(root, ledger, plan, task, snapshot, record):
+                    raise ValueError("session-free prose coverage no longer describes the current source")
+                continue
             accepted = ledger.db.execute("SELECT * FROM accepted_reports WHERE reference=?", (current["report"],)).fetchone()
             if (not accepted or wrapper.get("claim") != current["id"]
                     or wrapper.get("agent") != current["agent"]

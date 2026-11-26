@@ -338,32 +338,39 @@
         33
       ],
       "behavior": [
-        "cf_workflows/prose.py"
+        "cf_workflows/prose.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prose.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/plain-english.yml"
       ],
       "documentation": "docs/prose.md",
       "composition": "shared_workflow",
       "direct": [
         "test_prose.Direct.test_direct_pass_edits_only_changed_prose_and_commits_locally",
         "test_prose.Direct.test_no_op_needs_a_sourced_assessment_and_incomplete_passes_commit_nothing",
-        "test_prose.Direct.test_quoted_user_wording_is_kept_verbatim"
+        "test_prose.Direct.test_quoted_user_wording_is_kept_verbatim",
+        "test_prose_finalizer.Direct.test_edits_within_changed_prose_commit_through_the_controlled_helper",
+        "test_prose.Installed.test_entries_map_onto_their_installed_workflows"
       ],
       "composed": [
         "test_prose.Composed.test_composed_passes_run_in_order_through_the_same_procedure",
-        "test_prose.Composed.test_finalizer_order_replacement_and_explicit_empty_lists"
+        "test_prose.Composed.test_finalizer_order_replacement_and_explicit_empty_lists",
+        "test_prose_finalizer.Composed.test_composed_prose_finalizers_run_in_order_on_each_others_output",
+        "test_prose.Composed.test_installed_dk_pr_fix_runs_prose_finalizers_in_plan_order"
       ],
       "recovery": [
         "test_prose.Direct.test_lost_response_reconciles_the_original_claim",
         "test_prose.Direct.test_interrupted_commit_settles_from_its_intent_without_a_second_commit",
-        "test_recovery.ProseRecovery.test_accepted_pass_is_reused_after_restore"
+        "test_recovery.ProseRecovery.test_accepted_pass_is_reused_after_restore",
+        "test_prose_finalizer.Refresh.test_a_later_source_change_refreshes_only_its_lines_as_a_delta"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "The installed dk-pr-fix workflow refuses prose finalizers until they run as engine-managed sessions. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 with #16 for a user-supplied prose skill); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
     },
     {
       "skill": "dk-asd-ste100",
@@ -371,30 +378,35 @@
         33
       ],
       "behavior": [
-        "cf_workflows/prose.py"
+        "cf_workflows/prose.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/prose.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/asd-ste100.yml"
       ],
       "documentation": "docs/prose.md",
       "composition": "shared_workflow",
       "direct": [
         "test_prose.SimplifiedTechnicalEnglish.test_unverified_pass_records_limits_and_never_claims_compliance",
         "test_prose.SimplifiedTechnicalEnglish.test_certification_claims_and_invented_rules_are_rejected",
-        "test_prose.SimplifiedTechnicalEnglish.test_supplied_reference_enables_checks_and_refreshes_the_full_pass"
+        "test_prose.SimplifiedTechnicalEnglish.test_supplied_reference_enables_checks_and_refreshes_the_full_pass",
+        "test_prose_finalizer.SimplifiedTechnicalEnglish.test_limits_are_explicit_and_compliance_is_never_claimed"
       ],
       "composed": [
-        "test_prose.Composed.test_composed_passes_run_in_order_through_the_same_procedure"
+        "test_prose.Composed.test_composed_passes_run_in_order_through_the_same_procedure",
+        "test_prose_finalizer.Composed.test_composed_prose_finalizers_run_in_order_on_each_others_output"
       ],
       "recovery": [
         "test_prose.Presets.test_preset_cannot_expand_authority_or_target",
-        "test_prose.Direct.test_lost_response_reconciles_the_original_claim"
+        "test_prose.Direct.test_lost_response_reconciles_the_original_claim",
+        "test_prose.Installed.test_installed_entries_reject_authority_expansion_and_custom_inputs"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "ASD-STE100 conformance is never certified; only supplied-reference checks run. The installed dk-pr-fix workflow refuses prose finalizers until they run as engine-managed sessions. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "ASD-STE100 conformance is never certified; only supplied-reference checks run, and the installed workflow supplies no references, so its passes record that rule and dictionary checks did not run. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 with #16 for a user-supplied prose skill); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
     },
     {
       "skill": "dk-code-simplify",

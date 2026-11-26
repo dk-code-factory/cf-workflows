@@ -12,6 +12,9 @@ admitted `leaf` role, a bundled assignment and these helper operations.
   commit through a ledgered intent. It never pushes or publishes.
 - `occurrences` lists the prose finalizers of any admitted shared plan, in order,
   so a composed run uses the same procedure.
+- `installed_preflight` admits a run of the installed entry workflows
+  (workflows/plain-english.yml, workflows/asd-ste100.yml), whose helpers apply
+  the same edit checks (helpers/prfix/prose.py, a verbatim copy).
 
 Sessions come from the engine transport (`native_session`); no helper starts a
 model or provider. Original role prompts come from the pinned dk-workflows
@@ -208,6 +211,40 @@ def preflight(name, *, request, configuration, deployment, repository, transport
         [task] = snapshot['plan']['tasks']
         assert task['adapter'] == ENTRIES[name]['adapter'] and task['phase'] == 'finalizers'
         assert not any(value['effective'] for value in snapshot['permissions'].values())
+    return result
+
+
+# Installed entries: presets over the shared installed workflow. Each entry workflow calls
+# workflows/main.yml with one prose finalizer and explicitly empty tasks and reviewers; the
+# installed helpers (helpers/prfix/prose.py) bound and check the session's edits.
+WORKFLOWS = {name: 'workflows/' + entry['adapter'] + '.yml' for name, entry in ENTRIES.items()}
+
+
+def installed_preflight(name, *, request, configuration, deployment, repository, transport, invocation=None,
+                        roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of an installed prose entry and return its declared workflow inputs; writes nothing.
+
+    The preset is the invocation layer, so saved scopes cannot replace the entry's
+    finalizer. Custom inputs (prompts, preferences) reject like every installed run,
+    since the installed workflow does not consume semantically admitted text yet.
+    """
+    try:
+        require(name in ENTRIES, 'entry', 'unknown prose entry')
+        require(isinstance(request, dict) and not request.get('authorizations'), 'request.authorizations',
+                'prose cleanup commits locally only; publication stays with authorized publication stages')
+        invocation = {} if invocation is None else invocation
+        require(isinstance(invocation, dict) and set(invocation) <= {'prompts'}, 'invocation',
+                'the entry preset fixes tasks, finalizers, reviewers and permissions; only prompts may be added')
+    except AdmissionError as error:
+        return _rejected(error.path, error.message)
+    result = dk_pr_fix.preflight(request=copy.deepcopy(request), configuration=configuration,
+                                 invocation={'options': preset(name), **copy.deepcopy(invocation)},
+                                 deployment=deployment, repository=repository, transport=transport, roots=roots,
+                                 home=home, install=install, workflow=ENTRIES[name]['skill'], entry=WORKFLOWS[name])
+    result['entry'] = {'name': name, 'skill': ENTRIES[name]['skill']}
+    if result['preflight'] == 'admitted':
+        assert result['inputs']['finalizers'] == [ENTRIES[name]['adapter']]
+        assert not any(result['inputs']['permissions'].values())
     return result
 
 

@@ -80,8 +80,8 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-alternatives` | shared_workflow | pending | #27 | not listed | 3 / 1 / 3 |
 | `cf-workflows:dk-alternatives-review` | delegate | pending | #27 | not listed | 2 / 1 / 1 |
 | `cf-workflows:dk-pr-review-alternatives` | boundary | pending | #27 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-plain-english` | shared_workflow | pending | #33 | not listed | 3 / 2 / 3 |
-| `cf-workflows:dk-asd-ste100` | shared_workflow | pending | #33 | not listed | 3 / 1 / 2 |
+| `cf-workflows:dk-plain-english` | shared_workflow | pending | #33 | listed | 5 / 4 / 4 |
+| `cf-workflows:dk-asd-ste100` | shared_workflow | pending | #33 | listed | 4 / 2 / 3 |
 | `cf-workflows:dk-code-simplify` | shared_workflow | pending | #29 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-reviewers-run` | shared_workflow | pending | #29 | not listed | 3 / 2 / 2 |
 | `cf-workflows:dk-pr-approvers` | boundary | pending | #29 | not listed | 3 / 1 / 2 |
@@ -100,11 +100,13 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-commit-message` | shared_workflow | pending | #32 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 
-`dk-pr-fix`, `dk-pr-review`, the three feedback entries, `dk-pr-publish` and
-`dk-pr-review-post` are the rows in the plugin descriptor. Listing a row claims
-no runtime support: none of them has run through a released engine. The other
-22 are library procedures or presets over the shared workflow. The installed
-workflow refuses those presets until each one runs as an engine-managed session.
+`dk-pr-fix`, `dk-pr-review`, the three feedback entries, `dk-pr-publish`,
+`dk-pr-review-post`, `dk-plain-english` and `dk-asd-ste100` are the rows in the
+plugin descriptor. The two prose entries are presets over the installed workflow
+([prose cleanup](prose.md)). Listing a row claims no runtime support: none of
+them has run through a released engine. The other 20 are library procedures or
+presets over the shared workflow. The installed workflow refuses those presets
+until each one runs as an engine-managed session.
 
 ## Inherited defects
 

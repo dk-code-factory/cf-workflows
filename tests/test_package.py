@@ -62,7 +62,9 @@ class Descriptor(unittest.TestCase):
                          + [{'name': f'dk-pr-feedback-{part}', 'path': f'skills/dk-pr-feedback-{part}/SKILL.md',
                              'workflow': f'workflows/feedback-{part}.yml'} for part in ('read', 'address', 'reply')]
                          + [{'name': name, 'path': f'skills/{name}/SKILL.md', 'workflow': f'workflows/{entry}.yml'}
-                            for name, entry in (('dk-pr-publish', 'publish'), ('dk-pr-review-post', 'review-post'))])
+                            for name, entry in (('dk-pr-publish', 'publish'), ('dk-pr-review-post', 'review-post'),
+                                                ('dk-plain-english', 'plain-english'),
+                                                ('dk-asd-ste100', 'asd-ste100'))])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -385,7 +387,8 @@ class InventoryStatus(unittest.TestCase):
         self.assertEqual(status['listed'], [{'skill': 'cf-workflows:' + name, 'parity_status': 'not_implemented'}
                                             for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-feedback-read',
                                                          'dk-pr-feedback-address', 'dk-pr-feedback-reply',
-                                                         'dk-pr-publish', 'dk-pr-review-post')])
+                                                         'dk-pr-publish', 'dk-pr-review-post', 'dk-plain-english',
+                                                         'dk-asd-ste100')])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}
@@ -397,6 +400,7 @@ class InventoryStatus(unittest.TestCase):
         self.assertTrue({'engine release', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
                          'cf-workflows:dk-pr-review', 'cf-workflows:dk-pr-feedback-read',
                          'cf-workflows:dk-pr-feedback-address', 'cf-workflows:dk-pr-feedback-reply',
+                         'cf-workflows:dk-plain-english', 'cf-workflows:dk-asd-ste100',
                          'live acceptance: user_supplied_skill',
                          'live acceptance: live_provider', 'live acceptance: github_publication',
                          'compatibility', 'acceptance matrix'} <= missing)
