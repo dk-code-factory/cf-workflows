@@ -69,5 +69,6 @@ importing another suite's settings/state. Plugin replacement/deletion, host
 reconnect, partial failure, result/claim loss and interrupted upgrades must
 reconcile the original evidence before dispatch; fixtures assert invocation
 counts. Unsupported or missing original assets block recovery rather than using
-current replacement prompts. Qualification of these requirements belongs to
-#37; these contracts alone do not claim recovery is implemented.
+current replacement prompts. [Upgrades, backup and restore](../../recovery.md)
+implements the suite side against fixture engine and host adapters; the engine
+side still needs a released engine.

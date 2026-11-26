@@ -159,6 +159,12 @@ disposable histories with mixed authors, a moved target, unrelated dirty files
 and a bare remote. They count sessions, ref updates, pushes and writes across
 tree-preserving reorders, collisions, interrupted local work and partial
 publication failure.
+[Recovery](recovery.md#verification) tests (`tests/test_recovery.py`) back up,
+lose and restore the whole suite state home with a fake engine adapter and fake
+Codex and Claude host adapters. They cover concurrent writers between snapshots,
+killed writers, tampered and foreign backups, plugin replacement and deletion,
+interrupted upgrades and each entry store's recovery path, and count native
+dispatches and sessions. They keep fixture proxies apart from reported cost.
 These tests do not certify any engine, provider or host. Future runtime
 issues must use disposable repositories and explicit fake
 GitHub/provider/native-host/configuration-agent transports. Unknown fixture

@@ -223,7 +223,7 @@ cannot narrow it because its start is unknown. A newer ledger is refused.
 
 | Data | Owner | Location | Backup and restore |
 | --- | --- | --- | --- |
-| Application state: ledgers, artifacts, preparations, staged requests, writer lease | cf-workflows | State namespace (`$XDG_STATE_HOME/cf-workflows/repositories/<id>`) | Copy the whole namespace while no helper runs. Restore it whole: a partial restore can replenish allowances or lose evidence. |
+| Application state: ledgers, artifacts, preparations, staged requests, writer lease | cf-workflows | State namespace (`$XDG_STATE_HOME/cf-workflows/repositories/<id>`) | Back up the whole suite state home with [`recovery.backup`](recovery.md), which snapshots every store at one instant while writers continue. Restore it whole into an empty place: a partial restore can replenish allowances or lose evidence. |
 | Immutable assets: installed workflow, helpers, roles, `closure.json` | cf-workflows package | Installation root | Reinstall the same version and check it against `closure.json`. Do not modify it. A plan refuses a helper closure that differs from the one it was prepared with. |
 | Engine recovery: run snapshots, checkpoints, native sessions | Agent Workflow | Engine state | Back up with the engine's recovery bundle, at the same point in time as the namespace. Losing it keeps budgets, deadlines and results, but an unfinished claim then needs an explicit continuation. A writer's unfinished claim needs the engine run to resume. |
 
