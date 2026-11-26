@@ -206,7 +206,7 @@ def _claude(record, add_invocation, add_child, child_event, fault):
                         fault('failed', 'skill invoked with unsupported options')
                     else:
                         calls[block.get('id')] = arguments
-                elif block.get('name') in ('Agent', 'Task'):
+                elif block.get('name') == 'Agent':  # Upstream's bridge counts only Agent as a child call.
                     add_child(block.get('id'), arguments.get('subagent_type'), parent is not None, arguments)
         elif kind == 'user':
             result = event.get('tool_use_result') or {}

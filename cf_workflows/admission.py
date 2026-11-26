@@ -609,7 +609,9 @@ FRONTMATTER_KEY = re.compile(r'(name|description):(?: (.*))?')
 YAML_NON_STRING = re.compile(r'~|null|Null|NULL|true|True|TRUE|false|False|FALSE|[-+]?(?:0|[1-9][0-9_]*)'
                              r'|0[0-7_]+|0o[0-7_]+|0x[0-9a-fA-F_]+|0b[01_]+'
                              r'|[-+]?(?:\.[0-9]+|[0-9][0-9_]*(?:\.[0-9_]*)?)(?:[eE][-+]?[0-9]+)?'
-                             r'|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)')
+                             r'|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)|<<'
+                             # yaml.v3 tries a timestamp for any plain scalar starting YYYY-; reject them all.
+                             r'|[0-9]{4}-.*')
 
 
 def go_json_size(value):
@@ -710,19 +712,26 @@ def skill_children(declared, resources, path):
     return result
 
 
-def skill_profiles(provider, selected, path):
+def skill_profiles(agent, selected, path):
     """The Agent Workflow #139 capability profiles a runtime needs to run the selected skills.
 
-    Only the Claude SDK and Codex app-server runtimes admit supplied skills.
-    Codex disables native delegation and typed skill arguments, so a child
-    declaration or nonempty arguments reject there before any claim.
+    Only the Claude SDK and Codex app-server runtimes admit supplied skills,
+    and neither in container execution. Codex disables native delegation and
+    typed skill arguments and needs a read-only (or unset) sandbox, so a child
+    declaration, nonempty arguments or a writable sandbox reject there before
+    any claim.
     """
-    require(provider in SKILL_PROVIDERS, path,
+    provider = agent['provider']
+    require(provider in SKILL_PROVIDERS, path + '.provider',
             'unsupported supplied-skill provider; use ' + ' or '.join(SKILL_PROVIDERS))
+    require(agent.get('execution', {}).get('mode', 'local') == 'local', path + '.execution.mode',
+            'supplied skills do not run in container execution')
     if provider == CODEX_PROVIDER:
+        require(agent.get('sandbox', 'read-only') == 'read-only', path + '.sandbox',
+                'Codex supplied skills need a read-only sandbox')
         for skill in selected:
-            require(not skill['children'], path, f'Codex native children are not supported (skill {skill["id"]})')
-            require(skill['arguments'] == '', path, f'Codex skill arguments must be empty (skill {skill["id"]})')
+            require(not skill['children'], path + '.provider', f'Codex native children are not supported (skill {skill["id"]})')
+            require(skill['arguments'] == '', path + '.provider', f'Codex skill arguments must be empty (skill {skill["id"]})')
         return {CODEX_SKILL_PROFILE}
     return {CLAUDE_CHILD_PROFILE if skill['children'] else CLAUDE_SKILL_PROFILE for skill in selected}
 
@@ -1408,9 +1417,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     if effective_permissions['merge']['effective']:
         required.add(MERGE_CAPABILITY)
     # Any deployed runtime may run a selected occurrence, so each must admit every selected skill.
-    profiles = {agent: skill_profiles(provider, [skills[key] for key in custom['skills']],
-                                      f'deployment.agents.{agent}.provider')
-                for agent, provider in runtime['providers'].items()} if custom['skills'] else {}
+    profiles = {name: skill_profiles(agent, [skills[key] for key in custom['skills']], f'deployment.agents.{name}')
+                for name, agent in sorted(deployment['agents'].items())} if custom['skills'] else {}
     semantic_required = any(custom.values())
     engine_required = {INPUT_CAPABILITY} if semantic_required else set()
     # The bundled validator check is local and structural, so it also precedes the engine query.

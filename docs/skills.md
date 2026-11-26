@@ -72,18 +72,20 @@ The profile names are the ones upstream pins in `pkg/clirunner/skill.go`:
 | --- | --- | --- |
 | `claude-sdk` | `claude-sdk@0.3.322/local-skill-v1` | |
 | `claude-sdk`, skill declares a child | `claude-sdk@0.3.322/sonnet46-one-read-child-v1` | |
-| `codex-app-server` | `codex-app-server@0.167.1/local-skill-no-delegation-v1` | children, nonempty `arguments` |
+| `codex-app-server` | `codex-app-server@0.167.1/local-skill-no-delegation-v1` | children, nonempty `arguments`, a `sandbox` other than `read-only` |
 | any other provider | none | every supplied skill |
 
-A provider outside the table, a Codex child or Codex arguments reject before the
-engine is queried. A missing profile rejects after the one capability query.
+A provider outside the table, a runtime with `execution.mode: container`, a
+Codex child, Codex arguments or a Codex `sandbox` other than `read-only` (unset
+is allowed) reject before the engine is queried. A missing profile rejects after the one capability query.
 The required profiles are recorded per runtime in the snapshot as
 `capabilities.skill_profiles`. Plans without supplied skills need none of this.
 
 Some upstream controls cannot be checked here, because the installed workflow
-does not choose them yet. These include the pinned model (`claude-sonnet-4-6`
-for the child profile), no reasoning-effort override and the Codex sandbox
-setting. The engine enforces them when it admits the step.
+does not choose them yet or the deployment cannot express them. These include
+the pinned model (`claude-sonnet-4-6` for the child profile), no reasoning-effort
+override and the Claude role ceiling (only the `Read` tool and no MCP grants).
+The engine enforces them when it admits the step.
 
 ## Session bindings
 
@@ -100,7 +102,9 @@ admission changes nothing. Each binding has:
   the permitted child agent type (`aw-child-<name>`);
 - `evidence`: the required invocation, child and terminal outcome;
 - for a selected occurrence only: `input`, the admitted directory for the
-  `type: skill` workflow input; `selection`, the `with.skill` block (`input`,
+  `type: skill` workflow input, as `{directory: {root, path}}` relative to a
+  named root (it is resolved to the upstream absolute `{directory: /abs}` when
+  the workflow is wired); `selection`, the `with.skill` block (`input`,
   `arguments`, `resources`, `evidence: {invocation: required, children}`,
   `children`); and `output`, which is `{format: json, repair-attempts: 0}`
   because #139 rejects output repairs for a selected skill;

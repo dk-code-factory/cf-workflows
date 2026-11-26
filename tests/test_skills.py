@@ -219,6 +219,30 @@ class Bindings(Fixture):
             with self.subTest(name):
                 self.assertRejected(self.admit_skill(provider='codex-app-server', **changes),
                                     'deployment.agents.task.provider: ' + fragment)
+        # Upstream admits a Codex skill only under a read-only (or unset) sandbox.
+        offered = offering(provider='codex-app-server')
+        for sandbox, accepted in (('read-only', True), ('workspace-write', False)):
+            with self.subTest(sandbox=sandbox), patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
+                deployment = {**self.deployment, 'agents': {'task': {'provider': 'codex-app-server',
+                                                                     'sandbox': sandbox}}}
+                result = self.admit(invocation={'options': {'tasks': TASKS, 'finalizers': []},
+                                                'skills': [self.skill()]},
+                                    transport=FakeTransport(offered), deployment=deployment)
+                if accepted:
+                    self.assertEqual(result['structural'], 'accepted')
+                else:
+                    self.assertRejected(result, 'deployment.agents.task.sandbox: '
+                                                'Codex supplied skills need a read-only sandbox')
+        # Neither runtime admits a supplied skill in container execution.
+        for provider in ('claude-sdk', 'codex-app-server'):
+            with self.subTest(provider=provider), patch.object(admission, 'SUPPLIED_SKILL_EXECUTION', True):
+                deployment = {**self.deployment, 'agents': {'task': {'provider': provider,
+                                                                     'execution': {'mode': 'container'}}}}
+                self.assertRejected(self.admit(invocation={'options': {'tasks': TASKS, 'finalizers': []},
+                                                           'skills': [self.skill()]},
+                                               transport=FakeTransport(offered), deployment=deployment),
+                                    'deployment.agents.task.execution.mode: '
+                                    'supplied skills do not run in container execution')
         result = self.admit_skill(arguments='exact arguments')
         selected = skills.session_plan(result)['occurrences'][2]
         self.assertEqual(selected['selection']['arguments'], 'exact arguments')
@@ -248,6 +272,11 @@ class Bindings(Fixture):
                 ('blank description', "---\nname: lint\ndescription: ' '\n---\n" + body, 'nonempty'),
                 ('boolean', '---\nname: lint\ndescription: true\n---\n' + body, 'must be strings'),
                 ('number', '---\nname: lint\ndescription: 12\n---\n' + body, 'must be strings'),
+                # yaml.v3 tags these plain scalars !!timestamp and !!merge, not !!str.
+                ('date', '---\nname: lint\ndescription: 2026-11-26\n---\n' + body, 'must be strings'),
+                ('timestamp', '---\nname: lint\ndescription: 2001-12-14 21:59:43.10\n---\n' + body,
+                 'must be strings'),
+                ('merge key', '---\nname: lint\ndescription: <<\n---\n' + body, 'must be strings'),
                 ('block scalar', '---\nname: lint\ndescription: |\n  d\n---\n' + body, 'metadata'),
                 ('flow', '---\nname: lint\ndescription: [a]\n---\n' + body, 'quote it'),
                 ('other name', '---\nname: other\ndescription: d\n---\n' + body, 'differs from the SKILL.md'),
@@ -264,6 +293,7 @@ class Bindings(Fixture):
         self.assertRejected(self.admit_skill(), 'UTF-8')
         for content in ('---\nname: lint\ndescription: "Lint: the change."\n---\n' + body,
                         "---\nname: 'lint'\ndescription: 'It''s fine'\n---\n" + body,
+                        "---\nname: lint\ndescription: '2026-11-26'\n---\n" + body,
                         '---\ndescription: Lint the change.\nname: lint\n---\n' + body + '<' * 10000):
             with self.subTest(content=content[:40]):
                 self.write(self.skills_root, 'lint/SKILL.md', content)
