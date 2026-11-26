@@ -37,6 +37,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from .capture import MAX_PAGES
 from .core import canonical, digest, state_directory
 
 SUITE = 'cf-workflows'
@@ -77,6 +78,9 @@ STATUSES = ('settled', 'proposal', 'excluded', 'paused')
 GOVERNING = ('user', 'maintainer')
 MAINTAINERS = ('OWNER', 'MEMBER', 'COLLABORATOR')
 MAX_ITEMS = 256
+# Every source the run captured is reconciled: capture reads at most MAX_PAGES pages of 100 comments, reviews
+# and inline comments each (capture.py), plus the PR body and the request, with MAX_ITEMS left for answers.
+MAX_SOURCES = 3 * MAX_PAGES * 100 + 2 + MAX_ITEMS
 MAX_TEXT = 64 << 10
 SCHEMA_VERSION = 1
 LEDGER_KIND = 'decisions_reconciliation'
@@ -287,7 +291,7 @@ def collect(plan, discussion, *, heading, answers=(), baseline=None):
         sources.append({'id': 'answer:' + answer['answer_id'], 'kind': 'answer', 'public': False, 'url': None,
                         'text': value if isinstance(value, str) else canonical(value).decode(),
                         'author': None, 'authority': 'user', 'created_at': None})
-    require(len(sources) <= MAX_ITEMS, 'sources', 'discussion exceeds the bounded source count')
+    require(len(sources) <= MAX_SOURCES, 'sources', 'discussion exceeds the bounded source count')
     require(len({item['id'] for item in sources}) == len(sources), 'sources', 'duplicate source identity')
     for order, item in enumerate(sources):
         item['order'] = order
@@ -476,8 +480,9 @@ def binding(snapshot, task, ledger=None, plan=None):
     """The occurrence's claim fingerprint.
 
     It binds the discussion (this run's own exact effects removed), request and
-    repository guidance, settings, accounts, the PR identity, the agent
-    definition and recorded answers. The diff and head are not bound: a fix
+    repository guidance, settings (the capture's digest of the run's options,
+    which include the accounts that assign user authority), the PR identity,
+    the agent definition and recorded answers. The diff and head are not bound: a fix
     commit alone reuses the retained reconciliation in any later session.
     """
     keys = ('pr', 'author_id', 'actor_id', 'head_repository', 'head_branch', 'target_branch',

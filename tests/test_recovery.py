@@ -39,6 +39,7 @@ import test_alignment as alignment_tests  # noqa: E402
 import test_configuration_skills as configuration_tests  # noqa: E402
 import test_decisions as decision_tests  # noqa: E402
 import test_dk_pr_fix_continuation as continuation  # noqa: E402
+import test_dk_pr_fix_decisions as installed_decision_tests  # noqa: E402
 import test_dk_pr_fix_publication as publication_tests  # noqa: E402
 import test_drafting as drafting_tests  # noqa: E402
 import test_prose as prose_tests  # noqa: E402
@@ -888,6 +889,41 @@ class DecisionRecovery(LedgerHome, decision_tests.Fixture):
         unchanged = self.reconcile(admitted, self.ledger(admitted))
         self.assertEqual(unchanged['status'], 'complete')
         self.assertEqual(sum(self.engine.sessions.values()), 1)
+
+
+class InstalledDecisionRecovery(installed_decision_tests.Fixture):
+    """dk-pr-decisions through the installed helpers: the reconciliation record survives backup and restore."""
+
+    def setUp(self):
+        super().setUp()
+        self.ledger.close()
+        self.home = Path(tempfile.mkdtemp(prefix='cfw home '))
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.state_dir = str(namespace(self.home))
+        env = patch.dict(os.environ, {'CF_WORKFLOWS_STATE': self.state_dir})
+        env.start()
+        self.addCleanup(env.stop)
+        self.ledger = self.open()
+
+    def test_retained_result_and_request_baseline_are_reused_after_restore(self):
+        first, accepted = self.reconciled()
+        self.ledger.close()
+        destination = Path(tempfile.mkdtemp(prefix='cfw backup ')) / 'backup'
+        self.addCleanup(shutil.rmtree, destination.parent, True)
+        recovery.backup(self.home, destination)
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        recovery.restore(destination, self.home)
+        self.ledger = self.open()
+        # A fresh session after restore reuses the retained result without a dispatch.
+        reused = self.claim()
+        self.assertEqual((reused['invoke'], reused['claim'], reused['report']),
+                         (False, first['claim'], accepted['report']))
+        # The restored results and request baseline still refresh only what an edit touches.
+        self.github.ev['comments'][3]['body'] = 'Log cache misses at info level.'
+        context = self.claim()['task_input']['decisions']
+        self.assertEqual((context['subjects']['sources'], context['subjects']['decisions']),
+                         (['comment:53'], ['miss-logging']))
+        self.assertEqual(self.sessions, 2)
 
 
 class DraftingRecovery(LedgerHome, drafting_tests.Fixture):

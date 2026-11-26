@@ -166,9 +166,9 @@ session per claim. The helper side does the procedure's work:
 
 | Step | Helper | What it does |
 | --- | --- | --- |
-| Claim | `app.prepare_claim`, `decisions.context` | Collects the sources as above: PR body outside the section, comments, reviews, inline comments, the exact request and recorded answers. This run's own exact effects are removed first. Assigns authority from `accounts` and association. Adds the retained, affected and changed decisions, the prompts and the result contract to the assignment. |
-| Binding | `decisions.binding` | The claim fingerprint binds the discussion, request and repository guidance, settings, accounts, the agent definition and recorded answers. It does not bind the diff or head, so a fix commit alone reuses the retained result in any later session. |
-| Accept | `app.accept`, `decisions.check`, `decisions.retain` | Applies the checks above to `deliverables.decisions`. A failed check is a contract error, corrected in the same session within the shared bound. A report that proposes operations is rejected. The merged result is recorded under the claim before the claim completes. |
+| Claim | `app.prepare_claim`, `decisions.context` | Collects the sources as above: PR body outside the section, comments, reviews, inline comments, the exact request and recorded answers. This run's own exact effects are removed first. Assigns authority from `accounts` and association. The source bound follows capture's own page bound, so every discussion the run captured is reconciled whole. Adds the retained, affected and changed decisions, the prompts and the result contract to the assignment. |
+| Binding | `decisions.binding` | The claim fingerprint binds the discussion, request and repository guidance, settings (the capture's digest of the run's options, so `accounts` too), the agent definition and recorded answers. A changed `accounts` list starts a new claim that refreshes every subject. It does not bind the diff or head, so a fix commit alone reuses the retained result in any later session. |
+| Accept | `app.accept`, `decisions.check`, `decisions.retain` | Applies the checks above to `deliverables.decisions`. A failed check is a contract error, corrected in the same session within the shared bound. A report that proposes operations fails the same check and is corrected the same way. The merged result is recorded under the claim before the claim completes. |
 | Handoff | `decisions.handoff` | Fix and description occurrences get `assignment.decisions`: commitments, exceptions, proposals, contested decisions, unresolved contradictions, blocking questions and the result reference. Their fingerprints bind that reference, so a refreshed reconciliation reruns them. A writing occurrence does not start while dependent work is blocked. |
 | Clarify | `reconciliation.yml`: `decisions_gate`, `input/wait`, `decisions_answer`, `task.yml`, `decisions_status` | Runs after the stage that holds the occurrence. A blocked result opens one engine input gate whose evidence identity is its claim. The answer is recorded once and becomes the newest user source. A new claim then reconciles the contested subjects with it. `decisions_status` fails the stage while dependent work stays blocked. |
 | Publish | `publishing.publication_list`, `decisions.compose` | Only under an enabled and authorized `edit_pr`, and only from the current result. If another accepted report lists a body edit (such as `describe-pr`), that one intent carries the section. Otherwise one `edit_pr` intent changes only the section of the current body. The shared stage prepares it, gets the independent audience verdict and reconciles a lost response from the service. The run's own section edit is not new discussion, so it starts no session. |
@@ -231,7 +231,9 @@ session. It covers:
 - **Reuse and refresh.** A fix commit in a fresh session reuses the result; an
   edited comment refreshes only the decision that cites it; an unaffected
   change and an omitted subject reject; a later user comment governs the
-  request; an answer recorded during the turn rejects the report.
+  request; an answer recorded during the turn rejects the report; a changed
+  `accounts` list refreshes every subject; a discussion over 256 sources is
+  reconciled whole.
 - **Composition and publication.** A dependent description reruns after a
   refresh; no write without `edit_pr` permission and authorization; one section
   write that withholds the private request, reconciled after a lost response and

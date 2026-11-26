@@ -94,7 +94,8 @@ STORES = {
                    'rejections': 'evidence: rejected session results'}},
     'reconciliation': {
         'path': RUN + r'\.reconciliation\.sqlite', 'kind': 'decisions_reconciliation', 'version': 1,
-        'tables': {'meta': IDENTITY, 'results': 'analysis: installed decision results and their source bindings',
+        'tables': {'meta': IDENTITY + ', and the discussion baseline the request was issued against',
+                   'results': 'analysis: installed decision results and their source bindings',
                    'answers': 'evidence: accepted clarification answers'}},
     'alignment': {
         'path': RUN + r'(?:\.whole-problem)?\.alignment\.sqlite', 'kind': 'alignment_state', 'version': 1,

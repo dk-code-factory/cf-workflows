@@ -698,7 +698,7 @@
         "test_decisions.Publish.test_uncertain_publication_is_reconciled_and_never_resent",
         "test_recovery.DecisionRecovery.test_lost_session_response_recovers_its_original_claim_after_restore",
         "test_dk_pr_fix_decisions.Publish.test_authorized_section_publishes_once_through_the_shared_stage",
-        "test_dk_pr_fix_decisions.Reconcile.test_unchanged_inputs_reuse_and_changed_sources_refresh_only_what_cites_them"
+        "test_recovery.InstalledDecisionRecovery.test_retained_result_and_request_baseline_are_reused_after_restore"
       ],
       "status": {
         "parity": "not_implemented",

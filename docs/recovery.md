@@ -179,7 +179,9 @@ adapters record native dispatches. The cases cover the following:
 - **Entry stores.** Each entry store is exercised through its own entry's
   harness across a backup, a total loss and a restore: an accepted prose pass and
   draft are reused with no session; a lost decision response settles to its
-  original claim; an interrupted commit rewrite reconciles its original refs; a
+  original claim; the installed reconciliation record keeps its result and
+  request baseline, so a fresh session reuses it and an edit refreshes only what
+  it touches; an interrupted commit rewrite reconciles its original refs; a
   settled alternatives stage is reused while an open one resumes its original
   operation; and an uncertain configuration write is settled by readback.
 - **Cost.** Proxies stay apart from reported cost, a later session's run is

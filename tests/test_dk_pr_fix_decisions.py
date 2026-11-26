@@ -137,7 +137,11 @@ class Fixture(unittest.TestCase):
                 "head_branch": "feature", "target_branch": "main", "target_tree": "target-tree",
                 "base_tree": "base-tree", "local_tree": self.tree, "diff": "diff-" + self.tree,
                 "discussion": digest(discussion), "instructions": digest(self.plan["instructions"]),
-                "settings": digest(self.plan["settings"]), "resource_digests": {}, "definition_digests": {},
+                # As capture.py: settings digest the run's options (accounts among them) and settings.
+                "settings": digest({"options": {key: value for key, value in self.plan["options"].items()
+                                                if key not in ("tasks", "finalizers", "reviewers", "limits")},
+                                    "settings": self.plan["settings"]}),
+                "resource_digests": {}, "definition_digests": {},
                 "head": HEAD, "target": BASE, "local_head": HEAD, "dirty": False,
                 "identities": {"current": True, "pin": HEAD, "metadata_head": HEAD, "git_head": None,
                                "mismatched": []}}
@@ -304,6 +308,31 @@ class Reconcile(Fixture):
         handed = decisions.handoff(self.root, self.ledger, self.plan)
         self.assertEqual(next(d for d in handed["commitments"] if d["id"] == "api-name")["sources"], ["comment:54"])
         self.assertEqual(self.sessions, 3)
+
+    def test_changed_accounts_start_a_new_claim_that_refreshes_every_subject(self):
+        first, accepted = self.reconciled()
+        self.assertFalse(self.claim()["invoke"])
+        # User authority comes from accounts: without them the owner's comments are maintainer sources.
+        self.plan["options"]["accounts"] = []
+        claimed = self.claim()
+        self.assertTrue(claimed["invoke"])
+        self.assertNotEqual(claimed["claim"], first["claim"])
+        context = claimed["task_input"]["decisions"]
+        self.assertEqual(context["subjects"]["full"], "governing inputs changed")
+        self.assertEqual(context["retained"], {"decisions": [], "contradictions": []})
+        self.assertEqual({item["id"]: item["authority"] for item in context["sources"]}["comment:50"], "maintainer")
+        self.assertEqual(self.sessions, 2)
+
+    def test_a_discussion_over_the_result_bound_is_reconciled_whole(self):
+        self.github.ev["comments"] += [
+            {"id": 100 + n, "user": MEMBER, "author_association": "MEMBER", "created_at": at(10 + n % 50),
+             "html_url": URL + "#issuecomment-" + str(100 + n), "body": "Note " + str(n) + "."}
+            for n in range(decisions.MAX_ITEMS + 4)]
+        claimed = self.claim()
+        self.assertTrue(claimed["invoke"])
+        sources = claimed["task_input"]["decisions"]["sources"]
+        self.assertEqual(len(sources), decisions.MAX_ITEMS + 10)
+        self.assertTrue(self.submit(claimed, self.baseline())["complete"])
 
     def test_a_dependent_occurrence_covers_the_reconciliation_it_was_handed(self):
         self.reconciled()

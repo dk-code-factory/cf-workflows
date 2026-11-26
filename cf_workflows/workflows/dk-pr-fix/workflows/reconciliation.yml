@@ -68,10 +68,13 @@ jobs:
       github_token: ${{ secrets.github_token }}
   refresh:
     # The answer changes the occurrence's binding: a new claim reconciles with it as the newest user source.
+    # A question that ended without an answer records nothing, so it refreshes nothing either.
     needs:
     - gate
+    - question
     - record
-    if: ${{ needs.gate.outputs.result.refresh and needs.record.status != 'failed' and needs.record.status != 'needs_attention'
+    if: ${{ needs.gate.outputs.result.refresh and needs.question.status != 'failed' and needs.question.status != 'needs_attention'
+      and needs.question.status != 'canceled' and needs.record.status != 'failed' and needs.record.status != 'needs_attention'
       and needs.record.status != 'canceled' }}
     uses: workflows/task.yml
     with:
