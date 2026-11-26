@@ -135,6 +135,11 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    occurrences whose sessions the installed helpers bound and check
    ([prose cleanup](prose.md#installed-workflow)).
    The staged alternatives adapters reject ([alternatives](alternatives.md)).
+   With the suite's configuration ledger, current acceptances are reused with
+   no gate read or validator task. With its configuration store, unsettled
+   configuration writes are read back before the saved configuration is read,
+   and an answered revision of it is written back once
+   ([acceptance reuse](acceptance.md#installed-preflight)).
 3. A remote write needs an enabled permission and an explicit authorization.
    Preflight maps each such action onto its permission input and stages only
    those authorizations. An authorization without the enabled permission
@@ -148,7 +153,8 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    map onto `prompts` and `policy`, which are absent otherwise. `inputs.request`
    names the staged request.
 5. `stage_request()` writes the request as `requests/<sha256>.json` (mode 0600) in
-   the state namespace. This is the only write.
+   the state namespace. This is the only write to it; preflight itself writes
+   only the configuration ledger and store, and only when they are passed.
 
 ## State namespace
 
@@ -268,6 +274,9 @@ cannot narrow it because its start is unknown. A newer ledger is refused.
   namespace for every helper step.
 - Preflight mapping and rejections, with invocation counts on a fail-closed fake
   engine transport.
+- Preflight with a disposable configuration ledger and store: fresh-run reuse
+  with no validator task, selective invalidation, answered-gate replay, lost
+  gate and write responses, and interrupted or raced configuration writes.
 
 [`tests/test_dk_pr_fix_continuation.py`](../tests/test_dk_pr_fix_continuation.py)
 drives the installed helpers with a fail-closed fake GitHub transport and counts

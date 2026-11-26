@@ -3,9 +3,10 @@
 [`cf_workflows/acceptance.py`](../cf_workflows/acceptance.py) retains
 [semantic acceptance](semantic.md) so that unchanged custom inputs are not
 assessed again. [`cf_workflows/writes.py`](../cf_workflows/writes.py) writes
-accepted configuration revisions back and recovers interrupted writes. Both are
-library operations for the future preparation helper (#14). Installed preflight
-assesses custom inputs without a ledger, so it does not reuse acceptances yet.
+accepted configuration revisions back and recovers interrupted writes. The
+configuration entries ([configuration-skills.md](configuration-skills.md)) and
+installed `dk-pr-fix` and `dk-pr-review` preflight
+([below](#installed-preflight)) use both.
 
 ## Acceptance units and bindings
 
@@ -96,6 +97,38 @@ unsettled at a time, and settled intents, including earlier successful siblings,
 are never dispatched again. An applied intent keeps its receipt and drops its
 copy of the document.
 
+## Installed preflight
+
+`dk_pr_fix.preflight(..., ledger=..., store=...)` (and `dk_pr_review.preflight`)
+wires both into the installed workflow's preflight. `writes.open_state()` opens
+the suite's own store and ledger at the XDG locations [below](#ledger).
+
+- With `ledger`, `semantic.admit()` reuses current acceptances. A fresh
+  preflight whose units are all current calls only `capabilities()`: no gate
+  read and no validator task. It is admitted on the original `native:`
+  references, and maps and stages the same inputs as the run that was assessed.
+  A changed input sends only the units bound to it to the validator, with the
+  others as cited context.
+- With `store` (which needs `ledger` and replaces the `configuration`
+  argument), every unsettled write intent is read back before the saved
+  configuration is read. An unavailable store blocks before any gate read or
+  task. When a clarification answer revised the saved configuration, the exact
+  admitted revision is written back once after the installed-workflow checks
+  pass, and the result carries `configuration_write`. A rejected, waiting or
+  blocked preflight writes nothing. The result's `recovered_writes` lists the
+  intents settled by readback.
+- Preflight writes only the ledger and the store, never the target checkout or
+  the state namespace; staging stays a separate `stage_request()` call.
+
+Preset entries over the shared workflow (`custom=False`) still reject custom
+inputs before any gate read and take neither argument.
+
+Through `validator_binding.EngineTransport`, every validator task still blocks:
+engine `8758775` records no operation receipt
+([semantic.md](semantic.md#engine-binding)). A blocked verdict is never
+retained, so each fresh preflight runs one task again. The tests that reuse an
+`agent-run:` reference feed the binding a hypothetical receipt.
+
 ## Ledger
 
 The ledger is a SQLite database at `$XDG_STATE_HOME/cf-workflows/configuration.sqlite3`
@@ -122,9 +155,11 @@ unsettled intents, so an uncertain write is still read back rather than reapplie
 
 ## Not established here
 
-- Real transport bindings: validator sessions and input gates still need Agent
-  Workflow #129 and #130 and the preparation wiring in #14. The tests use scripted
-  sessions and a fake gate store.
+- Real engine execution: the engine binding ([semantic.md](semantic.md#engine-binding))
+  admits nothing without an operation receipt, and no released Agent Workflow
+  contains #129/#130. The tests use scripted sessions, a fake gate store and a
+  fake engine port, so reuse through a real engine and live validator sessions
+  are not shown.
 - Reuse of completed run work, budgets and the logical-run ledger: #15.
 - Supplied-skill units are exercised only with supplied-skill execution patched on
   ([skills.md](skills.md), Agent Workflow #139).

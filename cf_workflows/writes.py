@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from cf_workflows import admission, semantic
+from cf_workflows import acceptance, admission, semantic
 from cf_workflows.admission import digest
 
 
@@ -155,27 +155,57 @@ def commit(store, ledger, base, revised, result):
     return {'intent_id': intent['intent_id'], 'status': status}
 
 
-def admit(*, request, invocation, deployment, roles, roots, transport, store, ledger):
+def open_state(environ=None):
+    """The suite's own configuration store and ledger at their XDG locations (acceptance.locations)."""
+    paths = acceptance.locations(environ)
+    return FileStore(paths['configuration']), acceptance.Ledger(paths['ledger'])
+
+
+def recover(store, ledger):
+    """Read back every unsettled intent, then read the configuration admission will use.
+
+    Returns (recovered, configuration); an unavailable store raises.
+    """
+    recovered = reconcile(store, ledger)
+    return recovered, store.read()
+
+
+def unavailable(failure):
+    return {'preflight': 'blocked', 'structural': 'pending', 'semantic': None,
+            'error': {'path': 'configuration_store', 'message': 'configuration store unavailable: '
+                      + type(failure).__name__}}
+
+
+def write_back(store, ledger, configuration, result):
+    """Write the admitted revision of the saved configuration when a dialogue changed it.
+
+    Returns the write record, or None when nothing changed or nothing was admitted.
+    """
+    revised = result.get('proposal', {}).get('configuration', configuration)
+    if result['preflight'] != 'admitted' or revised == configuration:
+        return None
+    if ledger.writes(('prepared', 'pending')):
+        # An earlier write is still unknown; never stack another on top of it.
+        return {'intent_id': None, 'status': 'deferred'}
+    return commit(store, ledger, configuration, revised, result)
+
+
+def admit(*, request, invocation, deployment, roles, roots, transport, store, ledger, **options):
     """Recover configuration writes, then admit against the current saved configuration.
 
     store offers read() and write(expected_revision, document); ledger is an
-    acceptance.Ledger. Neither is ever pointed at another suite's files.
+    acceptance.Ledger. Neither is ever pointed at another suite's files. options
+    (check, defaults) pass through to semantic.admit.
     """
     try:
-        recovered = reconcile(store, ledger)
-        configuration = store.read()
+        recovered, configuration = recover(store, ledger)
     except Exception as failure:
-        return {'preflight': 'blocked', 'structural': 'pending', 'semantic': None,
-                'error': {'path': 'configuration_store', 'message': 'configuration store unavailable: '
-                          + type(failure).__name__}}
+        return unavailable(failure)
     result = semantic.admit(request=request, configuration=copy.deepcopy(configuration), invocation=invocation,
-                            deployment=deployment, roles=roles, roots=roots, transport=transport, ledger=ledger)
+                            deployment=deployment, roles=roles, roots=roots, transport=transport, ledger=ledger,
+                            **options)
     result['recovered_writes'] = recovered
-    revised = result.get('proposal', {}).get('configuration', configuration)
-    if result['preflight'] == 'admitted' and revised != configuration:
-        if ledger.writes(('prepared', 'pending')):
-            # An earlier write is still unknown; never stack another on top of it.
-            result['configuration_write'] = {'intent_id': None, 'status': 'deferred'}
-        else:
-            result['configuration_write'] = commit(store, ledger, configuration, revised, result)
+    write = write_back(store, ledger, configuration, result)
+    if write is not None:
+        result['configuration_write'] = write
     return result

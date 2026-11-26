@@ -22,10 +22,11 @@ def logical_run(pr):
 
 
 def preflight(*, request, configuration, invocation, deployment, repository, transport,
-              roots=None, home=None, install=dk_pr_fix.INSTALL, custom=True):
+              roots=None, home=None, install=dk_pr_fix.INSTALL, custom=True, ledger=None, store=None):
     """Admit one incoming review of the installed workflow; writes nothing.
 
     custom=False rejects custom inputs for a preset entry over review.yml that does not carry them.
+    ledger and store reuse acceptances and recover configuration writes as in dk_pr_fix.preflight.
     """
     if isinstance(request, dict) and 'logical_run' not in request:
         try:
@@ -35,4 +36,4 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
     return dk_pr_fix.preflight(request=request, configuration=configuration, invocation=invocation,
                                deployment=deployment, repository=repository, transport=transport, roots=roots,
                                home=home, install=install, mode='review', defaults=DEFAULTS,
-                               workflow=WORKFLOW, entry=ENTRY, custom=custom)
+                               workflow=WORKFLOW, entry=ENTRY, custom=custom, ledger=ledger, store=store)

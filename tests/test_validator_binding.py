@@ -17,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cf_workflows import admission, semantic, validator_binding  # noqa: E402
+from cf_workflows import acceptance, admission, semantic, validator_binding  # noqa: E402
 from test_admission import Fixture  # noqa: E402
 from test_semantic import UNCERTAIN, verdict  # noqa: E402
 
@@ -74,12 +74,18 @@ class Binding(Fixture):
         super().setUp()
         self.invocation = {'prompts': [{'id': 'local', 'slot': 'additional', 'text': 'Keep the diff small.'}]}
 
-    def admit(self, engine, invocation='default', transport=None):
+    def admit(self, engine, invocation='default', transport=None, ledger=None):
         self.transport = transport or validator_binding.EngineTransport(engine, self.roots)
         return semantic.admit(request=copy.deepcopy(self.request), configuration=None,
                               invocation=copy.deepcopy(self.invocation if invocation == 'default' else invocation),
                               deployment=self.deployment, roles=self.roles, roots=self.roots,
-                              transport=self.transport)
+                              transport=self.transport, ledger=ledger)
+
+    def ledger(self):
+        """A fresh connection to one disposable configuration ledger."""
+        ledger = acceptance.Ledger(self.base / 'state' / 'configuration.sqlite3')
+        self.addCleanup(ledger.close)
+        return ledger
 
 
 class Definition(unittest.TestCase):
@@ -158,6 +164,29 @@ class ValidatorTask(Binding):
                     self.assertEqual(session['session_id'], 'agent-ref-1')
                     self.assertTrue(result['admission']['evidence_refs'][-1].startswith('native:agent-run:'))
 
+    def test_a_blocked_task_is_never_retained_so_each_fresh_preflight_runs_one(self):
+        for _ in range(2):
+            engine = FakeEngine(succeeded(ACCEPTED))
+            result = self.admit(engine, ledger=self.ledger())
+            self.assertEqual(result['preflight'], 'blocked')
+            self.assertEqual(engine.calls['run:validate'], 1)
+        ledger = self.ledger()
+        self.assertEqual(ledger.db.execute('SELECT count(*) FROM acceptances').fetchone()[0], 0)
+
+    def test_with_a_recorded_receipt_the_agent_run_reference_is_the_reused_evidence(self):
+        # Hypothetical: assess.yml declares no operation receipt output and engine 8758775 records none.
+        engine = FakeEngine(succeeded(ACCEPTED, operations=[]))
+        first = self.admit(engine, ledger=self.ledger())
+        self.assertEqual(first['preflight'], 'admitted', first.get('error'))
+        reference = first['assessment']['validator']['result_ref']
+        self.assertTrue(reference.startswith('agent-run:'))
+        fresh = FakeEngine()
+        again = self.admit(fresh, ledger=self.ledger())
+        self.assertEqual((again['preflight'], again['semantic']), ('admitted', 'accepted'))
+        self.assertEqual(fresh.calls, Counter(capabilities=1))
+        self.assertEqual(set(again['reuse']['reused'].values()), {reference})
+        self.assertIn('native:' + reference, again['admission']['evidence_refs'])
+
     def test_other_provider_failed_task_or_drifted_file_blocks(self):
         drift = FakeEngine(succeeded(ACCEPTED, operations=[]))
         cases = [('provider', FakeEngine(succeeded(ACCEPTED, provider='other', operations=[]))),
@@ -219,6 +248,31 @@ class Gates(Binding):
         self.assertEqual(revised['proposal']['invocation']['prompts'][0]['text'],
                          'Keep the diff small; tests still apply.')
         self.assertEqual(revised['clarifications'][0]['gate_id'], 'gate-1')
+
+    def test_lost_clarification_response_resumes_the_engine_gate_without_a_new_task(self):
+        engine = FakeEngine()
+        run = engine.run
+
+        def created_then_lost(workflow, inputs, key):
+            run(workflow, inputs, key)
+            raise ConnectionError('response lost after the engine opened the gate')
+        engine.run = created_then_lost
+        first = self.admit(engine, ledger=self.ledger(), transport=self.scripted(
+            engine, verdict('needs_clarification', uncertainties=UNCERTAIN)))
+        self.assertEqual((first['preflight'], first['error']['path']), ('blocked', 'gate'))
+        engine.run = run
+        # A fresh preflight reads the engine's pending gate back: no validator task and no second gate.
+        again = self.admit(engine, ledger=self.ledger(), transport=self.scripted(engine))
+        self.assertEqual((again['preflight'], again['gate']['gate_id']), ('waiting', 'gate-1'))
+        self.assertEqual([item['inputs']['mode'] for item in engine.runs], ['clarify'])
+        engine.answer('gate-1', 'delivery-1', {'action': 'replace', 'path': PROMPT + '.text',
+                                               'text': 'Keep the diff small; tests still apply.'})
+        revised = self.admit(engine, ledger=self.ledger(), transport=self.scripted(engine, verdict('accepted')))
+        self.assertEqual(revised['semantic'], 'accepted')
+        # The accepted answer replays to the same revision; it is current, so nothing runs again.
+        replayed = self.admit(engine, ledger=self.ledger(), transport=self.scripted(engine))
+        self.assertEqual((replayed['semantic'], replayed['proposal']), ('accepted', revised['proposal']))
+        self.assertEqual(len(engine.runs), 1)
 
     def test_invalidated_gates_are_skipped_and_unpinned_answers_block(self):
         engine = FakeEngine()
