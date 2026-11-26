@@ -220,18 +220,25 @@ SUPPORTED = {
     # clean independent review of the exact head, and the actor never approves
     # its own PR.
     "approve_pr": ("approve_pr", "approve_pr"),
+    # Fork workflow execution approval (#35): its own action and permission,
+    # never implied by finding publication, PR approval or merge. The
+    # ``fork_ci`` callback must show complete current incoming review of the
+    # exact head, and the run attempt must still wait for fork approval.
+    "approve_fork_ci": ("approve_fork_ci", "approve_fork_ci"),
     "merge": ("merge", "merge"),
 }
 # Extension contract: these kinds are reserved for their owning PRs. Each needs
 # its own payload, dispatch, read-only observation, effect key and fixtures
 # before it is added to SUPPORTED; until then preparation denies it.
-EXTENSIONS = {"approve_fork_ci": "#35"}
+EXTENSIONS = {}
 # Issue kinds (#32): repository writes of cf-workflows:dk-issue, each its own
 # contract action and permission. They bind the numeric repository, actor and
 # issue rather than a PR head. The installed PR workflow declares no input for
 # them, so its plans never authorize them.
 ISSUE_KINDS = {"create_issue": ("create_issue", "create_issue"), "edit_issue": ("edit_issue", "edit_issue")}
 ISSUE_FIELDS = ("title", "body", "labels", "assignees")
+# Run states after a fork approval took effect: the same attempt executes jobs.
+FORK_EXECUTING = ("queued", "in_progress", "completed")
 # Kinds that create a pull request review; a pending review owned by the actor holds both.
 REVIEW_KINDS = {"submit_review", "approve_pr"}
 KINDS = set(SUPPORTED)
@@ -317,6 +324,37 @@ def effect_key(intent, receipt):
     if kind == "ci_rerun":
         # The rerun creates the next attempt of the exact run.
         return f"run:{result.get('id', intent['payload']['run_id'])}:{result.get('run_attempt')}"
+    if kind == "approve_fork_ci":
+        # The approval lets this exact attempt execute; it creates no new attempt.
+        return f"fork_ci:{intent['payload']['run_id']}:{intent['payload']['attempt']}"
+    return None
+
+
+def fork_gate(run, pr, head, branch, head_repository):
+    """Why ``run`` is not a fork approval gate of this exact PR head, or None.
+
+    A gate is a ``pull_request`` run of the base repository at the exact head,
+    from the PR's fork repository and branch, in ``action_required``, with no
+    association to any other PR. Runs from the base repository, earlier heads
+    and other events are not gates. The caller checks the attempt's jobs and
+    pending deployments separately.
+    """
+    if not isinstance(run, dict):
+        return "workflow run unavailable"
+    base = f"{pr['owner']}/{pr['name']}".lower()
+    source = str((run.get("head_repository") or {}).get("full_name", "")).lower()
+    if run.get("event") != "pull_request" or run.get("head_sha") != head:
+        return "not a pull_request run of the exact head"
+    if "action_required" not in (run.get("status"), run.get("conclusion")):
+        return "not waiting for fork approval"
+    if str((run.get("repository") or {}).get("full_name", "")).lower() != base:
+        return "run belongs to another repository"
+    if source == base or source != head_repository or run.get("head_branch") != branch:
+        return "run is not from this PR's fork repository and branch"
+    associated = run.get("pull_requests")
+    if not isinstance(associated, list) or any(not isinstance(item, dict) for item in associated) or any(
+            item.get("number") != pr["number"] for item in associated):
+        return "ambiguous pull request association"
     return None
 
 
@@ -373,19 +411,22 @@ class Publication:
     for the supplied exact intent. No callback means merge is unavailable.
     ``approval`` must recapture current clean independent review of the exact
     intent head; no callback means approval is unavailable.
+    ``fork_ci`` must recapture complete current incoming review of the exact
+    intent head for fork workflow approval; no callback means it is unavailable.
     ``source_validator`` validates original accepted report references, including
     their current artifact bytes. Python never reads the engine database.
     """
 
     def __init__(self, ledger, provider, root: Path, plan: dict,
                  readiness: Callable | None = None, source_validator: Callable | None = None,
-                 approval: Callable | None = None):
+                 approval: Callable | None = None, fork_ci: Callable | None = None):
         self.ledger = ledger
         self.provider = provider
         self.root = Path(root)
         self.plan = plan
         self.readiness = readiness
         self.approval = approval
+        self.fork_ci = fork_ci
         self.source_validator = source_validator
         # A repository plan (no PR) publishes issue kinds only.
         self.pr = plan.get("pr")
@@ -488,7 +529,8 @@ class Publication:
             raise Drift("authenticated actor changed")
         if meta.get("id") != intent["pr_id"]:
             raise Drift("numeric PR identity changed")
-        if meta.get("state") != "open" or meta.get("merged") or meta.get("draft") and intent["kind"] == "merge":
+        if (meta.get("state") != "open" or meta.get("merged")
+                or meta.get("draft") and intent["kind"] in ("merge", "approve_fork_ci")):
             raise Drift("publication requires the expected open PR")
         head, base = meta.get("head", {}), meta.get("base", {})
         expected = (intent["lease"], intent["target"], intent["branch"], intent["head_repository"])
@@ -531,6 +573,7 @@ class Publication:
             "reply": {"body"}, "reply_inline": {"body", "comment_id"},
             "resolve_thread": {"thread_id", "reply_operation"},
             "ci_rerun": {"run_id", "attempt", "reason"},
+            "approve_fork_ci": {"run_id", "attempt"},
             "merge": {"merge_method"},
             "split_push": {"branch", "new_head", "paths", "reason"},
             "split_pr": {"title", "body", "head", "base", "draft", "push_operation"},
@@ -577,7 +620,7 @@ class Publication:
                 _strings(values, key)
                 if len(set(values)) != len(values) or any(not re.fullmatch(r"[A-Za-z0-9_-]+", v) for v in values):
                     raise PublicationError("invalid or duplicate reviewer name")
-        if kind == "ci_rerun":
+        if kind in ("ci_rerun", "approve_fork_ci"):
             _positive(payload["run_id"], "Actions run ID")
             _positive(payload["attempt"], "Actions attempt")
         if kind == "merge" and payload["merge_method"] not in ("merge", "squash"):
@@ -728,6 +771,9 @@ class Publication:
             intent["before"]["review_ids"] = [_positive(r.get("id"), "review ID") for r in ev.get("reviews", [])]
             if kind == "approve_pr":
                 self._not_own(ev)
+        elif kind == "approve_fork_ci":
+            self._not_own(ev)
+            intent["before"]["run"] = self._fork_run(intent)
         elif kind == "split_pr":
             pushed = self._load(payload["push_operation"])
             if pushed["state"] != "applied" or pushed["intent"]["kind"] != "split_push" or not self.validate(pushed["id"], pushed["receipt"]):
@@ -918,6 +964,36 @@ class Publication:
             raise PublicationError("approval evidence belongs to another head or target")
         _strings(evidence.get("evidence"), "approval review evidence")
 
+    def _fork_run(self, intent):
+        """The exact attempt still waits for fork approval of this PR head, with no jobs or deployment gate."""
+        payload = intent["payload"]
+        path = f"{self.repo}/actions/runs/{payload['run_id']}"
+        run = self._request("GET", path)
+        if not isinstance(run, dict) or run.get("id") != payload["run_id"] or run.get("run_attempt") != payload["attempt"]:
+            raise Drift("the workflow run attempt changed")
+        reason = fork_gate(run, self.pr, intent["head"], intent["branch"], intent["head_repository"])
+        if reason:
+            raise Drift("fork approval no longer applies: " + reason)
+        jobs = self._request("GET", f"{path}/attempts/{payload['attempt']}/jobs?per_page=100")
+        if not isinstance(jobs, dict) or jobs.get("total_count") != 0:
+            raise Drift("the run attempt has jobs; it is not waiting for fork approval")
+        if self._request("GET", path + "/pending_deployments") != []:
+            raise PublicationError("deployment gates are never approved")
+        return {"id": run["id"], "attempt": run["run_attempt"], "workflow": str(run.get("path", ""))}
+
+    def _fork_gate(self, intent, ev):
+        self._not_own(ev)
+        if self.fork_ci is None:
+            raise PublicationError("current incoming-review verification for fork approval unavailable")
+        evidence = self.fork_ci(intent)
+        # Finding publication, PR approval, merge authority and successful CI never imply it.
+        if not isinstance(evidence, dict) or evidence.get("ready") is not True:
+            raise PublicationError("fork approval needs complete current incoming review")
+        if evidence.get("head") != intent["head"] or evidence.get("target") != intent["target"]:
+            raise PublicationError("fork approval evidence belongs to another head or target")
+        _strings(evidence.get("evidence"), "fork approval review evidence")
+        self._fork_run(intent)
+
     def _merge_gate(self, intent, ev):
         if self.readiness is None:
             raise PublicationError("live application merge-readiness verification unavailable")
@@ -990,6 +1066,8 @@ class Publication:
             self._merge_gate(intent, ev)
         elif kind == "approve_pr":
             self._approval_gate(intent, ev)
+        elif kind == "approve_fork_ci":
+            self._fork_gate(intent, ev)
 
     def execute(self, ident, audience):
         saved = self._load(ident)
@@ -1165,6 +1243,8 @@ class Publication:
             return self._request("POST", self.pr_path + "/requested_reviewers", payload)
         if kind == "ci_rerun":
             return self._request("POST", f"{self.repo}/actions/runs/{payload['run_id']}/rerun-failed-jobs")
+        if kind == "approve_fork_ci":
+            return self._request("POST", f"{self.repo}/actions/runs/{payload['run_id']}/approve")
         if kind == "submit_review":
             return self._request("POST", self.pr_path + "/reviews", {
                 "commit_id": intent["head"], "event": payload["event"], "body": payload["body"],
@@ -1251,6 +1331,21 @@ class Publication:
             result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
             found = result.get("head_sha") == intent["head"] and result.get("run_attempt") == payload["attempt"] + 1
             # Same-attempt state can be a delayed request; no automatic replay.
+        elif kind == "approve_fork_ci":
+            # GitHub names no approver: the same attempt executing jobs is the effect.
+            # An advanced attempt, a still-gated or jobless run stays unknown.
+            path = f"{self.repo}/actions/runs/{payload['run_id']}"
+            run = self._request("GET", path)
+            result = {"run": run}
+            if (isinstance(run, dict) and run.get("id") == payload["run_id"]
+                    and run.get("run_attempt") == payload["attempt"] and run.get("head_sha") == intent["head"]
+                    and run.get("status") in FORK_EXECUTING and run.get("conclusion") != "action_required"):
+                jobs = self._request("GET", f"{path}/attempts/{payload['attempt']}/jobs?per_page=100")
+                count = jobs.get("total_count") if isinstance(jobs, dict) else None
+                found = type(count) is int and count > 0
+                # Only stable fields: the run's status and job count move on after approval.
+                result = {"run": {key: run.get(key) for key in ("id", "run_attempt", "head_sha", "path")},
+                          "executing": found}
         elif kind in REVIEW_KINDS:
             known = self._known(saved)
             wanted = known.get("review", known).get("id") if known else None

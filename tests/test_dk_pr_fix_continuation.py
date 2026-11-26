@@ -286,7 +286,8 @@ class Continuation(unittest.TestCase):
         self.assertEqual(self.consumed(ledger, "native-retry:" + claimed["claim"]), 0)
         head = self.transport.evidence["metadata"]["head"]["sha"]
         ledger.db.execute("INSERT INTO ci_observations VALUES(?,?,?,?)", ("obs", head, "failed", "{}"))
-        with self.assertRaisesRegex(ValueError, "exhausted: ci-repair:1"):
+        # A zero repair allowance adds no repair session at all.
+        with self.assertRaisesRegex(ValueError, "outside admitted plan"):
             self.claim(plan, ledger, "ci_repair", cycle=1)
         # One eligible retry is retained for the original claim and never renewed.
         retrying = self.prepare(tasks=["assess-scope"], logical_run="retry")

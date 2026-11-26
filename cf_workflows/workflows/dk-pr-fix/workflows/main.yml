@@ -119,6 +119,7 @@ name: cf-workflows:dk-pr-fix
           post_findings: false
           rerun_ci: false
           approve_pr: false
+          approve_fork_ci: false
           merge: false
       ci:
         type: object
@@ -244,6 +245,23 @@ jobs:
     - prepare
     - approval_proposal
     if: ${{ needs.prepare.outputs.result.approval_authorized and needs.approval_proposal.outputs.result.invoke }}
+  fork_ci:
+    # Incoming review: separately authorized fork workflow approvals (#35), one
+    # exact intent per eligible run attempt once the review and its finding
+    # publication settle; never implied by findings, approval or merge.
+    uses: workflows/publication-barrier.yml
+    with:
+      plan: ${{ needs.prepare.outputs.result.plan }}
+      selector: fork_ci
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - prepare
+    - cycles
+    - findings
+    if: ${{ needs.prepare.outputs.result.fork_ci_authorized and needs.cycles.status != 'canceled' and needs.findings.status
+      != 'failed' and needs.findings.status != 'needs_attention' and needs.findings.status != 'canceled' }}
   completion:
     uses: workflows/helper.yml
     with:

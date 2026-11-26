@@ -210,10 +210,12 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             for item in accounts)):
         raise ValueError("accounts are {host, id} immutable numeric identities")
     if mode == "review" and any(permissions.get(name) for name in PERMISSION_INPUTS
-                                if name not in ("merge", "post_findings", "approve_pr")):
+                                if name not in ("merge", "post_findings", "approve_pr", "approve_fork_ci")):
         raise ValueError("incoming review enables no branch or feedback publication input")
     if mode != "review" and permissions.get("approve_pr"):
         raise ValueError("approval belongs to incoming review; a maintained PR is never approved by its maintainer run")
+    if mode != "review" and permissions.get("approve_fork_ci"):
+        raise ValueError("fork workflow approval belongs to incoming review; dk-pr-fix never approves it")
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
@@ -338,7 +340,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                 "definition_digest": hashlib.sha256(definitions[role]).hexdigest(), "assignment": assignment,
                 "required": True, "writes": kind == "fix", "checklist": CHECKLIST,
                 "options": {}, "resources": [], "history": False, "head_sensitive": False, "cacheable": True})
-    if any(stage["kind"] == "ci" for stage in stages):
+    if any(stage["kind"] == "ci" for stage in stages) and limits["ci_repairs_per_cycle"] > 0:
+        # Without a repair allowance (cf-workflows:dk-ci observes only) no repair session exists.
         tasks.append({"id": "ci_repair", "skill": "ci_repair", "kind": "fix", "definition": "fixer",
             "definition_digest": hashlib.sha256(definitions["fixer"]).hexdigest(),
             "assignment": "Repair only the exact evidenced failed CI head/run/job/attempt in this assignment. Inspect original logs and relevant tests. Return source evidence, complete changed-file manifest and native commit message. Do not publish or commit; do not reinterpret unknown failures as flakes.",
@@ -387,4 +390,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                                    and permissions.get("post_findings") is True,
             # A separately authorized approval of a current clean review; approval_proposal rechecks it.
             "approval_authorized": mode == "review" and "approve_pr" in authorizations
-                                   and permissions.get("approve_pr") is True}
+                                   and permissions.get("approve_pr") is True,
+            # A separately authorized fork workflow approval (#35); never implied by the two above or merge.
+            "fork_ci_authorized": mode == "review" and "approve_fork_ci" in authorizations
+                                  and permissions.get("approve_fork_ci") is True}

@@ -13,7 +13,7 @@ import copy
 import re
 
 from .core import artifact, auth, bounded_json, canonical, digest, read_artifact, text
-from .publication import Publication, PublicationError, repository_merge_requirements
+from .publication import Publication, PublicationError, fork_gate, repository_merge_requirements
 
 
 _AGENT = re.compile(r"agent_[a-f0-9]{32}")
@@ -79,7 +79,8 @@ def _publication(root, provider, ledger, plan, *, audience=None):
     return Publication(ledger, provider, root, plan,
         readiness=lambda intent: readiness(root, provider, ledger, plan, {"intent": intent}),
         source_validator=validate_source,
-        approval=lambda intent: approval(root, provider, ledger, plan, {"intent": intent}))
+        approval=lambda intent: approval(root, provider, ledger, plan, {"intent": intent}),
+        fork_ci=lambda intent: fork_ci(root, provider, ledger, plan, {"intent": intent}))
 
 
 def _current_source(root, provider, ledger, plan, reference, snapshot):
@@ -95,17 +96,21 @@ def publication_list(root, provider, ledger, plan, inputs):
     from . import app
     snapshot = app._snapshot(root, provider, plan)
     selector = inputs.get("kind", "ordinary")
-    if selector not in {"ordinary", "merge", "responses", "all", "findings"}:
+    if selector not in {"ordinary", "merge", "responses", "all", "findings", "fork_ci"}:
         raise PublicationError("unsupported publication selector")
+    if selector == "fork_ci" and plan.get("mode") != "review":
+        raise PublicationError("fork workflow approval belongs to incoming review; dk-pr-fix never approves it")
     # Incoming review publishes only its verified findings (and a separately
-    # authorized merge); native report operations never become its writes.
-    if (plan.get("mode") == "review") != (selector == "findings") and selector != "merge":
+    # authorized merge or fork approval); native report operations never become its writes.
+    if (plan.get("mode") == "review") != (selector == "findings") and selector not in ("merge", "fork_ci"):
         raise PublicationError("verified finding publication belongs to incoming review, which publishes nothing else")
     if not snapshot["identities"]["current"]:
         # Provisional analysis is private: no proposal is listed until the PR
         # metadata reaches the analyzed revision.
         return {"items": [], "provisional": app.provisional(snapshot),
                 "blockers": ["publication is withheld while analysis is provisional"]}
+    if selector == "fork_ci":
+        return _fork_listing(root, provider, ledger, plan)
     if selector == "findings":
         from . import findings
         listed = findings.listing(root, provider, ledger, plan, _publication(root, provider, ledger, plan),
@@ -215,6 +220,8 @@ def publication_prepare(root, provider, ledger, plan, inputs):
     proposal = inputs.get("proposal")
     if not isinstance(proposal, dict):
         raise PublicationError("publication preparation needs an exact accepted proposal")
+    if proposal.get("kind") == "approve_fork_ci":
+        return _prepare_fork_ci(root, provider, ledger, plan, proposal)
     # Never accept arbitrary workflow inputs merely because they name an
     # accepted source. Reconstruct the source report's exact original proposal,
     # including the deterministic missing-sources/ID normalization above.
@@ -519,6 +526,108 @@ def approval_proposal(root, provider, ledger, plan, inputs):
                 "kind": "approve_pr", "head": current["head"], "lease": current["head"], "target": current["target"],
                 "payload": {"body": ""}, "sources": sorted(current["evidence"])}
     return {"invoke": True, "proposal": proposal}
+
+
+def fork_ci(root, provider, ledger, plan, inputs=None):
+    """Complete current incoming review of the exact head for fork workflow approval, read-only.
+
+    Fork approval (#35) only lets the PR's workflows run. It needs what PR
+    approval needs (complete current coverage, a current ordinary reviewer and
+    independent verifier, no confirmed or unverified finding, a reconciled
+    clean head and another author's PR), plus a non-draft PR and no unsettled
+    publication. It needs neither CI success nor a human approval, and it reads
+    no merge readiness: finding publication, PR approval and merge authority
+    never stand in for it.
+    """
+    current = approval(root, provider, ledger, plan, inputs)
+    result = {"ready": False, "head": current["head"], "target": current["target"],
+              "evidence": list(current["evidence"]), "blockers": list(current["blockers"])}
+    try:
+        if ledger.db.execute("SELECT 1 FROM publication_intents WHERE state='pending' LIMIT 1").fetchone():
+            result["blockers"].append("an earlier publication is unsettled; reconcile it before fork approval")
+        meta = provider.capture(plan["pr"])["metadata"]
+        if meta.get("draft"):
+            result["blockers"].append("fork approval needs a non-draft PR")
+        if meta.get("head", {}).get("sha") != current["head"] or meta.get("base", {}).get("sha") != current["target"]:
+            result["blockers"].append("PR head or target changed during fork-approval verification")
+    except Exception as error:
+        result["blockers"].append(str(error))
+    result["ready"] = current["approve"] and not result["blockers"]
+    return result
+
+
+def fork_ci_proposals(root, provider, ledger, plan, inputs=None):
+    """The fork approvals the user separately authorized: one per eligible run attempt.
+
+    Every page of the head's ``pull_request`` runs is read. A run is eligible
+    only as ``fork_gate`` describes; an ambiguous association blocks them all.
+    An empty complete listing with current readiness is the verified no-op.
+    """
+    authority = plan.get("authorizations", {}).get("approve_fork_ci")
+    if authority is None:
+        return {"items": [], "blockers": ["fork approval needs its own explicit authorization"]}
+    authority = auth(authority)
+    if plan.get("options", {}).get("permissions", {}).get("approve_fork_ci") is not True:
+        return {"items": [], "blockers": ["configured permission forbids approve_fork_ci"]}
+    current = fork_ci(root, provider, ledger, plan, {})
+    if not current["ready"]:
+        return {"items": [], "blockers": current["blockers"]}
+    head, target, pr = current["head"], current["target"], plan["pr"]
+    meta = provider.capture(pr)["metadata"]
+    branch = meta.get("head", {}).get("ref")
+    source = str(meta.get("head", {}).get("repo", {}).get("full_name", "")).lower()
+    runs = provider.pages(f"repos/{pr['owner']}/{pr['name']}/actions/runs?event=pull_request&head_sha={head}",
+                          key="workflow_runs")
+    items, blockers = [], []
+    for run in runs:
+        reason = fork_gate(run, pr, head, branch, source)
+        if reason == "ambiguous pull request association":
+            blockers.append(f"workflow run {run.get('id')}: {reason}")
+        if reason:
+            continue
+        ident, attempt = run.get("id"), run.get("run_attempt")
+        if any(type(value) is not int or value < 1 for value in (ident, attempt)):
+            blockers.append("workflow run identity unavailable")
+            continue
+        items.append({"id": "fork_ci_" + digest([plan["logical_run"], head, target, ident, attempt, authority]),
+                      "kind": "approve_fork_ci", "head": head, "lease": head, "target": target,
+                      "payload": {"run_id": ident, "attempt": attempt}, "sources": sorted(current["evidence"])})
+    if blockers:
+        return {"items": [], "blockers": blockers}
+    return {"items": items, "blockers": [], "noop": not items, "runs": len(runs)}
+
+
+def _fork_proposal(saved):
+    intent = saved["intent"]
+    return {"id": saved["id"], **{key: intent[key] for key in ("kind", "head", "lease", "target", "payload", "sources")}}
+
+
+def _fork_listing(root, provider, ledger, plan):
+    """Unsettled fork approvals first, for read-only reconciliation only; then current eligible runs."""
+    publisher = _publication(root, provider, ledger, plan)
+    pending = [publisher._load(row["id"]) for row in
+               ledger.db.execute("SELECT id FROM publication_intents WHERE state='pending' ORDER BY rowid")]
+    retained = [_fork_proposal(saved) for saved in pending if saved["intent"]["kind"] == "approve_fork_ci"]
+    if retained:
+        return {"items": retained, "blockers": ["unsettled fork approvals are reconciled before any other"]}
+    return fork_ci_proposals(root, provider, ledger, plan, {})
+
+
+def _prepare_fork_ci(root, provider, ledger, plan, proposal):
+    publisher = _publication(root, provider, ledger, plan)
+    if _retained_original(root, provider, ledger, plan, proposal):
+        saved = publisher._attempts(publisher._load(proposal["id"])["id"])[-1]
+        if saved["state"] in {"applied", "pending"}:
+            # A dispatched approval is only reconciled; it is never sent again.
+            if {key: value for key, value in _fork_proposal(saved).items() if key != "id"} != {
+                    key: value for key, value in proposal.items() if key != "id"}:
+                raise PublicationError("proposal differs from the retained original operation")
+            return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
+    current = fork_ci_proposals(root, provider, ledger, plan, {})
+    if not any(item == proposal for item in current["items"]):
+        raise PublicationError("not a current eligible fork approval: " + "; ".join(current["blockers"] or ["run changed"]))
+    prepared = publisher.prepare(proposal)
+    return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
 
 
 def merge_proposal(root, provider, ledger, plan, inputs):
