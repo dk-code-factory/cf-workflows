@@ -1254,7 +1254,9 @@
         "test_acceptance.Clarified.test_lost_gate_response_neither_loses_the_question_nor_repeats_the_session",
         "test_semantic.Clarification.test_changed_proposal_is_a_new_request_and_ignores_old_answers",
         "test_dk_pr_fix.SemanticPreflight.test_clarification_waits_then_the_answered_revision_is_assessed_again",
-        "test_validator_binding.Gates.test_clarification_opens_one_pinned_gate_and_its_answer_revises_the_proposal"
+        "test_validator_binding.Gates.test_clarification_opens_one_pinned_gate_and_its_answer_revises_the_proposal",
+        "test_dk_pr_fix.LedgeredPreflight.test_lost_gate_response_asks_the_retained_question_without_a_new_task",
+        "test_validator_binding.Gates.test_lost_clarification_response_resumes_the_engine_gate_without_a_new_task"
       ]
     },
     {
@@ -1294,7 +1296,10 @@
       "case": "selective_acceptance_reuse",
       "tests": [
         "test_acceptance.Reuse.test_unchanged_fresh_session_reuses_original_evidence",
-        "test_acceptance.Reuse.test_each_relevant_input_invalidates_only_affected_units"
+        "test_acceptance.Reuse.test_each_relevant_input_invalidates_only_affected_units",
+        "test_dk_pr_fix.LedgeredPreflight.test_unchanged_fresh_preflight_reuses_original_evidence_without_a_validator_task",
+        "test_dk_pr_fix.LedgeredPreflight.test_each_changed_input_invalidates_only_its_units",
+        "test_validator_binding.ValidatorTask.test_a_blocked_task_is_never_retained_so_each_fresh_preflight_runs_one"
       ]
     },
     {
@@ -1302,14 +1307,18 @@
       "tests": [
         "test_acceptance.Writes.test_lost_response_is_settled_by_readback",
         "test_acceptance.Writes.test_compare_and_swap_rejection_is_not_applied",
-        "test_acceptance.Writes.test_interruption_after_the_write_reconciles_without_reapplying"
+        "test_acceptance.Writes.test_interruption_after_the_write_reconciles_without_reapplying",
+        "test_dk_pr_fix.LedgeredPreflight.test_lost_write_response_settles_by_readback_without_a_retry",
+        "test_dk_pr_fix.LedgeredPreflight.test_interrupted_write_is_reconciled_before_preflight_reads_the_configuration",
+        "test_dk_pr_fix.LedgeredPreflight.test_another_writer_leaves_the_uncertain_write_blocked_and_reassesses"
       ]
     },
     {
       "case": "no_import_of_prior_settings_or_state",
       "tests": [
         "test_acceptance.Isolation.test_no_dk_workflows_configuration_or_state_is_imported",
-        "test_recovery.Backup.test_foreign_or_newer_state_is_never_imported"
+        "test_recovery.Backup.test_foreign_or_newer_state_is_never_imported",
+        "test_dk_pr_fix.LedgeredPreflight.test_ledger_and_store_live_in_the_suites_own_xdg_namespaces"
       ]
     },
     {

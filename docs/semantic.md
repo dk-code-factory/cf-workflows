@@ -134,8 +134,11 @@ so the default plan's inputs, occurrences and fingerprints are unchanged.
 
 Preset entries over the shared workflow (feedback, publication, prose, CI and
 reviewer entries) pass `custom=False`: their entry workflows declare no prompt
-inputs, so custom inputs reject before any gate read. Preflight passes no
-acceptance ledger, so each preflight assesses again.
+inputs, so custom inputs reject before any gate read. With the suite's
+configuration ledger and store, preflight reuses current acceptances and
+recovers configuration writes before reading the saved configuration
+([acceptance.md](acceptance.md#installed-preflight)); without them each
+preflight assesses again.
 
 ## Engine binding
 
@@ -176,9 +179,9 @@ read-only tool policy.
 
 ## Not established here
 
-- Reusing an acceptance in a later run and writing an accepted revision back to
-  the configuration store: [acceptance.md](acceptance.md). Without a ledger,
-  each call assesses again.
+- Reuse through a real engine: a blocked verdict is never retained, and every
+  validator task blocks without an operation receipt
+  ([acceptance.md](acceptance.md#installed-preflight)).
 - Supplied-skill execution: preflight still rejects it ([skills.md](skills.md), Agent Workflow #139).
 - A real engine port. The binding runs nothing itself, and running an installed
   workflow needs Agent Workflow #130 in a released engine. The validator's
