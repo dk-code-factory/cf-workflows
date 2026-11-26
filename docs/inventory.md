@@ -28,7 +28,8 @@ three reviewer rows (#29, [reviewer skills](reviewer-skills.md)) and the three
 CI rows (#35, [CI entries](ci-skills.md)) are likewise presets over the
 installed `dk-pr-fix` workflow with deterministic direct and composed
 fixtures, and stay `not_implemented` for the same reason. So do the three
-drafting rows (#32, [drafting entries](drafting.md)).
+drafting rows (#32, [drafting entries](drafting.md)) and the two splitting rows
+(#34, [commit organization and PR splitting](splitting.md)).
 
 | Skill | Delivery issue(s) | Required observable result |
 | --- | --- | --- |

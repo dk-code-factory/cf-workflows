@@ -920,6 +920,33 @@ def _report(name, row, evidence, *, session):
                         for ident in cited if ident in known]}
 
 
+def _binding(name, admitted, task, governing, evidence, ledger):
+    """(binding, current, latest): what the retained draft must match to stay current."""
+    context = _context(name, admitted, task, governing, evidence)
+    current = digest(evidence['current'])
+    latest = ledger.latest(name)
+    if latest is not None and evidence['current'] is not None and all(
+            latest['value']['draft'].get(key) == value for key, value in evidence['current'].items()):
+        current = latest['current']  # Publishing the draft does not invalidate the draft it came from.
+    fixed = {item['id']: item['sha256'] for item in evidence['sources']
+             if item['id'] not in ('pr:title', 'pr:body') and not (evidence['number'] and
+                                                                  item['id'] == f"issue:{evidence['number']}")}
+    return digest({'context': context, 'sources': fixed, 'current': current}), current, latest
+
+
+def current_report(name, admitted, *, repository, ledger, options=None, **inputs):
+    """The retained draft's report while its evidence and governing inputs are unchanged, else None.
+
+    Read-only and sessionless: a committing procedure uses it to refuse a stale
+    message instead of drafting again.
+    """
+    task = occurrence(name, admitted)
+    governing = effective(name, admitted, options)
+    evidence = collect(name, admitted, repository=repository, options=options, **inputs)
+    binding, _, latest = _binding(name, admitted, task, governing, evidence, ledger)
+    return _report(name, latest, evidence, session=False) if latest and latest['binding'] == binding else None
+
+
 def draft(name, admitted, *, repository, ledger, transport, options=None, **inputs):
     """Run (or reuse) one draft of the entry's adapter occurrence and return its private report.
 
@@ -944,16 +971,7 @@ def draft(name, admitted, *, repository, ledger, transport, options=None, **inpu
     except Exception as error:
         return {'skill': skill, 'status': 'blocked', 'error': {'path': 'evidence', 'message':
                                                                'evidence unavailable: ' + type(error).__name__}}
-    context = _context(name, admitted, task, governing, evidence)
-    current = digest(evidence['current'])
-    latest = ledger.latest(name)
-    if latest is not None and evidence['current'] is not None and all(
-            latest['value']['draft'].get(key) == value for key, value in evidence['current'].items()):
-        current = latest['current']  # Publishing the draft does not invalidate the draft it came from.
-    fixed = {item['id']: item['sha256'] for item in evidence['sources']
-             if item['id'] not in ('pr:title', 'pr:body') and not (evidence['number'] and
-                                                                  item['id'] == f"issue:{evidence['number']}")}
-    binding = digest({'context': context, 'sources': fixed, 'current': current})
+    binding, current, latest = _binding(name, admitted, task, governing, evidence, ledger)
     if latest is not None and latest['binding'] == binding:
         return _report(name, latest, evidence, session=False)
     rejected = ledger.attempts(binding)
@@ -992,7 +1010,7 @@ def draft(name, admitted, *, repository, ledger, transport, options=None, **inpu
 
 
 def handoff(report):
-    """What a composed caller consumes, bound to the accepted draft; a committing procedure commits."""
+    """What a composed caller consumes, bound to the accepted draft; splitting.commit() commits it."""
     return {'result_ref': report['result_ref'], **copy.deepcopy(report['draft'])}
 
 

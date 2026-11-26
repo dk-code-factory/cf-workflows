@@ -29,8 +29,9 @@ or another action's grant never stands in.
 
 Preflight enables a permission input only when the action is enabled by
 accepted configuration and explicitly authorized. An authorization without the
-enabled permission rejects instead of being dropped. `rewrite_commits` stays
-false because history rewrites have no contract action yet. These actions reject
+enabled permission rejects instead of being dropped. The installed workflow keeps
+`rewrite_commits` false. Only [dk-commit-split](splitting.md#publication) enables
+it, for its own verified series, with a `push` grant and permission. These actions reject
 at preflight, and their kinds deny at preparation:
 
 | Action | Owner |
