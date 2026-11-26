@@ -139,16 +139,26 @@ covers:
 - partial COMMENT eligibility checked separately from the gate, including the
   provisional block.
 
+[`tests/test_dk_pr_review_findings.py`](../tests/test_dk_pr_review_findings.py)
+checks the same rule through the installed incoming-review helpers
+(`test_partial_findings_publish_after_identity_reconciliation_and_never_while_provisional`):
+authorized partial findings analyzed while PR metadata lags are withheld, then
+published as one `COMMENT` once the identities agree, with no repeated reviewer
+or verifier session and no clean review or readiness.
+
 ## What remains
 
 - Running these stages as engine-managed native sessions needs Agent Workflow
-  #129 and #130. [Incoming review](review.md) (#24) does not call the gate yet:
-  it needs these native stages in the installed workflow. The alternatives
-  entries and the direct manual entry drive them as library procedures
-  ([alternatives](alternatives.md)).
+  #129 and #130. The alternatives entries and the direct manual entry drive them
+  as library procedures ([alternatives](alternatives.md)).
+- [Incoming review](review.md) (#24) does not call the gate. No installed
+  workflow runs the architectural stages: the installed workflows reject the
+  alternatives adapters ([alternatives](alternatives.md#what-remains), #27).
+  Until one does, an installed review has no settled analysis to gate.
 - Posting an eligible finding goes through [exact-intent
   publication](publication.md). Incoming review applies the same rules in its
   [finding publication](review.md#finding-publication); it does not call this
-  library function.
+  library function. The installed test above covers partial findings through
+  identity reconciliation.
 - Real GitHub conformance and native-session adherence need separate
   authorization. These fixtures do not establish them.

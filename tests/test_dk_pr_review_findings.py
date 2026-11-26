@@ -600,6 +600,63 @@ class RerunsAndRecovery(Fixture):
         self.assertTrue(listing["provisional"]["provisional"])
         self.assertEqual(self.writes(), 0)
 
+    def test_partial_findings_publish_after_identity_reconciliation_and_never_while_provisional(self):
+        # #23: a partial review analyzed while PR metadata lags the pinned revision.
+        lagging = git(self.root, "rev-parse", "HEAD~1")
+        self.github.evidence["metadata"]["head"]["sha"] = lagging
+        authorized = {"post_findings": GRANT, "merge": MERGE}
+        permissions = {"post_findings": True, "merge": True}
+        plan = self.prepare(reviewers=[["review", "simplify"]], authorizations=authorized, permissions=permissions)
+        identities = plan["snapshot"]["identities"]
+        self.assertEqual((identities["current"], identities["pin"], identities["metadata_head"]),
+                         (False, self.commit, lagging))
+        ledger = self.ledger(plan)
+        self.reviewed(plan, ledger, [self.finding("inline", INLINE, "diff", path="code.py", line=1, side="RIGHT"),
+                                     self.finding("subject", SUBJECT, "commit_message", commit=self.commit)])
+        review = app.coverage(self.root, self.github, ledger, plan, {})["review"]
+        self.assertEqual((review["outcome"], review["partial"], len(review["findings"]["confirmed"])),
+                         ("incomplete", True, 2))
+        # Provisional mismatch blocks every finding, verified and independent or not.
+        listing = self.listed(plan, ledger)
+        self.assertEqual((listing["items"], listing["provisional"]["provisional"]), ([], True))
+        self.assertEqual(ledger.db.execute("SELECT count(*) FROM publication_intents").fetchone()[0], 0)
+
+        # The metadata reaches the pinned revision: a new plan reuses the analysis.
+        self.github.evidence["metadata"]["head"]["sha"] = self.commit
+        ledger.close()
+        reconciled = self.prepare(reviewers=[["review", "simplify"]], authorizations=authorized,
+                                  permissions=permissions)
+        self.assertTrue(reconciled["snapshot"]["identities"]["current"])
+        ledger = self.ledger(reconciled)
+        for skill in ("review", "finding_verification"):
+            self.assertFalse(self.execute(reconciled, ledger, skill, AGENTS[5])["invoke"])
+        item = self.listed(reconciled, ledger)["items"][0]
+        self.assertEqual(item["payload"]["event"], "COMMENT")
+
+        # Lagging again before dispatch withholds everything once more; nothing is prepared.
+        self.github.evidence["metadata"]["head"]["sha"] = lagging
+        self.assertEqual(self.listed(reconciled, ledger)["items"], [])
+        with self.assertRaisesRegex(PublicationError, "provisional"):
+            publishing.publication_prepare(self.root, self.github, ledger, reconciled, {"proposal": item})
+        self.assertEqual(self.writes(), 0)
+
+        self.github.evidence["metadata"]["head"]["sha"] = self.commit
+        listing, receipts = self.barrier(reconciled, ledger)
+        self.assertEqual([entry["id"] for entry in listing["items"]], [item["id"]])
+        self.assertEqual(self.writes(), 1)
+        posted = self.github.posted[0]
+        self.assertEqual((posted["event"], posted["commit_id"], len(posted["comments"])), ("COMMENT", self.commit, 1))
+        self.assertIn(SUBJECT, posted["body"])
+        self.assertEqual(self.native, Counter({"review": 1, "verification": 1, "audience": 1}),
+                         "reconciliation repeats no reviewer or verifier session")
+        # Eligible partial findings were posted; the review is still not clean, approved or ready.
+        review = app.coverage(self.root, self.github, ledger, reconciled, {})["review"]
+        self.assertEqual((review["outcome"], review["clean_review"], review["approve"], review["ready"]),
+                         ("incomplete", False, False, False))
+        self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, reconciled, {})["invoke"])
+        self.assertEqual(self.listed(reconciled, ledger)["items"], [])
+        self.assertEqual(self.writes(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
