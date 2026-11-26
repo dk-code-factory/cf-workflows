@@ -99,7 +99,14 @@ COMMENTS = {
     ';': ('.clj', '.lisp', '.el'),
 }
 # Constructs the comment lexer cannot follow; a file containing one has no editable prose.
-UNLEXED = {'#': ('<<', '%q', '%Q', '%w', '=begin', '=pod'), '//': ('R"', '<<<', '@"'), '--': ('[[',), ';': ()}
+UNLEXED = {'#': ('<<', '%q', '%Q', '%w', '=begin', '=pod', '"""', "'''"),
+           '//': ('R"', '<<<', '@"', 'r#"', '"""', "'''"), '--': ('[[',), ';': ()}
+# JavaScript and TypeScript have regex literals: a `/` where an operand starts means the lexer stops.
+REGEX_LANGUAGES = ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx')
+REGEX_KEYWORDS = ('return', 'typeof', 'instanceof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'yield',
+                  'await', 'do', 'else')
+# Operator characters whose count in the changed text must not change.
+OPERATORS = '<>=!&|^~%'
 RULE_NUMBER = re.compile(r'\b(?:rule|R)\s?\d+(?:\.\d+)+', re.I)
 
 
@@ -318,6 +325,7 @@ def _tokens(chunk):
             'URLs': Counter(URL.findall(chunk)), 'link targets': Counter(LINK.findall(chunk)),
             'numbers': Counter(NUMBER.findall(CODE_SPAN.sub(' ', chunk))),
             'requirement keywords': Counter(KEYWORD.findall(chunk)),
+            'operators': Counter(char for char in chunk if char in OPERATORS),
             'machine directives': Counter(match.group(0).strip() for match in DIRECTIVE.finditer(chunk))}
 
 
@@ -359,13 +367,14 @@ def _comment_prose(marker, suffix, text):
     block = ('/*', '*/') if marker == '//' else None
     quotes = ('"', "'", '`') if marker == '//' else ('"', "'")
     result, line, state, code, comment = set(), 0, None, False, False
+    previous = ''  # Code before the current position, to tell a regex literal from a division.
     position, size = 0, len(text)
     while position <= size:
         char = text[position] if position < size else '\n'
         if char == '\n':
             if comment and not code:
                 result.add(line)
-            line, position = line + 1, position + 1
+            line, position, previous = line + 1, position + 1, previous[-63:] + ' '
             if state == 'line' or (state == "'" and marker == '//'):
                 state = None  # Line comments and C-family character literals end at the line.
             # A line that starts inside a string is string content; inside a block comment, comment.
@@ -381,14 +390,15 @@ def _comment_prose(marker, suffix, text):
                 position += 1
         elif state in quotes:
             code = True
-            if char == '\\' and not (marker == '#' and state == "'"):  # Shell single quotes have no escapes.
+            # Shell single quotes and Go raw strings have no escapes.
+            if char == '\\' and not (marker == '#' and state == "'") and not (suffix == '.go' and state == '`'):
                 position += 1 if text.startswith('\n', position + 1) else 2  # Line numbers stay exact.
                 continue
             if char == state:
-                state = None
+                state, previous = None, previous + char
             position += 1
         elif char.isspace():
-            position += 1
+            previous, position = previous[-63:] + ' ', position + 1
         elif text.startswith(marker, position) and not (marker == '#' and text.startswith('#!', position)):
             state, comment = 'line', True
             position += len(marker)
@@ -399,6 +409,12 @@ def _comment_prose(marker, suffix, text):
             state, code = char, True
             position += 1
         else:
+            if char == '/' and suffix in REGEX_LANGUAGES:
+                operand = previous.rstrip()
+                word = re.search(r'[A-Za-z_$][\w$]*$', operand)
+                if not operand or not re.search(r'[\w$)\]"\'`]$', operand) or (word and word.group(0) in REGEX_KEYWORDS):
+                    return set()  # A regex literal: its contents cannot be lexed here.
+            previous = (previous + char)[-64:]
             code = True
             position += 2 if char == '\\' and not text.startswith('\n', position + 1) else 1
     return result

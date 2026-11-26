@@ -47,9 +47,10 @@ and any request authorization reject before the engine is contacted.
      lexer follows strings (including multi-line strings and template literals)
      and block comments, so a comment-like line inside a string is code, and a
      line with code before `/*` or after `*/` stays protected. Python uses
-     `tokenize`. A file with a construct the lexer cannot follow (heredocs, C++
-     raw strings, YAML block scalars, Lua long brackets and similar) has no
-     editable prose.
+     `tokenize`. A file with a construct the lexer cannot follow has no editable
+     prose: heredocs, triple-quoted text blocks, C++ and Rust raw strings, YAML
+     block scalars, Lua long brackets, and JavaScript or TypeScript regex
+     literals (a `/` where an operand starts).
 
    Other file types, and binary or non-UTF-8 files, are listed as skipped and
    never edited.
@@ -68,7 +69,8 @@ and any request authorization reject before the engine is contacted.
      comment never becomes code;
    - fenced code blocks are byte-identical;
    - code spans, URLs, link targets, identifier-like terms, numbers, RFC 2119
-     keywords and machine directives in the changed text are unchanged as a
+     keywords, operator characters (`<>=!&|^~%`) and machine directives in the
+     changed text are unchanged as a
      multiset;
    - Python files keep the same AST apart from docstrings;
    - wording the user quoted in the instructions (`"..."`, `“...”` or
@@ -148,7 +150,8 @@ session counts. Coverage:
   content unchanged and a local commit. Reuse without a session. Rejection and
   restore for edits outside changed prose, code in non-Python sources,
   comments turned into code, code beside block-comment delimiters,
-  comment-like template-literal text, indented code blocks, unrecognized file
+  comment-like template-literal and text-block content, code after a regex
+  literal, indented code blocks, unrecognized file
   types,
   code blocks, code spans, link
   targets, numbers, requirement keywords, Python code, unchanged files and

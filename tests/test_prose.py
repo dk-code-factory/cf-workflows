@@ -391,6 +391,10 @@ class SourceAndCodeBlocks(Fixture):
                                   '  /* Check the limit here. */ if (count > limit) { return false; }\n'
                                   '  /* Multi-line\n     note. */ if (count == limit) { return true; }\n'
                                   '  const banner = `\n// Do not remove the cache before the build.\n`;\n}\n')
+        self.write('src/re.js', 'const special = /[/*+?]/;\nfunction ok(count, limit) {\n'
+                                '  if (count > limit) { return false; }\n}\n// It is the case that this ends. */\n')
+        self.write('src/A.java', 'class A {\n  String s = """\n    He said "hi\n'
+                                 '    // Do not remove the cache before the build.\n    """;\n}\n')
         self.write('settings.json', '{"note": "It is the case that this is set."}\n')
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-q', '-m', 'more changes')
@@ -417,6 +421,8 @@ class SourceAndCodeBlocks(Fixture):
                 'code after a block comment end': ('src/edge.js', '(count == limit)', '(count != limit)'),
                 'comment-like template literal': ('src/edge.js', 'Do not remove the cache before',
                                                   'Remove the cache before'),
+                'code after a regex literal': ('src/re.js', '(count > limit)', '(count < limit)'),
+                'comment-like text block': ('src/A.java', 'Do not remove the cache before', 'Remove the cache before'),
                 'indented code block': ('docs/indented.md', 'echo hello world', 'echo hi world'),
                 'unknown file type': ('settings.json', 'It is the case that this', 'This')}.items():
             with self.subTest(label):
@@ -438,7 +444,16 @@ class SourceAndCodeBlocks(Fixture):
         self.assertEqual(lines('a.js', 'const s = "a\\\n// in string";\n// real\n'), {2})
         self.assertEqual(lines('a.sh', 'echo "a\n# in string\n"\n# real\necho \'it\'\\\'\'s\'\n# real2\n'), {3, 5})
         self.assertEqual(lines('a.py', 's = \"\"\"\n# in string\n\"\"\"\n# real\nx = 1  # trailing\n'), {3})
-        for path, text in {'a.sh': 'cat <<EOF\n# in heredoc\nEOF\n', 'a.yaml': 'a: |\n  # in block\n# real\n',
+        # A division keeps the lexer going; a regex literal stops it.
+        self.assertEqual(lines('d.js', 'const half = total / 2; // half\n// real\nx = (a) / b;\n'), {1})
+        self.assertEqual(lines('a.go', 'var s = `C:\\`\n// real\n'), {1})  # Go raw strings have no escapes.
+        with self.assertRaises(prose.Blocked):  # Operators in changed prose are kept too.
+            prose.check_edits('a.md', b'Use it when x > y.\n', b'Use it when x < y.\n', {0}, [])
+        for path, text in {'src/re.js': (self.repo / 'src/re.js').read_text(),
+                           'r.ts': 'function f() {\n  return /x/.test(y);\n}\n// real\n',
+                           'src/A.java': (self.repo / 'src/A.java').read_text(),
+                           'a.toml': 's = """\n# in string\n"""\n# real\n',
+                           'a.sh': 'cat <<EOF\n# in heredoc\nEOF\n', 'a.yaml': 'a: |\n  # in block\n# real\n',
                            'a.cpp': 'auto s = R"(\n// raw\n)";\n// real\n',
                            'a.lua': 'local s = [[\n-- long\n]]\n-- real\n'}.items():
             with self.subTest(path):
