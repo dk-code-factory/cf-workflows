@@ -18,6 +18,11 @@ dk-pr-fix or dk-pr-review preflight. No skill is loaded.
   incoming-review preset and the shared merge readiness (current head, CI,
   pending reviews and requests). It shares the PR's incoming-review logical
   run, so current review is reused.
+  The standalone-to-merge bridge (#35, main.yml merge_ci): after the review
+  completes, the merge preset first runs any separately authorized fork
+  workflow approvals (an ``approve_fork_ci`` grant beside ``merge``, with its
+  own permission), then waits for exact-head CI within the retained window and
+  checks readiness again before the merge.
 - dk-pr-review-post (review-post.yml running main.yml in review mode):
   verified findings inline or in the body, and a separately authorized
   approval of a clean review.
@@ -106,6 +111,9 @@ ENTRIES = {
     },
 }
 OWNERS = {action: dk_pr_fix.UNAVAILABLE_ACTIONS[action] for action in dk_pr_fix.UNAVAILABLE_ACTIONS}
+# The standalone-to-merge bridge: actions of another entry an entry may carry beside a
+# required action of its own, each with its own explicit grant and permission (#35).
+BRIDGES = {'dk-pr-publish': {'approve_fork_ci': 'merge'}}
 
 
 def actions(name):
@@ -147,11 +155,14 @@ def select(name, authorizations):
     require(authorizations, 'request.authorizations', ENTRIES[name]['skill'] + ' needs an explicit authorization '
             'for each action it publishes; a configured permission never supplies one')
     presets = set()
+    bridged = BRIDGES.get(name, {})
     for action in sorted(authorizations):
         where = 'request.authorizations.' + str(action)
         require(action not in OWNERS, where, OWNERS.get(action, ''))
         record = CAPABILITIES.get(action)
         require(record is not None, where, 'no declared publication capability')
+        if action in bridged and bridged[action] in authorizations:
+            continue  # Runs inside the bridging action's preset; never implied by it.
         require(record['entry'] == name, where, f"{action} belongs to cf-workflows:{record['entry']}")
         presets.add(record['preset'])
     require(len(presets) == 1, 'request.authorizations', 'merge needs current independent review of the published '

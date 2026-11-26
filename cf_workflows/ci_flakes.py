@@ -19,6 +19,10 @@ Limits reached and missing evidence are reported, never treated as coverage.
 The result waives nothing. CI acceptance (prfix/ci.py) verifies the exact failed
 attempt again on every observation, and creating issues, rerunning workflows or
 changing exceptions still needs its own authorization.
+
+`saved()` pages the observations CI observation saved in the shared cross-PR
+registry (prfix/registry.py), optionally of one exact earlier context, with no
+GitHub read and no session. It is saved evidence, never fresh verification.
 """
 import copy
 from datetime import datetime, timezone
@@ -291,3 +295,23 @@ def inspect(*, request, deployment, repository, transport, github, now, options=
             'gaps': found['gaps'], 'notes': notes,
             'evidence': {key: found[key] for key in ('since', 'runs', 'issues', 'digest')},
             'evidence_refs': references, 'blockers': []}
+
+
+def saved(registry, repository, *, context=None, offset=0, limit=20):
+    """Saved named outcomes of earlier checks from the shared CI registry; reads nothing else.
+
+    ``registry`` is the installed helper's prfix.registry.Registry, opened read-only
+    on the mounted state namespace. Follow ``next_offset`` for further pages.
+    """
+    require(isinstance(repository, str) and re.fullmatch(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+',
+                                                         repository.lower()), 'repository',
+            'must be HOST/OWNER/NAME')
+    if context is not None:
+        fields(context, 'context', CONTEXT)
+        for key in CONTEXT:
+            text(context[key], 'context.' + key)
+    require(type(offset) is int and offset >= 0, 'offset', 'must be a nonnegative integer')
+    require(type(limit) is int and 1 <= limit <= 100, 'limit', 'must be an integer in 1..100')
+    page = registry.page(repository.lower(), offset, limit, context)
+    return {'status': 'complete', 'saved': True, 'verified': False, 'authority': 'none', 'waives': False,
+            'repository': repository.lower(), 'context': copy.deepcopy(context), **page}

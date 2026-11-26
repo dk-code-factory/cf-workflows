@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -29,6 +30,7 @@ from prfix.capture import identity
 from prfix.core import Ledger
 from prfix.prepare import prepare
 from prfix.publication import SUPPORTED, Drift, PublicationError
+from prfix.registry import Registry
 from test_publication_skills import AUDIENCE, GitHub as PublicationGitHub, Helpers, grant
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,8 @@ from test_configuration_skills import Engine, Transport as EngineTransport, sess
 INVENTORY = {row['name']: row for row in json.loads((ROOT / 'baselines/inventory.json').read_text())['skills']}
 PR = identity('https://github.com/owner/repo/pull/17')
 HEAD = 'a' * 40
+OTHER_PR = identity('https://github.com/owner/repo/pull/18')
+OTHER_HEAD = 'b' * 40
 WORKFLOW = '.github/workflows/test.yml'
 AUTHOR = 999  # The PR author: a fork contributor whose CI logs a flake declaration must not be able to waive.
 MAINTAINER = {'id': 5, 'login': 'maintainer'}
@@ -99,8 +103,9 @@ class Entries(PreflightFixture):
         self.assertEqual((inputs['tasks'], inputs['finalizers'], inputs['reviewers'], inputs['adapters']),
                          ([{'stage': 'ci'}], [], [], {}))
         self.assertEqual(inputs['limits']['ci_repairs_per_cycle'], 0)
-        self.assertEqual(inputs['ci'], {'timeout_seconds': 1800, 'pending_extension_seconds': 1800,
-                                        'max_pending_extensions': 1})
+        self.assertEqual(inputs['ci'], {'timeout_seconds': 1800, 'poll_interval_seconds': 30,
+                                        'classification_timeout_seconds': 60, 'no_checks_grace_seconds': 60,
+                                        'pending_extension_seconds': 1800, 'max_pending_extensions': 1})
         self.assertFalse(any(inputs['permissions'].values()))
         self.assertEqual((result['workflow'], result['installation']['entry']), ('cf-workflows:dk-ci',
                                                                                  'workflows/main.yml'))
@@ -116,13 +121,34 @@ class Entries(PreflightFixture):
         document = self.configuration({'ci': {'timeout_seconds': 600}, 'limits': {'ci_reruns_per_head': 1}})
         result = self.observe(configuration=document, options={'max_pending_extensions': 0})
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
-        self.assertEqual(result['inputs']['ci'], {'timeout_seconds': 600, 'pending_extension_seconds': 1800,
-                                                  'max_pending_extensions': 0})
+        self.assertEqual(result['inputs']['ci'], {'timeout_seconds': 600, 'poll_interval_seconds': 30,
+                                                  'classification_timeout_seconds': 60, 'no_checks_grace_seconds': 60,
+                                                  'pending_extension_seconds': 1800, 'max_pending_extensions': 0})
         self.assertEqual((result['inputs']['limits']['ci_reruns_per_head'],
                           result['inputs']['limits']['ci_repairs_per_cycle']), (1, 0))
         self.assertEqual(result['entry']['options']['max_pending_extensions'], {'value': 0, 'source': 'invocation'})
         result = self.observe(configuration=document, options={'timeout_seconds': 900})
         self.assertEqual(result['inputs']['ci']['timeout_seconds'], 900)
+        # Configured observation windows stay; an invocation option sets only its own.
+        document = self.configuration({'ci': {'poll_interval_seconds': 5, 'no_checks_grace_seconds': 0}})
+        result = self.observe(configuration=document, options={'classification_timeout_seconds': 120})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual({key: result['inputs']['ci'][key] for key in admission.CI_WINDOWS},
+                         {'poll_interval_seconds': 5, 'classification_timeout_seconds': 120,
+                          'no_checks_grace_seconds': 0})
+        self.assertEqual(result['entry']['options']['poll_interval_seconds'], {'value': 30, 'source': 'default'})
+        # Composed dk-pr-fix carries only the windows it is configured with.
+        composed = fix_preflight.preflight(request=self.request, configuration=document, invocation=None,
+                                           deployment=self.deployment, repository=self.repo, home=self.home,
+                                           transport=FakeTransport(), install=self.clean)
+        self.assertEqual(composed['preflight'], 'admitted', composed.get('error'))
+        self.assertEqual(composed['inputs']['ci'], {'timeout_seconds': 1800, 'poll_interval_seconds': 5,
+                                                    'no_checks_grace_seconds': 0})
+        for key, value in (('poll_interval_seconds', 0), ('classification_timeout_seconds', 3601),
+                           ('no_checks_grace_seconds', -1), ('poll_interval_seconds', True)):
+            with self.subTest(key=key, value=value):
+                result = self.observe(configuration=self.configuration({'ci': {key: value}}))
+                self.assertEqual(result['preflight'], 'rejected')
 
     def test_dk_ci_rejects_authority_overrides_and_unsupported_options(self):
         cases = [
@@ -130,8 +156,9 @@ class Entries(PreflightFixture):
              'dk-pr-publish'),
             ({'invocation': {'options': {'tasks': ['read-feedback']}}}, 'invocation', 'preset'),
             ({'invocation': {'permissions': {'rerun_ci': True}}}, 'invocation', 'preset'),
-            ({'options': {'poll_interval_seconds': 30}}, 'options.poll_interval_seconds', 'not supported yet'),
-            ({'options': {'no_checks_grace_seconds': 60}}, 'options.no_checks_grace_seconds', 'not supported yet'),
+            ({'options': {'poll_interval_seconds': 0}}, 'options.poll_interval_seconds', '1..3600'),
+            ({'options': {'classification_timeout_seconds': 0}}, 'options.classification_timeout_seconds', '1..3600'),
+            ({'options': {'no_checks_grace_seconds': -1}}, 'options.no_checks_grace_seconds', '0..86400'),
             ({'options': {'max_pending_extensions': 2}}, 'options.max_pending_extensions', '0..1'),
             ({'options': {'timeout_seconds': 0}}, 'options.timeout_seconds', '1..86400'),
             ({'options': {'lookback_days': 3}}, 'options.lookback_days', 'unsupported option'),
@@ -168,6 +195,61 @@ class Entries(PreflightFixture):
                 result = self.approve(authorizations, invocation)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
                 self.assertIn(message, result['error']['message'])
+
+    def test_merge_preset_bridges_a_separately_authorized_fork_approval(self):
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+
+        def publish(authorizations, permissions):
+            self.transport = FakeTransport(offered)
+            return dk_pr_publish.preflight('dk-pr-publish', request={**self.request, 'authorizations': authorizations},
+                                           deployment=self.deployment, repository=self.repo, home=self.home,
+                                           invocation={'permissions': permissions}, transport=self.transport,
+                                           install=self.clean)
+        both = {'merge': grant('merge'), 'approve_fork_ci': grant('fork')}
+        result = publish(both, {'merge': True, 'approve_fork_ci': True})
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual((result['installation']['entry'], result['entry']['preset']), ('workflows/publish.yml', 'merge'))
+        self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'merge', 'approve_fork_ci'})
+        self.assertEqual(result['entry']['capabilities']['approve_fork_ci']['entry'], 'dk-ci-approve')
+        # The bridge needs both grants and both permissions; merge never implies the approval.
+        cases = [
+            ({'approve_fork_ci': grant('fork')}, {'approve_fork_ci': True}, 'request.authorizations.approve_fork_ci',
+             'dk-ci-approve'),
+            (both, {'merge': True}, 'request.authorizations.approve_fork_ci', 'not enabled'),
+            ({**both, 'push': grant('push')}, {'merge': True, 'approve_fork_ci': True, 'push': True},
+             'request.authorizations', 'separate invocations'),
+        ]
+        for authorizations, permissions, path, message in cases:
+            with self.subTest(authorizations=sorted(authorizations), permissions=sorted(permissions)):
+                result = publish(authorizations, permissions)
+                self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
+                self.assertIn(message, result['error']['message'])
+        # dk-ci-approve itself still takes no other action.
+        result = self.approve(both, {'permissions': {'merge': True, 'approve_fork_ci': True}})
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'request.authorizations.merge'))
+
+    def test_main_graph_runs_fork_approval_then_waits_for_ci_before_merge(self):
+        body = (fix_preflight.INSTALL / 'workflows/main.yml').read_text()
+        jobs = dict(re.findall(r'(?m)^  ([a-z_]+):\n((?:    .*\n|\s*\n)*)', body.split('\njobs:\n', 1)[1]))
+
+        def needs(name):
+            return re.findall(r'(?m)^    - (\w+)$', jobs[name])
+        self.assertIn('uses: workflows/ci-poll.yml', jobs['merge_ci'])
+        self.assertEqual(needs('merge_ci'), ['prepare', 'completion', 'fork_ci'])
+        self.assertIn('until: ${{ iteration.outputs.settled }}', jobs['merge_ci'])
+        condition = ' '.join(re.search(r'if: \$\{\{(.*?)\}\}', jobs['merge_ci'], re.S)[1].split())
+        self.assertEqual(condition, "needs.prepare.outputs.result.merge_authorized and "
+                         "needs.completion.outputs.result.complete and needs.completion.outputs.result.clean_review and "
+                         "needs.completion.outputs.result.verified and needs.fork_ci.status != 'failed' and "
+                         "needs.fork_ci.status != 'needs_attention' and needs.fork_ci.status != 'canceled'")
+        self.assertIn('operation: completion', jobs['merge_readiness'])
+        self.assertEqual(needs('merge_readiness'), ['prepare', 'merge_ci'])
+        self.assertIn("needs.merge_ci.status == 'succeeded'", jobs['merge_readiness'])
+        # Merge readiness comes only from the fresh check after the bridge.
+        self.assertEqual(needs('merge_proposal'), ['prepare', 'merge_readiness'])
+        self.assertIn('needs.merge_readiness.outputs.result.ready', jobs['merge_proposal'])
+        self.assertEqual(needs('merge'), ['prepare', 'merge_proposal'])
 
     def test_dk_pr_fix_never_approves_fork_workflows(self):
         result = self.preflight(request={**self.request, 'authorizations': {'approve_fork_ci': grant('fork')}},
@@ -210,22 +292,34 @@ class CIGitHub:
         self.head = HEAD
         self.calls = Counter()
         self.checks, self.runs, self.jobs, self.logs, self.issues = [], {}, {}, {}, {}
+        self.attempts, self.full_logs = {}, {}
         self.unavailable = set()
 
-    def failed(self, check_id, run_id, job_id, attempt=1, lines=None, head=None):
-        """A failed Actions check of the exact attempt with its run, job and failed-step logs."""
-        head = head or self.head
-        self.checks.append({'id': str(check_id), 'name': 'Test', 'status': 'completed', 'conclusion': 'failure',
+    def _attempt(self, check_id, run_id, job_id, attempt, head, conclusion, completed):
+        self.checks.append({'id': str(check_id), 'name': 'Test', 'status': 'completed', 'conclusion': conclusion,
                             'run_id': str(run_id), 'job_id': str(job_id), 'attempt': attempt})
-        self.runs[run_id] = {'id': run_id, 'head_sha': head, 'run_attempt': attempt,
-                             'path': WORKFLOW + '@refs/pull/17/merge', 'created_at': '2026-11-26T12:00:00Z'}
+        # GET actions/runs/{id} is the run's latest attempt; .../attempts/{n} is that exact attempt.
+        self.runs[run_id] = self.attempts[(run_id, attempt)] = {
+            'id': run_id, 'head_sha': head, 'run_attempt': attempt, 'path': WORKFLOW + '@refs/pull/17/merge',
+            'created_at': '2026-11-26T12:00:00Z'}
         self.jobs[job_id] = {'id': job_id, 'head_sha': head, 'run_id': run_id, 'run_attempt': attempt, 'name': 'Test',
-                             'status': 'completed', 'conclusion': 'failure',
+                             'status': 'completed', 'conclusion': conclusion, 'completed_at': completed,
                              'check_run_url': f'https://api.github.com/repos/owner/repo/check-runs/{check_id}',
-                             'steps': [{'name': 'Tests', 'number': 2, 'status': 'completed', 'conclusion': 'failure'}]}
+                             'steps': [{'name': 'Tests', 'number': 2, 'status': 'completed', 'conclusion': conclusion}]}
+
+    def failed(self, check_id, run_id, job_id, attempt=1, lines=None, head=None, completed='2026-11-26T12:05:00Z'):
+        """A failed Actions check of the exact attempt with its run, job and failed-step logs."""
+        self._attempt(check_id, run_id, job_id, attempt, head or self.head, 'failure', completed)
         lines = lines or ['=== RUN   TestFlaky', '    client.go:17: intermittent gateway timeout',
                           '--- FAIL: TestFlaky (0.10s)', 'FAIL', 'exit status 1']
         self.logs[(str(run_id), str(job_id), attempt)] = '\n'.join('Test\tTests\t' + line for line in lines)
+        self.full_logs[(str(run_id), str(job_id), attempt)] = self.logs[(str(run_id), str(job_id), attempt)]
+
+    def passed(self, check_id, run_id, job_id, attempt=2, lines=None, head=None, completed='2026-11-26T12:20:00Z'):
+        """A successful Actions check of the exact attempt with its complete job logs."""
+        self._attempt(check_id, run_id, job_id, attempt, head or self.head, 'success', completed)
+        lines = lines or ['=== RUN   TestFlaky', '--- PASS: TestFlaky (0.08s)', 'PASS', 'ok  example 0.1s']
+        self.full_logs[(str(run_id), str(job_id), attempt)] = '\n'.join('Test\tTests\t' + line for line in lines)
 
     def issue(self, number, body, state='open', repository='owner/repo', user=None, association='MEMBER',
               created='2026-01-01T00:00:00Z'):
@@ -246,6 +340,10 @@ class CIGitHub:
 
     def request(self, method, path, payload=None):
         self.calls['request'] += 1
+        exact = re.fullmatch(r'repos/owner/repo/actions/runs/(\d+)/attempts/(\d+)', path)
+        if method == 'GET' and exact:
+            self.calls['actions/attempts'] += 1
+            return copy.deepcopy(self.attempts[(int(exact[1]), int(exact[2]))])
         match = re.fullmatch(r'repos/owner/repo/(actions/runs|actions/jobs|issues)/(\d+)', path)
         if method != 'GET' or not match:
             raise AssertionError(f'unconfigured fixture route: {method} {path}')
@@ -258,6 +356,12 @@ class CIGitHub:
         if (run, job, attempt) not in self.logs or 'logs' in self.unavailable:
             raise OSError('failed-step logs expired')
         return self.logs[(run, job, attempt)]
+
+    def job_logs(self, pr, run, job, attempt):
+        self.calls['job_logs'] += 1
+        if (run, job, attempt) not in self.full_logs or 'job_logs' in self.unavailable:
+            raise OSError('job logs expired')
+        return self.full_logs[(run, job, attempt)]
 
     def pages(self, path, key=None):
         self.calls['search'] += 1
@@ -288,8 +392,8 @@ class Observation(unittest.TestCase):
         return ledger
 
     @staticmethod
-    def plan(ci_controls=None, run='pr_shared', **options):
-        return {'pr': PR, 'logical_run': run, 'snapshot': {'author_id': AUTHOR},
+    def plan(ci_controls=None, run='pr_shared', pr=PR, **options):
+        return {'pr': pr, 'logical_run': run, 'snapshot': {'author_id': AUTHOR},
                 'options': {'ci': ci_controls or {}, **options}}
 
     @staticmethod
@@ -396,6 +500,155 @@ class Observation(unittest.TestCase):
         with self.assertRaises(ValueError):
             fresh.reserve('ci-pending-extension:pr_shared', 'another-extension', 1)
         self.assertEqual(self.grants(), 1)
+
+    # -- poll interval, absent-check grace and classification window -----------------------------
+
+    def test_poll_interval_comes_from_the_validated_plan(self):
+        self.pending()
+        self.assertEqual(self.observe(self.plan(self.direct()), 'poll-1', 1000.0)['poll_interval'], '10',
+                         'the composed default keeps the original delay')
+        result = self.observe(self.plan({**self.direct(), 'poll_interval_seconds': 45}), 'poll-2', 1001.0)
+        self.assertEqual(result['poll_interval'], '45')
+        # ci-poll.yml sleeps for exactly this output; an invalid plan value never reaches it.
+        poll = (fix_preflight.INSTALL / 'workflows/ci-poll.yml').read_text()
+        self.assertIn('- sleep\n      - ${{ steps.ci.outputs.poll_interval }}\n', poll)
+        for value in (0, 3601, '30', True):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'poll_interval_seconds'):
+                self.observe(self.plan({**self.direct(), 'poll_interval_seconds': value}), 'bad', 1002.0)
+
+    def test_absent_checks_become_no_checks_after_a_retained_grace(self):
+        controls = {**self.direct(), 'no_checks_grace_seconds': 60}
+        first = self.observe(self.plan(controls), 'poll-1', 1000.0)
+        self.assertEqual((first['status'], first['pending'], first['ready']), ('pending', True, False))
+        # A resumed observation (new ledger connection) with a larger grace keeps the original end.
+        resumed = self.observe(self.plan({**controls, 'no_checks_grace_seconds': 600}), 'poll-2', 1061.0)
+        self.assertEqual((resumed['status'], resumed['outcome'], resumed['pending'], resumed['failed'],
+                          resumed['ready']), ('no_checks', 'no_checks', False, False, False))
+        # A settled blocker: never a repairable failure and never CI success.
+        self.assertEqual(ci.classify({'head': HEAD, 'checks': []})['status'], 'pending')
+        # Checks that appear later are observed as usual.
+        self.github.checks = [{'id': '9', 'name': 'Test', 'status': 'completed', 'conclusion': 'success',
+                               'run_id': '', 'job_id': '', 'attempt': 0}]
+        self.assertEqual(self.observe(self.plan(controls), 'poll-3', 1062.0)['status'], 'success')
+        # A zero grace reports no_checks at once; without a grace absent checks stay pending until the deadline.
+        self.github.checks = []
+        self.assertEqual(self.observe(self.plan({**controls, 'no_checks_grace_seconds': 0}), 'poll-4', 1063.0,
+                                      self.ledger('zero'))['status'], 'no_checks')
+        self.assertEqual(self.observe(self.plan(self.direct(), run='none'), 'poll-5', 1000.0)['status'], 'pending')
+        late = self.observe(self.plan(self.direct(), run='none'), 'poll-6', 1119.0)
+        self.assertEqual(late['status'], 'pending')
+        # no_checks is settled, so a post-window capture takes no pending-only extension.
+        self.observe(self.plan(controls, run='late'), 'poll-7', 1000.0)
+        result = self.observe(self.plan(controls, run='late'), 'poll-8', 1121.0)
+        self.assertEqual((result['status'], result['extended']), ('no_checks', False))
+        self.assertEqual(self.grants('late'), 0)
+
+    def test_no_checks_never_satisfies_readiness_or_starts_a_repair(self):
+        controls = {**self.direct(), 'no_checks_grace_seconds': 0}
+        result = self.observe(self.plan(controls), 'poll-1', 1000.0)
+        self.assertEqual((result['status'], result['ready'], result['failed'], result['repair']),
+                         ('no_checks', False, False, False))
+
+    def test_classification_window_is_retained_per_failed_attempt(self):
+        self.github.failed(9, 2, 3)
+        self.github.issue(8, declaration())
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        # The first observation opens the window and classifies inside it.
+        self.assertEqual(self.observe(self.plan(controls), 'poll-1', 1000.0)['outcome'], 'known_flakes')
+        reads = self.github.calls['request']
+        # A resumed observation after the window ends neither renews it nor reads any evidence.
+        late = self.observe(self.plan({**controls, 'classification_timeout_seconds': 3600}), 'poll-2', 1031.0)
+        self.assertEqual((late['status'], late['rejected']),
+                         ('failed', [{'check_id': '9', 'reason': 'classification window exhausted'}]))
+        self.assertEqual(self.github.calls['request'], reads)
+        # A rerun attempt is another exact attempt with its own window.
+        self.github = CIGitHub()
+        self.github.failed(9, 2, 3, attempt=2)
+        self.github.issue(8, declaration())
+        self.assertEqual(self.observe(self.plan(controls), 'poll-3', 1032.0)['status'], 'success')
+        # Without a configured timeout classification is unbounded, as before.
+        self.assertEqual(self.observe(self.plan(self.direct(), run='unbounded'), 'poll-4', 5000.0)['status'],
+                         'success')
+
+    def test_merge_bridge_window_belongs_to_the_exact_head_of_each_merge_request(self):
+        """Review mode (main.yml merge_ci) keys the window by head: a later merge request is never stuck."""
+        plan = {**self.plan(self.direct(), run='review_bridge'), 'mode': 'review'}
+        self.pending()
+        first = self.observe(plan, 'merge-1', 1000.0)
+        self.assertEqual((first['status'], first['deadline']), ('pending', 1120.0))
+        # The first request's wait ends: still pending after the window and its extension is a timeout.
+        self.observe(plan, 'merge-2', 1121.0)
+        with self.assertRaisesRegex(TimeoutError, 'deadline exhausted during observation'):
+            self.observe(plan, 'merge-3', 1800.0)
+        # A request the next day at the same head reports CI that has settled since; it waits no longer.
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=1)
+        late = self.observe(plan, 'merge-4', 90000.0)
+        self.assertEqual((late['status'], late['ready'], late['deadline']), ('success', True, 1720.0))
+        self.github.checks[0]['conclusion'] = 'failure'
+        self.assertTrue(self.observe(plan, 'merge-5', 90001.0)['failed'])
+        self.pending()
+        with self.assertRaisesRegex(TimeoutError, 'deadline exhausted during observation'):
+            self.observe(plan, 'merge-6', 90002.0)
+        # The author pushes a fix: a merge request of the new head gets that head's own window.
+        self.github.head = 'b' * 40
+        fresh = self.observe(plan, 'merge-7', 90003.0)
+        self.assertEqual((fresh['status'], fresh['head'], fresh['deadline']), ('pending', 'b' * 40, 90123.0))
+        names = [row[0] for row in self.ledger('review_bridge').db.execute('SELECT name FROM deadlines ORDER BY name')]
+        self.assertEqual(names, ['ci-pending-extension:review_bridge:' + HEAD, 'ci:review_bridge:' + HEAD,
+                                 'ci:review_bridge:' + 'b' * 40])
+
+    def test_readiness_keeps_an_exhausted_classification_window(self):
+        self.github.failed(9, 2, 3)
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        plan = self.plan(controls)
+        observation = {'head': HEAD, 'checks': copy.deepcopy(self.github.checks), 'evidence': 'e'}
+        # The bridge's wait opens the window and rejects the attempt once it ends, before its issue exists.
+        self.observe(plan, 'poll-1', 1000.0)
+        self.github.issue(8, declaration())
+        late = self.observe(plan, 'poll-2', 1031.0)
+        self.assertEqual((late['status'], late['rejected'][0]['reason']), ('failed', 'classification window exhausted'))
+        reads = self.github.calls['request']
+        # Readiness applies the same retained end, reads no evidence and opens nothing.
+        window = ci.retained_classification_window(self.ledger(), plan)
+        with patch('prfix.ci.time.time', return_value=1032.0):
+            ready = ci.classify_current(self.github, plan, observation, window)
+        self.assertEqual((ready['status'], ready['rejected']),
+                         ('failed', [{'check_id': '9', 'reason': 'classification window exhausted'}]))
+        self.assertEqual(self.github.calls['request'], reads)
+        # An attempt whose window observation never opened is classified as a first observation would be.
+        other = self.plan(controls, run='never_observed')
+        fresh = ci.classify_current(self.github, other, observation,
+                                    ci.retained_classification_window(self.ledger('never_observed'), other))
+        self.assertEqual(fresh['status'], 'success')
+        self.assertEqual(self.ledger('never_observed').db.execute('SELECT count(*) FROM deadlines').fetchone()[0], 0)
+
+    def test_a_window_that_ends_during_verification_discards_the_proof(self):
+        self.github.failed(9, 2, 3)
+        self.github.failed(10, 4, 5)
+        self.github.issue(8, declaration())
+        controls = {**self.direct(), 'classification_timeout_seconds': 30}
+        now = [1000.0]
+        read = self.github.request
+
+        def slow(method, path, payload=None):
+            # Check 9's issue reread ends its window; check 10's window opens only when it is classified.
+            if path.endswith('/issues/8') and now[0] == 1000.0:
+                now[0] = 1040.0
+            return read(method, path, payload)
+        with patch.object(self.github, 'request', side_effect=slow), \
+                patch('prfix.ci.time.time', side_effect=lambda: now[0]):
+            result = ci.observe(self.github, self.plan(controls), self.ledger(), 'poll-1')
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['rejected'], [{'check_id': '9',
+                                               'reason': 'classification window ended during verification'}])
+        # Check 10's own window opened when it was classified, so only its own proof applies.
+        self.assertEqual([proof['check_id'] for proof in result['classifications']], ['10'])
+        # A later observation never applies check 9's evidence late.
+        with patch('prfix.ci.time.time', return_value=1041.0):
+            again = ci.observe(self.github, self.plan(controls), self.ledger(), 'poll-2')
+        self.assertEqual([item['check_id'] for item in again['rejected']], ['9'])
+        self.assertEqual(again['rejected'][0]['reason'], 'classification window exhausted')
 
     # -- issue-backed flakes ---------------------------------------------------------------------
 
@@ -548,6 +801,171 @@ class Observation(unittest.TestCase):
         self.assertEqual((result['status'], result['ready'], result['failed']), ('failed', False, True))
 
 
+    # -- shared registry, fail-then-pass history and saved inspection ----------------------------
+
+    def unaffirmed(self, number=8, signature='intermittent gateway timeout'):
+        """A trusted issue that declares the exact context without affirming it as flaky."""
+        body = {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky', 'signature': signature}
+        self.github.issue(number, 'Tracking TestFlaky.\n```dk-flaky\n' + json.dumps(body) + '\n```\n')
+
+    def registry(self, read_only=False):
+        registry = Registry(self.root, read_only=read_only)
+        self.addCleanup(registry.close)
+        return registry
+
+    def history(self):
+        """PR 17 fails TestFlaky at HEAD, then a rerun attempt of the same run passes it."""
+        self.github.failed(9, 2, 3)
+        first = self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        self.assertEqual(first['status'], 'failed', 'no history yet: the declaration alone never waives')
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2)
+        second = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual((second['status'], second['registry']), ('success', {'recorded': 1, 'gaps': []}))
+        # Another PR of the base repository fails the same test with the same signature at its own head.
+        self.github.head = OTHER_HEAD
+        self.github.checks = []
+        self.github.failed(29, 5, 6, head=OTHER_HEAD)
+
+    def test_fail_then_pass_at_one_commit_nominates_a_flake_for_another_pr(self):
+        self.unaffirmed()
+        self.history()
+        calls = Counter(self.github.calls)
+        result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                              self.ledger_for(OTHER_PR, 'pr_other'))
+        self.assertEqual((result['status'], result['outcome'], result['rejected']), ('success', 'known_flakes', []))
+        [proof] = result['classifications']
+        self.assertEqual((proof['check_id'], proof['run_id'], proof['attempt']), ('29', '5', 1))
+        [history] = [item for item in proof['evidence'] if item['kind'] == 'same-commit-fail-pass']
+        self.assertEqual((history['failure']['head'], history['failure']['run_id'], history['failure']['attempt'],
+                          history['pass']['head'], history['pass']['run_id'], history['pass']['attempt']),
+                         (HEAD, '2', 1, HEAD, '2', 2))
+        # Verification reread both saved exact attempts and their logs.
+        delta = self.github.calls - calls
+        self.assertEqual((delta['actions/attempts'], delta['job_logs']), (2, 1))
+        # Readiness uses the same saved history through a read-only registry and saves nothing.
+        before = self.registry().page(PR['repository'])['total']
+        readiness = ci.classify_current(self.github, {**self.plan(), 'pr': OTHER_PR},
+                                        {'head': OTHER_HEAD, 'checks': copy.deepcopy(self.github.checks)},
+                                        registry=self.registry(read_only=True))
+        self.assertEqual(readiness['status'], 'success')
+        self.assertEqual(self.registry().page(PR['repository'])['total'], before)
+
+    def test_history_never_stands_in_for_missing_or_mismatched_evidence(self):
+        cases = {
+            'no issue': lambda: None,
+            'prose only': lambda: self.github.issue(8, 'TestFlaky `intermittent gateway timeout` happens'),
+            'denied': lambda: self.github.issue(8, '```dk-flaky\n' + json.dumps(
+                {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky',
+                 'signature': 'intermittent gateway timeout', 'flaky': False}) + '\n```\n'),
+            'other signature': lambda: self.unaffirmed(signature='connection reset'),
+            'untrusted author': lambda: (self.unaffirmed(), self.github.issues[8].update(
+                author_association='NONE', user={'id': 77, 'login': 'outsider'})),
+            'declared after the run': lambda: (self.unaffirmed(), self.github.issues[8].update(
+                created_at='2026-11-27T00:00:00Z')),
+        }
+        for label, arrange in cases.items():
+            with self.subTest(label=label):
+                self.setUp()
+                arrange()
+                self.history()
+                result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                                      self.ledger_for(OTHER_PR, 'pr_other'))
+                self.assertEqual((result['status'], result['classifications']), ('failed', []))
+
+    def test_unavailable_or_changed_history_leaves_the_failure(self):
+        cases = {
+            'pass logs expired': lambda g: g.unavailable.add('job_logs'),
+            'pass attempt changed': lambda g: g.attempts[(2, 2)].update(head_sha='c' * 40),
+            'failure logs expired': lambda g: g.logs.pop(('2', '3', 1)),
+        }
+        for label, arrange in cases.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.unaffirmed()
+                self.history()
+                arrange(self.github)
+                result = self.observe(self.plan(self.direct(), run='pr_other', pr=OTHER_PR), 'poll-3', 1002.0,
+                                      self.ledger_for(OTHER_PR, 'pr_other'))
+                self.assertEqual((result['status'], result['classifications']), ('failed', []))
+                self.assertEqual([item['check_id'] for item in result['rejected']], ['29'])
+        # Without the shared registry (an older caller) history is unavailable, never assumed.
+        with self.assertRaisesRegex(ValueError, 'without the shared registry'):
+            ci._verify_history(self.github, PR, {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky',
+                                                 'signature': 'x', 'history': {}}, None)
+
+    def test_history_needs_a_later_pass_at_the_same_commit(self):
+        self.unaffirmed()
+        self.github.failed(9, 2, 3)
+        self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        # A pass at another head, and a pass completed before the failure, are no history.
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2, head='c' * 40)
+        self.github.passed(20, 7, 8, attempt=1, completed='2026-11-26T11:00:00Z')
+        result = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual(result['registry'], {'recorded': 1, 'gaps': [{'check_id': '19', 'reason':
+                                              'successful job does not bind the exact head and attempt'}]})
+        self.assertIsNone(self.registry().history(PR['repository'], {'workflow': WORKFLOW, 'job': 'Test',
+                                                                     'test': 'TestFlaky'},
+                                                  'intermittent gateway timeout'))
+        # Recorded passes are read once per exact attempt.
+        reads = self.github.calls['job_logs']
+        self.observe(self.plan(self.direct()), 'poll-3', 1002.0)
+        self.assertEqual(self.github.calls['job_logs'], reads)
+
+    def test_a_successful_attempt_that_names_no_saved_failure_is_read_once(self):
+        self.github.failed(9, 2, 3)
+        self.observe(self.plan(self.direct()), 'poll-1', 1000.0)
+        self.github.checks = []
+        self.github.passed(19, 2, 4, attempt=2, lines=['--- PASS: TestOther (0.01s)'])
+        first = self.observe(self.plan(self.direct()), 'poll-2', 1001.0)
+        self.assertEqual(first['registry'], {'recorded': 0, 'gaps': []})
+        reads = Counter(self.github.calls)
+        self.observe(self.plan(self.direct()), 'poll-3', 1002.0)
+        delta = self.github.calls - reads
+        self.assertEqual((delta['job_logs'], delta['actions/attempts'], delta['actions/jobs']), (0, 0, 0))
+        # A new saved failure of that job at the head is worth reading the same attempt again.
+        self.github.failed(10, 5, 6, lines=['=== RUN   TestOther', '    other.go:3: boom', '--- FAIL: TestOther (0.1s)',
+                                             'FAIL', 'exit status 1'])
+        self.observe(self.plan(self.direct()), 'poll-4', 1003.0)
+        self.assertEqual(self.github.calls['job_logs'] - reads['job_logs'], 0, 'the failure is saved after passes')
+        again = self.observe(self.plan(self.direct()), 'poll-5', 1004.0)
+        self.assertEqual((self.github.calls['job_logs'] - reads['job_logs'], again['registry']['recorded']), (1, 1))
+
+    def test_saved_observations_are_inspected_without_github_reads(self):
+        self.unaffirmed()
+        self.history()
+        calls = Counter(self.github.calls)
+        context = {'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky'}
+        page = ci_flakes.saved(self.registry(read_only=True), 'GitHub.com/Owner/Repo', context=context, limit=1)
+        self.assertEqual((page['saved'], page['verified'], page['waives'], page['authority'], page['total'],
+                          page['next_offset']), (True, False, False, 'none', 2, 1))
+        self.assertEqual((page['items'][0]['outcome'], page['items'][0]['run_id'], page['items'][0]['attempt']),
+                         ('fail', '2', 1))
+        self.assertIn('intermittent gateway timeout', page['items'][0]['lines'])
+        rest = ci_flakes.saved(self.registry(read_only=True), PR['repository'], context=context, offset=1)
+        self.assertEqual(([item['outcome'] for item in rest['items']], rest['next_offset']), (['pass'], None))
+        other = ci_flakes.saved(self.registry(read_only=True), 'github.com/owner/other')
+        self.assertEqual((other['items'], other['total']), ([], 0))
+        self.assertEqual(self.github.calls, calls, 'saved inspection reads nothing from GitHub')
+        for arguments, path in (({'repository': 'owner/repo'}, 'repository'),
+                                ({'context': {'workflow': WORKFLOW}}, 'context'),
+                                ({'limit': 101}, 'limit')):
+            with self.subTest(path=path), self.assertRaises(admission.AdmissionError) as raised:
+                ci_flakes.saved(self.registry(read_only=True), **{'repository': PR['repository'], **arguments})
+            self.assertTrue(raised.exception.path.startswith(path))
+        # Without a state namespace there is nothing saved, and nothing is created.
+        empty = tempfile.TemporaryDirectory(prefix='cfw registry ')
+        self.addCleanup(empty.cleanup)
+        with patch.dict('os.environ', {'CF_WORKFLOWS_STATE': empty.name}):
+            self.assertEqual(ci_flakes.saved(Registry(self.root, read_only=True), PR['repository'])['total'], 0)
+        self.assertEqual(list(Path(empty.name).iterdir()), [])
+
+    def ledger_for(self, pr, run):
+        ledger = Ledger(self.root, run, pr['url'])
+        self.ledgers.append(ledger)
+        return ledger
+
 # -- Fork workflow approval ---------------------------------------------------------------------------
 
 class ForkGitHub(PublicationGitHub):
@@ -642,6 +1060,35 @@ class ForkApproval(Helpers):
                          {'invoke': False, 'proposal': {}})
         self.assertEqual(publishing.merge_proposal(self.root, self.github, ledger, plan, {}),
                          {'invoke': False, 'proposal': {}})
+
+    def test_merge_bridge_approves_fork_runs_then_merges_only_after_ci_succeeds(self):
+        self.github.gate(41)
+        result, plan, ledger = self.review({'merge': grant('merge'), 'approve_fork_ci': grant('fork')},
+                                           {'merge': True, 'approve_fork_ci': True})
+        self.assertTrue(result['merge_authorized'] and result['fork_ci_authorized'])
+        # main.yml fork_ci, then merge_ci: the approved run is executing, so CI is pending.
+        listing, receipts = self.fork_barrier(plan, ledger)
+        self.assertEqual(([item['payload'] for item in listing['items']], self.github.calls['approve']),
+                         ([{'run_id': 41, 'attempt': 1}], 1))
+        self.github.ci = {'status': 'in_progress', 'conclusion': None}
+        waiting = ci.observe(self.github, plan, ledger, 'merge-ci-1')
+        self.assertEqual((waiting['pending'], waiting['ready']), (True, False))
+        self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, plan, {})['invoke'])
+        # A failed run settles the wait without readiness: nothing merges.
+        self.github.ci = {'status': 'completed', 'conclusion': 'failure'}
+        self.assertEqual(ci.observe(self.github, plan, ledger, 'merge-ci-2')['failed'], True)
+        self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, plan, {})['invoke'])
+        self.github.ci = {'status': 'completed', 'conclusion': 'success'}
+        self.assertTrue(ci.observe(self.github, plan, ledger, 'merge-ci-3')['ready'])
+        final = publishing.merge_proposal(self.root, self.github, ledger, plan, {})
+        self.assertTrue(final['invoke'], final)
+        self.assertEqual(self.publish(plan, ledger, final['proposal'])['receipt']['kind'], 'merge')
+        self.assertEqual((self.github.calls['approve'], self.writes()), (1, 2))
+        # A wait still pending when its head's retained window ends fails merge_ci, so nothing merges.
+        self.github.ci = {'status': 'in_progress', 'conclusion': None}
+        with patch('prfix.ci.time.time', return_value=time.time() + 86400 * 2):
+            with self.assertRaises(TimeoutError):
+                ci.observe(self.github, plan, ledger, 'merge-ci-4')
 
     def test_no_gated_run_is_the_verified_noop(self):
         _, plan, ledger = self.review()

@@ -430,12 +430,19 @@ class GitHub:
         return result
 
     def failure_logs(self, pr, run_id, job_id, attempt):
+        return self._job_log(pr, run_id, job_id, attempt, "--log-failed")
+
+    def job_logs(self, pr, run_id, job_id, attempt):
+        """Complete logs of one exact job attempt: named pass evidence for the CI registry."""
+        return self._job_log(pr, run_id, job_id, attempt, "--log")
+
+    def _job_log(self, pr, run_id, job_id, attempt, selection):
         self._bind(pr)
         if (not str(run_id).isdigit() or not str(job_id).isdigit()
                 or isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1):
-            raise ValueError("exact failed run/job/attempt required")
+            raise ValueError("exact run/job/attempt required")
         return run(self.root, ["gh", "run", "view", str(run_id), "--job", str(job_id),
-                               "--attempt", str(attempt), "--log-failed", "--repo",
+                               "--attempt", str(attempt), selection, "--repo",
                                pr["repository"]], env=self._environment()).decode("utf-8", errors="strict")
 
 

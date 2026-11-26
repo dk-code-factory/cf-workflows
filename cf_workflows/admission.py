@@ -77,6 +77,9 @@ LIMIT_BOUNDS = {'review_cycles': (1, 10), 'retries_per_task': (0, 1),
                 'ci_repairs_per_cycle': (0, 5), 'ci_reruns_per_head': (0, 3),
                 # Scheduling only: concurrently launched reviewers per parallel group; 0 adds no cap (#29).
                 'max_parallel_reviewers': (0, 64)}
+# CI poll delay, per-attempt classification window and absent-check grace, in seconds (#35).
+CI_WINDOWS = {'poll_interval_seconds': (1, 3600), 'classification_timeout_seconds': (1, 3600),
+              'no_checks_grace_seconds': (0, 86400)}
 BASE_CAPABILITIES = ('native_session', 'admitted_roles')
 # Supplied-skill capability profiles, named exactly as Agent Workflow #139 pins them
 # (pkg/clirunner/skill.go): each provider runtime admits a selected skill only under its profile.
@@ -1001,7 +1004,8 @@ def check_option(name, value, path, resources):
             low, high = LIMIT_BOUNDS[key]
             require(type(item) is int and low <= item <= high, f'{path}.{key}', f'must be an integer in {low}..{high}')
     elif name == 'ci':
-        fields(value, path, (), ('timeout_seconds', 'pending_extension_seconds', 'max_pending_extensions'))
+        fields(value, path, (), ('timeout_seconds', 'pending_extension_seconds', 'max_pending_extensions',
+                                 *CI_WINDOWS))
         timeout = value.get('timeout_seconds', 1800)
         require(type(timeout) is int and 1 <= timeout <= 86400, path + '.timeout_seconds', 'must be 1..86400')
         # One pending-only extension of the retained window (cf-workflows:dk-ci, docs/ci-skills.md).
@@ -1010,6 +1014,11 @@ def check_option(name, value, path, resources):
                 'must be 0..86400')
         extensions = value.get('max_pending_extensions', 0)
         require(type(extensions) is int and extensions in (0, 1), path + '.max_pending_extensions', 'must be 0 or 1')
+        # Poll delay, classification window and absent-check grace (docs/ci-skills.md).
+        for key, (low, high) in CI_WINDOWS.items():
+            if key in value:
+                require(type(value[key]) is int and low <= value[key] <= high, path + '.' + key,
+                        f'must be an integer in {low}..{high}')
     elif name == 'settings':
         # String settings could carry instructions; they need a typed declaration first.
         for key, item in value.items():

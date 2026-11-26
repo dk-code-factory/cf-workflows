@@ -49,7 +49,9 @@ The adapter procedures:
   team review request. Merge needs current review, so a merge request runs the
   incoming-review preset. A current review in that run is reused without a
   session, because review-mode permissions do not bind analysis
-  (`capture.py`). A merge cannot be combined with other actions in one call.
+  (`capture.py`). A merge cannot be combined with other actions in one call,
+  except a separately authorized fork workflow approval through the
+  [standalone-to-merge bridge](ci-skills.md#standalone-to-merge-bridge).
 - **Review posting** is [finding publication](review.md#finding-publication)
   (`findings.py`): verified findings inline only on the changed line they
   name, every other substantive finding in the body, summary suppression, and

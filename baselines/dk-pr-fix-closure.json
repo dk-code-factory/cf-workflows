@@ -364,6 +364,10 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-asd-ste100/SKILL.md",
       "reason": "Prose cleanup skill entry point (#33); no upstream counterpart (docs/prose.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/registry.py",
+      "reason": "Shared cross-PR registry of named CI test outcomes (#35); no upstream counterpart (docs/ci-skills.md)."
     }
   ],
   "corrections": [
