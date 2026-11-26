@@ -464,6 +464,31 @@ class Approvers(unittest.TestCase):
             key: [{('login' if key == 'reviewers' else 'slug'): name, 'reason': 'Relevant evidence.',
                    'sources': sources} for name, sources in value] for key, value in chosen.items()}})
 
+    def test_codeowners_patterns_follow_github_matching(self):
+        cases = [('*', 'a/b.py', True), ('*.py', 'src/x.py', True), ('/docs/', 'docs/a.md', True),
+                 ('docs/', 'x/docs/a.md', True), ('/docs/', 'x/docs/a.md', False), ('apps/', 'apps/x/y', True),
+                 ('docs/*', 'docs/getting-started.md', True), ('docs/*', 'docs/build-app/troubleshooting.md', False),
+                 ('src/*.py', 'src/a.py', True), ('src/*.py', 'src/b/a.py', False),
+                 ('src/**/a.py', 'src/b/c/a.py', True), ('/build/logs/', 'build/logs/x', True),
+                 ('apps/github', 'apps/github/x.rb', True), ('**/logs', 'deep/logs/x', True)]
+        for pattern, path, expected in cases:
+            with self.subTest(pattern=pattern, path=path):
+                self.assertEqual(approvers._pattern(pattern)(path), expected)
+        # GitHub's documented example: `docs/*` owns direct children only, so the nested directory's
+        # earlier, more specific rule still wins there even though `docs/*` comes last.
+        git(self.repo, 'switch', '-q', 'change')
+        self.write('.github/CODEOWNERS', 'docs/build-app/ @app-owner\ndocs/* @docs-owner\n')
+        self.write('docs/getting-started.md', 'Start.\n')
+        self.write('docs/build-app/troubleshooting.md', 'Fix.\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Docs')
+        revision = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'switch', '-q', 'main')
+        owners = approvers.codeowners(self.repo, revision, ['docs/getting-started.md',
+                                                            'docs/build-app/troubleshooting.md'], 'owner')['owners']
+        self.assertEqual(owners['docs/getting-started.md'], [('user', 'docs-owner', '.github/CODEOWNERS:2')])
+        self.assertEqual(owners['docs/build-app/troubleshooting.md'], [('user', 'app-owner', '.github/CODEOWNERS:1')])
+
     def test_an_exact_override_skips_discovery_including_an_empty_one(self):
         for override in ({'reviewers': [], 'team_reviewers': []},
                          {'reviewers': ['author', 'Zed'], 'team_reviewers': ['core']}):

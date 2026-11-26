@@ -113,7 +113,8 @@ discovery. A malformed or duplicate override rejects.
 - every page of its reviews (bounded);
 - the changed paths and the CODEOWNERS of the target revision from the local
   checkout (`.github/CODEOWNERS`, then `CODEOWNERS`, then `docs/CODEOWNERS`; the
-  last matching rule wins);
+  last matching rule wins, and a wildcard last segment such as `docs/*` matches
+  only at its own depth);
 - the repository permission of each candidate.
 
 Candidates are existing requested users and teams, earlier non-dismissed human

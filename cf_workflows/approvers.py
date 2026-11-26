@@ -81,10 +81,18 @@ def _pattern(raw):
     if not pattern or any(char in pattern for char in '\\[!'):
         return None
 
+    # A literal last segment names the file itself or a directory containing it (a trailing / only
+    # a directory). A wildcard last segment without ** matches at exactly its depth, as GitHub
+    # documents: `docs/*` owns docs/a.md but not docs/build-app/b.md.
+    exact = not directory and '**' not in pattern and any(char in pattern.split('/')[-1] for char in '*?')
+
     def matches(path):
-        # The pattern names the file itself or a directory containing it; a trailing / only a directory.
         parts = path.split('/')
         for start in [0] if anchored else range(len(parts)):
+            if exact:
+                if _glob(pattern, '/'.join(parts[start:])):
+                    return True
+                continue
             for end in range(start + 1, len(parts) + (0 if directory else 1)):
                 if _glob(pattern, '/'.join(parts[start:end])):
                     return True
