@@ -209,7 +209,7 @@ class Entries(PreflightFixture):
         both = {'merge': grant('merge'), 'approve_fork_ci': grant('fork')}
         result = publish(both, {'merge': True, 'approve_fork_ci': True})
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
-        self.assertEqual((result['installation']['entry'], result['entry']['preset']), ('workflows/review.yml', 'merge'))
+        self.assertEqual((result['installation']['entry'], result['entry']['preset']), ('workflows/publish.yml', 'merge'))
         self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'merge', 'approve_fork_ci'})
         self.assertEqual(result['entry']['capabilities']['approve_fork_ci']['entry'], 'dk-ci-approve')
         # The bridge needs both grants and both permissions; merge never implies the approval.

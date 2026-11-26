@@ -193,7 +193,7 @@ publication, gated on `fork_ci_authorized`.
 
 ## Standalone-to-merge bridge
 
-A merge request (dk-pr-publish's merge preset, review mode) may also carry an
+A merge request (dk-pr-publish's merge preset: `publish.yml` running `main.yml` in review mode) may also carry an
 `approve_fork_ci` grant (`dk_pr_publish.BRIDGES`). The grant still needs its
 own permission, and merge never implies it. dk-ci-approve itself still takes
 no other action. In `main.yml`:

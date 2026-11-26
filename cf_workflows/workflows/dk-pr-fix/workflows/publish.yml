@@ -99,6 +99,7 @@ name: cf-workflows:dk-pr-publish
           create_draft_prs: false
           request_review: false
           rerun_ci: false
+          approve_fork_ci: false
           merge: false
       ci:
         type: object
