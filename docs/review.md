@@ -203,6 +203,11 @@ publication helpers list only verified findings and the final merge there.
   unverified and rejected findings, unchanged reruns and a new head, response
   loss before and after the effect, an existing pending draft, a draft after
   preparation, conclusive pending-review rejection and provisional analysis.
+  For #23 it also checks a partial review analyzed while PR metadata lags: no
+  finding is listed or prepared while provisional, the reconciled run reuses
+  the reviewer and verifier results with no new session, a renewed lag before
+  dispatch withholds everything again, and the eventual `COMMENT` establishes
+  no clean review, approval or readiness.
 - [`tests/test_routing.py`](../tests/test_routing.py) uses a fake GitHub
   transport that answers only the two identity reads, at most once each. Any
   other operation fails. Cases cover own and other PRs, multi-host accounts,
