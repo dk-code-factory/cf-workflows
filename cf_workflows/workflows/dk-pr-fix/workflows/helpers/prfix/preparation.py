@@ -76,33 +76,16 @@ def handle(operation, request, root, provider):
     if operation == "snapshot_request":
         if set(inputs) != {"request"}:
             raise ValueError("snapshot requires request path")
-        relative = text(inputs["request"], "request path")
-        if not REQUEST.fullmatch(relative):
-            raise ValueError("request must be a staged requests/<sha256>.json in the state namespace")
-        path = base / relative
-        if path.parent.is_symlink() or path.is_symlink():
-            raise ValueError("request must not traverse symlinks")
-        # Retain the first complete read before subsequent result bookkeeping.
-        # A lost receipt cannot silently replace the exact original request.
-        staged = base / "preparations" / (ident + ".request.json")
-        if staged.is_symlink():
-            raise ValueError("request snapshot receipt must not be a symlink")
-        if staged.exists():
-            retained = bounded_json(staged.read_bytes())
-            if retained.get("input") != fingerprint:
-                raise ValueError("request snapshot identity conflict")
-            reference = retained["snapshot"]
-            validate_request(read_artifact(root, reference))
-        else:
-            if not path.is_file() or path.stat().st_size > 1 << 20:
-                raise ValueError("request must be a bounded regular JSON file")
-            data = path.read_bytes()
-            if path.name != hashlib.sha256(data).hexdigest() + ".json":
-                raise ValueError("staged request differs from its content name")
-            snapshot = validate_request(bounded_json(data))
-            reference = artifact(root, snapshot)
-            atomic_json(staged, {"input": fingerprint, "snapshot": reference})
-        output = {"snapshot": reference}
+        output = {"snapshot": _snapshot(root, base, inputs["request"], ident, fingerprint)}
+    elif operation == "entry_preset":
+        # A direct publication entry's routing (publish.yml): its declared preset for the
+        # exact staged request, or a rejection before any session or effect.
+        if set(inputs) != {"request", "entry"}:
+            raise ValueError("entry preset requires request path and entry")
+        from .prepare import ENTRY_PRESETS, entry_preset
+        request = read_artifact(root, _snapshot(root, base, inputs["request"], ident, fingerprint))
+        preset = entry_preset(text(inputs["entry"], "entry"), request.get("authorizations", {}))
+        output = {"preset": preset, "mode": ENTRY_PRESETS[preset][0]}
     elif operation == "prepare":
         if set(inputs) != {"snapshot", "controls"}:
             raise ValueError("prepare requires immutable snapshot and YAML controls")
@@ -115,3 +98,34 @@ def handle(operation, request, root, provider):
     reference = artifact(root, {"input": fingerprint, "result": result})
     atomic_json(base / "preparations" / (ident + ".json"), {"input": fingerprint, "artifact": reference})
     return {**response, "result": result}
+
+
+def _snapshot(root, base, relative, ident, fingerprint):
+    """The retained snapshot reference of a staged request; the first complete read wins."""
+    relative = text(relative, "request path")
+    if not REQUEST.fullmatch(relative):
+        raise ValueError("request must be a staged requests/<sha256>.json in the state namespace")
+    path = base / relative
+    if path.parent.is_symlink() or path.is_symlink():
+        raise ValueError("request must not traverse symlinks")
+    # Retain the first complete read before subsequent result bookkeeping.
+    # A lost receipt cannot silently replace the exact original request.
+    staged = base / "preparations" / (ident + ".request.json")
+    if staged.is_symlink():
+        raise ValueError("request snapshot receipt must not be a symlink")
+    if staged.exists():
+        retained = bounded_json(staged.read_bytes())
+        if retained.get("input") != fingerprint:
+            raise ValueError("request snapshot identity conflict")
+        reference = retained["snapshot"]
+        validate_request(read_artifact(root, reference))
+    else:
+        if not path.is_file() or path.stat().st_size > 1 << 20:
+            raise ValueError("request must be a bounded regular JSON file")
+        data = path.read_bytes()
+        if path.name != hashlib.sha256(data).hexdigest() + ".json":
+            raise ValueError("staged request differs from its content name")
+        snapshot = validate_request(bounded_json(data))
+        reference = artifact(root, snapshot)
+        atomic_json(staged, {"input": fingerprint, "snapshot": reference})
+    return reference

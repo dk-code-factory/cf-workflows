@@ -22,6 +22,12 @@ skills:
   - name: dk-pr-feedback-reply
     path: skills/dk-pr-feedback-reply/SKILL.md
     workflow: workflows/feedback-reply.yml
+  - name: dk-pr-publish
+    path: skills/dk-pr-publish/SKILL.md
+    workflow: workflows/publish.yml
+  - name: dk-pr-review-post
+    path: skills/dk-pr-review-post/SKILL.md
+    workflow: workflows/review-post.yml
 resources:
   - LICENSE
   - agents.yml

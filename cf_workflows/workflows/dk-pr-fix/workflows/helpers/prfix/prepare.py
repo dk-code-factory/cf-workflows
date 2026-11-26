@@ -61,6 +61,51 @@ def validation_commands(raw):
     return [list(command) for command in raw]
 
 
+# Direct publication entries (#31; docs/publication-skills.md): every public action
+# they publish belongs to one entry and one preset, and each preset runs in one
+# mode with one stage shape. entry_preset and prepare reject an undeclared,
+# foreign or mixed action inside the installed package, before any effect.
+ENTRY_ACTIONS = {
+    "dk-pr-publish": {"push": "changes", "edit_pr": "changes", "reply": "changes", "resolve_thread": "changes",
+                      "request_review": "changes", "create_pr": "changes", "rerun_ci": "changes",
+                      "merge": "merge"},
+    "dk-pr-review-post": {"post_findings": "review-post", "approve_pr": "review-post"},
+}
+# Each preset: its mode, its stage kinds in order and the adapters of its leading task stage.
+ENTRY_PRESETS = {"changes": ("fix", ["tasks", "publication"], ["prepare-publication"]),
+                 "merge": ("review", ["tasks", "reviews"], ["read-feedback"]),
+                 "review-post": ("review", ["tasks", "reviews"], ["read-feedback"])}
+# Actions that other entries own; no publication entry dispatches them.
+ENTRY_OWNERS = {
+    "approve_fork_ci": "fork workflow approval belongs to cf-workflows:dk-ci-approve",
+    "create_issue": "issue creation belongs to cf-workflows:dk-issue (#32)",
+    "edit_issue": "issue edits belong to cf-workflows:dk-issue (#32)",
+}
+
+
+def entry_preset(entry, authorizations):
+    """The preset of a direct publication entry for the requested actions; anything else rejects."""
+    if entry not in ENTRY_ACTIONS:
+        raise ValueError("unknown publication entry")
+    if not isinstance(authorizations, dict) or not authorizations:
+        raise ValueError("cf-workflows:" + entry + " needs an explicit authorization for each action it publishes; "
+                         "a configured permission never supplies one")
+    presets = set()
+    for action in sorted(authorizations):
+        if action in ENTRY_OWNERS:
+            raise ValueError(action + ": " + ENTRY_OWNERS[action])
+        owner = next((name for name, actions in ENTRY_ACTIONS.items() if action in actions), None)
+        if owner is None:
+            raise ValueError(str(action) + ": no declared publication capability")
+        if owner != entry:
+            raise ValueError(action + " belongs to cf-workflows:" + owner)
+        presets.add(ENTRY_ACTIONS[entry][action])
+    if len(presets) != 1:
+        raise ValueError("merge needs current independent review of the published head; publish changes and merge "
+                         "in separate invocations")
+    return presets.pop()
+
+
 def _selection(raw):
     call = {"task": raw} if isinstance(raw, str) else raw
     if not isinstance(call, dict) or len(set(call) & {"task", "skill", "stage"}) != 1:
@@ -195,11 +240,19 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     pr = identity(request["pr"])
     instructions = text(request.get("instructions"), "exact original instruction")
     execution_fingerprint = text(execution_fingerprint, "admitted execution fingerprint")
-    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode", "validation_commands"}:
+    if not isinstance(controls, dict) or set(controls) - {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method", "settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry"}:
         raise ValueError("unsupported YAML preparation input")
     mode = controls.get("mode", "fix")
     if mode not in MODES:
         raise ValueError("unsupported plan mode")
+    entry = controls.get("entry", "")
+    preset = None
+    if entry:
+        # A direct publication entry runs exactly its preset (publish.yml, review-post.yml).
+        preset = entry_preset(entry, request.get("authorizations", {}))
+        if ENTRY_PRESETS[preset][0] != mode:
+            raise ValueError("cf-workflows:" + entry + " runs its " + preset + " preset in "
+                             + ENTRY_PRESETS[preset][0] + " mode only")
     turns = controls.get("turns", 8)
     if type(turns) is not int or not 5 <= turns <= 2147483647:
         raise ValueError("turn allowance must support at least five retained turns")
@@ -209,7 +262,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if set(definitions) != {"leaf", "reviewer", "verifier", "fixer", "audience"}:
         raise ValueError("five explicit native definitions required")
     options = {key: value for key, value in controls.items()
-               if key not in {"settings", "resources", "adapters", "turns", "mode", "validation_commands"}}
+               if key not in {"settings", "resources", "adapters", "turns", "mode", "validation_commands", "entry"}}
     allowed_options = {"tasks", "finalizers", "reviewers", "limits", "permissions", "accounts", "ci", "merge_method",
                        "ci_timeout_seconds", "ci_classifications", "ci_exceptions", "before_cycle", "after_cycle"}
     if set(options) - allowed_options:
@@ -352,6 +405,13 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
 
     if mode == "review" and not any(stage["kind"] == "reviews" for stage in stages):
         raise ValueError("incoming review requires a selected reviewer stage")
+    if preset:
+        _, kinds, leading = ENTRY_PRESETS[preset]
+        first = [item["id"] for group in stages[0].get("groups", []) for item in group["tasks"]] if stages else []
+        if ([stage["kind"] for stage in stages] != kinds or any(stage["phase"] != "tasks" for stage in stages)
+                or [task["skill"] for task in tasks if task["id"] in first] != leading
+                or any(task["writes"] for task in tasks)):
+            raise ValueError("cf-workflows:" + entry + " runs exactly its " + preset + " preset")
     if any(task["kind"] == "review" for task in tasks):
         # Incoming review verifies findings independently and never fixes them.
         for key, kind, role, assignment in [

@@ -88,23 +88,23 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-feedback-read` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-feedback-address` | shared_workflow | pending | #30 | listed | 3 / 1 / 2 |
 | `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | not listed | 3 / 1 / 2 |
+| `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | listed | 4 / 1 / 3 |
 | `cf-workflows:dk-pr-description` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |
 | `cf-workflows:dk-ci-approve` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-ci` | shared_workflow | pending | #35 | not listed | 3 / 2 / 2 |
 | `cf-workflows:dk-ci-flakes` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-commit-message` | shared_workflow | pending | #32 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | not listed | 2 / 1 / 3 |
 
-`dk-pr-fix`, `dk-pr-review` and the three feedback entries are the rows in the
-plugin descriptor. Listing a row claims no runtime support: none of them has
-run through a released engine. The other 24 are library procedures or presets
-over the shared workflow. The installed workflow refuses those presets until
-each one runs as an engine-managed session.
+`dk-pr-fix`, `dk-pr-review`, the three feedback entries, `dk-pr-publish` and
+`dk-pr-review-post` are the rows in the plugin descriptor. Listing a row claims
+no runtime support: none of them has run through a released engine. The other
+22 are library procedures or presets over the shared workflow. The installed
+workflow refuses those presets until each one runs as an engine-managed session.
 
 ## Inherited defects
 

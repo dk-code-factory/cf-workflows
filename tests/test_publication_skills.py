@@ -23,8 +23,9 @@ import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures 
 from prfix import app, publishing
 from prfix.capture import HTTPFailure
 from prfix.core import digest, read_artifact
-from prfix.prepare import prepare
+from prfix.prepare import ENTRY_ACTIONS, ENTRY_OWNERS, ENTRY_PRESETS, entry_preset, prepare
 from prfix.publication import EXTENSIONS, ISSUE_KINDS, SUPPORTED, PendingReview, PublicationError, UncertainEffect
+import git_fixture
 from test_dk_pr_review import AGENTS, PR_URL, adapters
 from test_dk_pr_review_findings import CONFLICT, INLINE, SUBJECT, Fixture as FindingsFixture, GitHub as FindingsGitHub
 from test_publication import review_page, review_request
@@ -126,11 +127,13 @@ class Helpers(FindingsFixture):
         self.audiences = 0
 
     def plan(self, tasks, reviewers, authorizations, permissions, mode, run, settings=None,
-             instructions="Review this PR."):
+             instructions="Review this PR.", entry=None):
         table = {**adapters(), **{name: dict(admission.BUNDLED_ADAPTERS[name])
                                   for name in ("prepare-publication", "describe-pr")}}
         controls = {"tasks": tasks, "finalizers": [], "reviewers": reviewers, "adapters": table, "accounts": [],
                     "settings": settings or {}, "resources": [], "turns": 8, "mode": mode, "permissions": permissions}
+        if entry is not None:
+            controls["entry"] = entry  # publish.yml or review-post.yml (plugin.yaml).
         request = {"pr": PR_URL, "instructions": instructions, "logical_run": run, "authorizations": authorizations}
         result = prepare(self.root, request, controls, "exec-1", self.github, self.definitions)
         return result, read_artifact(self.root, result["plan"])
@@ -479,6 +482,129 @@ class DirectMerge(Helpers):
         self.assertEqual(self.writes(), 1)
 
 
+class InstalledRouting(Helpers):
+    """The installed helpers repeat each entry's routing, so a direct run of its workflow rejects before any effect."""
+
+    PRESETS = {"changes": (dk_pr_publish.CHANGES, "fix", "pr_fixture"),
+               "merge": (dk_pr_publish.REVIEW, "review", "review_fixture"),
+               "review-post": (dk_pr_publish.REVIEW, "review", "review_fixture")}
+
+    def run_preset(self, entry, authorizations, preset=None, **changes):
+        options, mode, run = self.PRESETS[preset or dk_pr_publish.CAPABILITIES[next(iter(authorizations))]["preset"]]
+        arguments = {"tasks": options["tasks"], "reviewers": options["reviewers"], "mode": mode, "run": run, **changes}
+        permissions = {dk_pr_publish.CAPABILITIES[a]["permission"]: True for a in authorizations
+                       if a in dk_pr_publish.CAPABILITIES}
+        return self.plan(arguments["tasks"], arguments["reviewers"], authorizations, permissions, arguments["mode"],
+                         arguments["run"], entry=entry)
+
+    def staged(self, authorizations):
+        return git_fixture.stage_request(self, {"pr": PR_URL, "instructions": "Publish exactly this.",
+                                                "authorizations": authorizations})
+
+    def route(self, reference, entry, phase="execute"):
+        import action
+        request = {"protocol": "action-v1", "phase": phase, "input": {"request": reference, "entry": entry},
+                   "context": {"operation_key": "admit:" + entry + ":" + reference, "execution_fingerprint": "exec-1"}}
+        return action.handle("entry_preset", request, self.root, self.github)
+
+    def setUp(self):
+        super().setUp()
+        self.github.evidence["metadata"]["user"] = {"id": 1, "login": "maintainer"}  # The actor's own PR.
+
+    def test_declared_actions_match_the_entry_capabilities(self):
+        # The installed table is the host CAPABILITIES table of these two entries; every other
+        # declared action (fork-CI approval, issue writes) has its own owner in both.
+        own = {action: record for action, record in dk_pr_publish.CAPABILITIES.items()
+               if record["entry"] in ENTRY_ACTIONS}
+        for action, record in own.items():
+            self.assertEqual(ENTRY_ACTIONS[record["entry"]][action], record["preset"], action)
+        self.assertEqual({a for actions in ENTRY_ACTIONS.values() for a in actions}, set(own))
+        self.assertEqual(set(ENTRY_OWNERS), set(dk_pr_publish.CAPABILITIES) - set(own) | set(dk_pr_publish.OWNERS))
+        for preset, (options, mode, _) in self.PRESETS.items():
+            self.assertEqual(ENTRY_PRESETS[preset][0], mode)
+            self.assertEqual(dk_pr_publish.PRESETS[preset]["mode"], mode)
+
+    def test_each_entry_runs_exactly_its_preset(self):
+        cases = (("dk-pr-publish", {"edit_pr": grant("e"), "request_review": grant("r")}),
+                 ("dk-pr-publish", {"merge": grant("m")}),
+                 ("dk-pr-review-post", {"post_findings": grant("p"), "approve_pr": grant("a")}))
+        for entry, authorizations in cases:
+            with self.subTest(entry=entry, actions=sorted(authorizations)):
+                result, plan = self.run_preset(entry, authorizations)
+                self.assertEqual(plan["mode"], dk_pr_publish.PRESETS[
+                    dk_pr_publish.CAPABILITIES[next(iter(authorizations))]["preset"]]["mode"])
+                self.assertEqual(set(plan["authorizations"]), set(authorizations))
+        self.assertEqual(self.writes(), 0)
+
+    def test_installed_routing_rejects_before_any_session_or_effect(self):
+        cases = [
+            ("dk-pr-publish", {}, "explicit authorization"),
+            ("dk-pr-publish", {"approve_pr": grant("a")}, "belongs to cf-workflows:dk-pr-review-post"),
+            ("dk-pr-publish", {"post_findings": grant("p")}, "belongs to cf-workflows:dk-pr-review-post"),
+            ("dk-pr-review-post", {"merge": grant("m")}, "belongs to cf-workflows:dk-pr-publish"),
+            ("dk-pr-review-post", {"push": grant("p")}, "belongs to cf-workflows:dk-pr-publish"),
+            ("dk-pr-publish", {"approve_fork_ci": grant("a")}, "dk-ci-approve"),
+            ("dk-pr-review-post", {"approve_fork_ci": grant("a")}, "dk-ci-approve"),
+            ("dk-pr-publish", {"create_issue": grant("i")}, "#32"),
+            ("dk-pr-publish", {"edit_issue": grant("i")}, "#32"),
+            ("dk-pr-publish", {"iterate": grant("i")}, "no declared publication capability"),
+            ("dk-pr-publish", {"merge": grant("m"), "push": grant("p")}, "separate invocations"),
+            ("dk-pr-fix", {"edit_pr": grant("e")}, "unknown publication entry"),
+        ]
+        for entry, authorizations, message in cases:
+            with self.subTest(entry=entry, actions=sorted(authorizations)):
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    entry_preset(entry, authorizations)
+                if entry in ENTRY_ACTIONS:
+                    with self.assertRaisesRegex(ValueError, re.escape(message)):
+                        self.run_preset(entry, authorizations, preset="changes" if entry == "dk-pr-publish"
+                                        else "review-post")
+        # A preset in the wrong mode, or with another stage shape or a writing task, never runs as the entry.
+        overrides = [
+            ("dk-pr-publish", {"edit_pr": grant("e")}, {"mode": "review", "tasks": ["read-feedback", {"stage": "reviews"}],
+                                                       "reviewers": [["review"]]}, "fix mode only"),
+            ("dk-pr-publish", {"merge": grant("m")}, {"mode": "fix", "tasks": dk_pr_publish.CHANGES["tasks"],
+                                                     "reviewers": []}, "review mode only"),
+            ("dk-pr-publish", {"edit_pr": grant("e")}, {"tasks": ["describe-pr", {"stage": "publication"}]},
+             "exactly its changes preset"),
+            ("dk-pr-publish", {"edit_pr": grant("e")}, {"tasks": ["prepare-publication", {"stage": "reviews"},
+                                                                  {"stage": "publication"}], "reviewers": [["review"]]},
+             "exactly its changes preset"),
+            ("dk-pr-review-post", {"post_findings": grant("p")}, {"tasks": [{"stage": "reviews"}]},
+             "exactly its review-post preset"),
+        ]
+        for entry, authorizations, changes, message in overrides:
+            with self.subTest(entry=entry, changes=changes):
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    self.run_preset(entry, authorizations, **changes)
+        self.assertEqual((self.writes(), self.native), (0, Counter()))
+
+    def test_installed_admit_job_routes_the_staged_request_once(self):
+        for entry, authorizations, preset, mode in (
+                ("dk-pr-publish", {"edit_pr": grant("e")}, "changes", "fix"),
+                ("dk-pr-publish", {"merge": grant("m")}, "merge", "review"),
+                ("dk-pr-review-post", {"post_findings": grant("p")}, "review-post", "review")):
+            with self.subTest(entry=entry, preset=preset):
+                reference = self.staged(authorizations)
+                self.assertEqual(self.route(reference, entry, "reconcile")["outcome"], "no_effect")
+                result = self.route(reference, entry)["result"]
+                self.assertEqual(result["output"], {"preset": preset, "mode": mode})
+                # A lost response is answered from the retained result, never re-read.
+                self.assertEqual(self.route(reference, entry, "reconcile")["result"], result)
+                self.assertTrue(self.route(reference, entry, "validate_checkpoint")["valid"] is False)
+        for entry, authorizations, message in (
+                ("dk-pr-publish", {"merge": grant("m"), "edit_pr": grant("e")}, "separate invocations"),
+                ("dk-pr-review-post", {"merge": grant("m")}, "belongs to cf-workflows:dk-pr-publish"),
+                ("dk-pr-publish", {}, "explicit authorization")):
+            with self.subTest(entry=entry, actions=sorted(authorizations)):
+                reference = self.staged(authorizations)
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    self.route(reference, entry)
+                # No routing result is retained, so neither preset job can start.
+                self.assertEqual(self.route(reference, entry, "reconcile")["outcome"], "no_effect")
+        self.assertEqual((self.writes(), self.native, self.github.calls), (0, Counter(), Counter()))
+
+
 class ApproveKind(unittest.TestCase):
     """The approve_pr extension kind on the shared Publication boundary, unit level."""
 
@@ -664,7 +790,7 @@ class Entries(PreflightFixture):
         self.assertEqual(set(inputs['adapters']), {'prepare-publication'})
         self.assertEqual({k for k, v in inputs['permissions'].items() if v}, {'edit_pr', 'request_review'})
         self.assertEqual((result['workflow'], result['installation']['entry']), ('cf-workflows:dk-pr-publish',
-                                                                                 'workflows/main.yml'))
+                                                                                 'workflows/publish.yml'))
         self.assertEqual(result['entry']['preset'], 'changes')
         self.assertEqual(result['state']['request_document']['logical_run'],
                          'pr_' + admission.digest(admission.pr_identity(self.request['pr'], 'pr'))[:32])
@@ -674,7 +800,13 @@ class Entries(PreflightFixture):
         offered['providers']['fixture-provider'].append('merge_guard')
         result = self.entry('dk-pr-publish', {'merge': grant('m')}, self.enable('merge'), capabilities=offered)
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
-        self.assertEqual((result['installation']['entry'], result['entry']['mode']), ('workflows/review.yml', 'review'))
+        self.assertEqual((result['installation']['entry'], result['entry']['mode']), ('workflows/publish.yml', 'review'))
+        # publish.yml takes the merge path's selections under its review_ inputs.
+        inputs = result['inputs']
+        self.assertFalse({'tasks', 'reviewers', 'adapters'} & set(inputs))
+        self.assertEqual((inputs['review_tasks'], inputs['finalizers'], inputs['review_reviewers']),
+                         (dk_pr_review.DEFAULTS['tasks'], [], dk_pr_review.DEFAULTS['reviewers']))
+        self.assertEqual(set(inputs['review_adapters']), {'read-feedback', 'review', 'simplify'})
         self.assertEqual(result['inputs']['merge_method'], 'squash')
         self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'merge'})
         self.assertEqual(result['state']['request_document']['logical_run'],
@@ -684,6 +816,41 @@ class Entries(PreflightFixture):
         self.assertEqual(result['inputs']['merge_method'], 'merge')
         # The engine merge guard is still required.
         self.assertEqual(self.entry('dk-pr-publish', {'merge': grant('m')}, self.enable('merge'))['preflight'], 'rejected')
+
+    def test_installed_entries_declare_and_route_every_preflight_input(self):
+        offered = copy.deepcopy(CAPABILITIES)
+        offered['providers']['fixture-provider'].append('merge_guard')
+        descriptor = (fix_preflight.INSTALL / 'plugin.yaml').read_text()
+        cases = (('dk-pr-publish', {'edit_pr': grant('e')}, 'changes', 'fix', ''),
+                 ('dk-pr-publish', {'merge': grant('m')}, 'merge', 'review', 'review_'),
+                 ('dk-pr-review-post', {'post_findings': grant('p'), 'approve_pr': grant('a')}, 'post', 'review', ''))
+        for name, authorizations, job, mode, prefix in cases:
+            with self.subTest(name=name, job=job):
+                result = self.entry(name, authorizations, self.enable(*authorizations), capabilities=offered)
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+                entry = result['installation']['entry']
+                self.assertIn(f'  - name: {name}\n    path: skills/{name}/SKILL.md\n    workflow: {entry}\n',
+                              descriptor)
+                body = (fix_preflight.INSTALL / entry).read_text()
+                self.assertIn(f'name: cf-workflows:{name}\n', body)
+                # The preset's job runs main.yml in the preset's mode under the entry's routing.
+                section = re.search(rf'\n  {job}:\n    uses: workflows/main.yml\n(.*?)(?=\n  [a-z_]+:\n|\Z)',
+                                    body, re.S).group(1)
+                self.assertIn(f'      mode: {mode}\n      entry: {name}\n', section)
+                for key in result['inputs']:
+                    self.assertRegex(body, rf'\n      {key}:\n')
+                    self.assertIn(f'{key.removeprefix(prefix)}: ${{{{ inputs.{key} }}}}', section)
+                # The installed defaults are the entry's own preset.
+                preset = dk_pr_publish.PRESETS[result['entry']['preset']]['options']
+                tasks = '\n'.join(f'        - {t}' if isinstance(t, str) else f'        - stage: {t["stage"]}'
+                                   for t in preset['tasks'])
+                self.assertRegex(body, rf'\n      {prefix}tasks:\n(?:        #.*\n)?        type: array\n'
+                                       rf'        default:\n{re.escape(tasks)}\n')
+        publish = (fix_preflight.INSTALL / 'workflows' / 'publish.yml').read_text()
+        # The installed helper routes the staged request before either preset can start.
+        self.assertIn('operation: entry_preset', publish)
+        self.assertIn("if: ${{ needs.admit.outputs.result.preset == 'changes' }}", publish)
+        self.assertIn("if: ${{ needs.admit.outputs.result.preset == 'merge' }}", publish)
 
     def test_review_post_maps_options_and_keeps_actions_separate(self):
         result = self.entry('dk-pr-review-post', {'post_findings': grant('p'), 'approve_pr': grant('a')},

@@ -79,9 +79,12 @@ Adaptations to the example:
   verifier and no `finding_fix`. Its entry `workflows/review.yml` and
   `skills/dk-pr-review/SKILL.md` are `authored`, as are the feedback entries'
   `workflows/feedback-*.yml` and `skills/dk-pr-feedback-*/SKILL.md`
-  ([feedback entries](feedback-skills.md)). A `validation_commands` input carries
-  `dk-pr-feedback-address`'s `additional_validation_commands` to the address
-  session. `accounts` are `{host, id}`
+  ([feedback entries](feedback-skills.md)) and the
+  [publication entries](publication-skills.md) `workflows/publish.yml`,
+  `workflows/review-post.yml` and their `SKILL.md` files. A `validation_commands`
+  input carries `dk-pr-feedback-address`'s `additional_validation_commands` to the
+  address session, and an `entry` input names a publication entry whose preset
+  `prepare` enforces. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
 

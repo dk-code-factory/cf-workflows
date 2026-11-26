@@ -92,10 +92,13 @@ class InstalledClosure(unittest.TestCase):
 
     def test_reusable_references_resolve_inside_the_installation(self):
         files = workflow_files()
-        # main.yml is dk-pr-fix's entry, review.yml incoming review's (docs/review.md) and
-        # feedback-*.yml the feedback entries' (docs/feedback-skills.md).
-        reachable, pending = set(), ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
-                                     'feedback-reply.yml']
+        # Every descriptor skill row names an entry: main.yml (dk-pr-fix), review.yml
+        # (docs/review.md), feedback-*.yml (docs/feedback-skills.md), publish.yml and
+        # review-post.yml (docs/publication-skills.md).
+        entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
+        self.assertEqual(entries, ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
+                                   'feedback-reply.yml', 'publish.yml', 'review-post.yml'])
+        reachable, pending = set(), list(entries)
         while pending:
             name = pending.pop()
             if name in reachable:

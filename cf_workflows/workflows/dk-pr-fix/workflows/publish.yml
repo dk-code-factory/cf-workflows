@@ -1,0 +1,188 @@
+# Authored for cf-workflows (#31); no upstream counterpart. See docs/publication-skills.md.
+# Direct publication: a preset over the shared workflow, with no orchestration of its own.
+# The installed entry_preset helper routes the exact staged request to one preset or
+# rejects it before any session or effect: the changes preset (prepare-publication, then
+# the shared publication stage, fix mode) or the merge-only path (incoming review and the
+# shared merge readiness, review mode). prepare enforces the same preset again.
+name: cf-workflows:dk-pr-publish
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - prepare-publication
+        - stage: publication
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          prepare-publication:
+            kind: task
+            writes: false
+            definition: leaf
+            assignment: "Turn the exact original request into the exact PR publication operations it asks for, with exact payloads and sources. Propose only operations that a retained authorization covers. Never propose merge, approval, finding publication, fork-CI approval or issue writes. Do not edit, commit or publish."
+            checklist:
+            - id: assignment
+              text: "Propose only what the exact request asks to publish."
+            - id: evidence
+              text: "Cite the current sources each payload relies on."
+            - id: scope
+              text: "Keep private workflow details out of payloads; never expand authority."
+      review_tasks:
+        # The merge-only path: dk-pr-review's preset, so merge has current independent review.
+        type: array
+        default:
+        - read-feedback
+        - stage: reviews
+      review_reviewers:
+        type: array
+        default:
+        - - review
+          - simplify
+      review_adapters:
+        type: object
+        default:
+          read-feedback:
+            kind: inspection
+            writes: false
+            definition: leaf
+            assignment: "Capture all actionable inline threads, review bodies and general comments; preserve source identities and obligations."
+          review:
+            kind: review
+            writes: false
+            definition: reviewer
+            assignment: "Review the actual changes against the originating issue, documented repository standards and accepted user scope. Return supported actionable findings or an evidenced no-findings report."
+            checklist:
+            - id: assignment
+              text: "Inspect the actual diff and originating requirements."
+            - id: evidence
+              text: "Verify source evidence and every concrete finding."
+            - id: scope
+              text: "Account for repository rules, changed tests and unresolved checks."
+          simplify:
+            kind: review
+            writes: false
+            definition: reviewer
+            assignment: "Review only the PR changes for bounded, behavior-preserving simplifications with a concrete maintainability benefit. Stay within changed hunks and agreed scope; report broader opportunities as deferred observations. Each finding states the complexity reduced, its scope and the verification it needs. Do not edit or publish."
+            checklist:
+            - id: assignment
+              text: "Inspect the actual changed hunks and agreed scope."
+            - id: evidence
+              text: "Support every recommendation with source evidence and a concrete benefit."
+            - id: scope
+              text: "Keep behavior and public contracts; defer out-of-scope observations."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default:
+          push_commits: false
+          edit_pr: false
+          reply_to_feedback: false
+          resolve_threads: false
+          create_draft_prs: false
+          request_review: false
+          rerun_ci: false
+          merge: false
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        # The entry's default_merge_method.
+        type: string
+        default: squash
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.changes.outputs.complete or jobs.merge.outputs.complete }}
+      ready:
+        value: ${{ jobs.changes.outputs.ready or jobs.merge.outputs.ready }}
+      provisional:
+        value: ${{ jobs.changes.outputs.provisional or jobs.merge.outputs.provisional }}
+      clean_review:
+        value: ${{ jobs.merge.outputs.clean_review }}
+jobs:
+  admit:
+    uses: workflows/helper.yml
+    with:
+      operation: entry_preset
+      payload:
+        request: ${{ inputs.request }}
+        entry: dk-pr-publish
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  changes:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+      entry: dk-pr-publish
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: admit
+    if: ${{ needs.admit.outputs.result.preset == 'changes' }}
+  merge:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.review_tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.review_reviewers }}
+      adapters: ${{ inputs.review_adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: review
+      entry: dk-pr-publish
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: admit
+    if: ${{ needs.admit.outputs.result.preset == 'merge' }}

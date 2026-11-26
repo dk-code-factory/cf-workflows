@@ -258,7 +258,7 @@ def handle(operation, request, root=None, provider=None):
         operation = text(envelope["operation"], "helper operation")
         request = {**request, "input": envelope["payload"]}
     phase = request["phase"]
-    if operation in {"snapshot_request", "prepare"}:
+    if operation in {"snapshot_request", "entry_preset", "prepare"}:
         from prfix.preparation import handle as preparation
         return preparation(operation, request, root, provider)
     inputs = request.get("input")
