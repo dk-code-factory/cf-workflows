@@ -25,9 +25,12 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   first release that ships agent-workflow #130–#133. The pin claims no support.
 - `hosts: [codex, claude]`. Host selection is independent of the execution
   provider that `agents.yml` selects.
-- `skills` lists `dk-pr-fix` and `dk-pr-review`, the inventory rows with an
-  installed workflow (`workflows/main.yml` and its [review-mode
-  preset](review.md) `workflows/review.yml`). Each `SKILL.md`, such as
+- `skills` lists the inventory rows with an installed workflow: `dk-pr-fix`
+  (`workflows/main.yml`), `dk-pr-review` (its [review-mode preset](review.md)
+  `workflows/review.yml`) and the three [feedback entries](feedback-skills.md)
+  (`workflows/feedback-read.yml`, `feedback-address.yml` and
+  `feedback-reply.yml`, which fix their task selection over `main.yml`). Each
+  `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
   runnable and list the prerequisites below. The shared toolchain adds the

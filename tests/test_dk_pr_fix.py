@@ -92,8 +92,10 @@ class InstalledClosure(unittest.TestCase):
 
     def test_reusable_references_resolve_inside_the_installation(self):
         files = workflow_files()
-        # main.yml is dk-pr-fix's entry and review.yml incoming review's (docs/review.md).
-        reachable, pending = set(), ['main.yml', 'review.yml']
+        # main.yml is dk-pr-fix's entry, review.yml incoming review's (docs/review.md) and
+        # feedback-*.yml the feedback entries' (docs/feedback-skills.md).
+        reachable, pending = set(), ['main.yml', 'review.yml', 'feedback-read.yml', 'feedback-address.yml',
+                                     'feedback-reply.yml']
         while pending:
             name = pending.pop()
             if name in reachable:

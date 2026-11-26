@@ -77,7 +77,11 @@ Adaptations to the example:
 - A `mode` input selects `fix` (the default) or `review`. Review mode is
   [incoming review](review.md): read-only tasks and reviewers, a separate
   verifier and no `finding_fix`. Its entry `workflows/review.yml` and
-  `skills/dk-pr-review/SKILL.md` are `authored`. `accounts` are `{host, id}`
+  `skills/dk-pr-review/SKILL.md` are `authored`, as are the feedback entries'
+  `workflows/feedback-*.yml` and `skills/dk-pr-feedback-*/SKILL.md`
+  ([feedback entries](feedback-skills.md)). A `validation_commands` input carries
+  `dk-pr-feedback-address`'s `additional_validation_commands` to the address
+  session. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
 

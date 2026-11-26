@@ -496,6 +496,7 @@
       ],
       "behavior": [
         "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/feedback-read.yml",
         "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py"
       ],
       "documentation": "docs/feedback-skills.md",
@@ -514,11 +515,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-feedback-address",
@@ -527,13 +528,15 @@
       ],
       "behavior": [
         "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/feedback-address.yml",
         "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py"
       ],
       "documentation": "docs/feedback-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_feedback_skills.EntryRuns.test_a_fixed_decision_needs_its_cited_paths_changed_and_intact",
-        "test_feedback_skills.EntryRuns.test_a_later_commit_to_the_fixed_file_keeps_the_fix_and_a_revert_drops_it"
+        "test_feedback_skills.EntryRuns.test_a_later_commit_to_the_fixed_file_keeps_the_fix_and_a_revert_drops_it",
+        "test_feedback_skills.EntryRuns.test_validation_commands_reach_only_the_address_session_and_must_pass"
       ],
       "composed": [
         "test_feedback_skills.EntryRuns.test_address_keeps_obligations_and_decisions_and_never_implements_twice"
@@ -545,11 +548,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-feedback-reply",
@@ -558,6 +561,7 @@
       ],
       "behavior": [
         "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/feedback-reply.yml",
         "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/responses.py"
       ],
       "documentation": "docs/feedback-skills.md",
@@ -576,11 +580,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. A custom reply_prompt needs semantic admission (#2) and stays rejected at preflight. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-review-post",

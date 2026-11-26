@@ -58,7 +58,9 @@ class Descriptor(unittest.TestCase):
         self.assertEqual(descriptor['skills'], [{'name': 'dk-pr-fix', 'path': 'skills/dk-pr-fix/SKILL.md',
                                                  'workflow': 'workflows/main.yml'},
                                                 {'name': 'dk-pr-review', 'path': 'skills/dk-pr-review/SKILL.md',
-                                                 'workflow': 'workflows/review.yml'}])
+                                                 'workflow': 'workflows/review.yml'}]
+                         + [{'name': f'dk-pr-feedback-{part}', 'path': f'skills/dk-pr-feedback-{part}/SKILL.md',
+                             'workflow': f'workflows/feedback-{part}.yml'} for part in ('read', 'address', 'reply')])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -378,8 +380,9 @@ class InventoryStatus(unittest.TestCase):
 
     def test_lists_only_delivered_rows_and_is_not_releasable(self):
         status = package.inventory_status(self.descriptor())
-        self.assertEqual(status['listed'], [{'skill': 'cf-workflows:dk-pr-fix', 'parity_status': 'not_implemented'},
-                                            {'skill': 'cf-workflows:dk-pr-review', 'parity_status': 'not_implemented'}])
+        self.assertEqual(status['listed'], [{'skill': 'cf-workflows:' + name, 'parity_status': 'not_implemented'}
+                                            for name in ('dk-pr-fix', 'dk-pr-review', 'dk-pr-feedback-read',
+                                                         'dk-pr-feedback-address', 'dk-pr-feedback-reply')])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}
@@ -389,7 +392,9 @@ class InventoryStatus(unittest.TestCase):
         self.assertFalse({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132',
                           'agent-workflow#133'} & missing)
         self.assertTrue({'engine release', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
-                         'cf-workflows:dk-pr-review', 'live acceptance: user_supplied_skill',
+                         'cf-workflows:dk-pr-review', 'cf-workflows:dk-pr-feedback-read',
+                         'cf-workflows:dk-pr-feedback-address', 'cf-workflows:dk-pr-feedback-reply',
+                         'live acceptance: user_supplied_skill',
                          'live acceptance: live_provider', 'live acceptance: github_publication',
                          'compatibility', 'acceptance matrix'} <= missing)
 

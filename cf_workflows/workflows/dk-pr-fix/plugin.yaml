@@ -13,6 +13,15 @@ skills:
   - name: dk-pr-review
     path: skills/dk-pr-review/SKILL.md
     workflow: workflows/review.yml
+  - name: dk-pr-feedback-read
+    path: skills/dk-pr-feedback-read/SKILL.md
+    workflow: workflows/feedback-read.yml
+  - name: dk-pr-feedback-address
+    path: skills/dk-pr-feedback-address/SKILL.md
+    workflow: workflows/feedback-address.yml
+  - name: dk-pr-feedback-reply
+    path: skills/dk-pr-feedback-reply/SKILL.md
+    workflow: workflows/feedback-reply.yml
 resources:
   - LICENSE
   - agents.yml
