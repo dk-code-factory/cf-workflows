@@ -192,8 +192,9 @@ provider or about Claude.
   original admitted helpers are missing is reported `blocked`, and it never
   resumes with replacement resources. An unsettled publication is reconciled
   read-only and never resent. An old dk-workflows run is never resumed here.
-  Engine-side backup and bundle commands are a fixture contract until a
-  released engine provides them.
+  The engine adapter is bound to the backup, bundle and restore commands of
+  unreleased Agent Workflow `main`. It is not supported until a released
+  engine provides them.
 
 ## Live acceptance procedures
 

@@ -70,5 +70,6 @@ reconnect, partial failure, result/claim loss and interrupted upgrades must
 reconcile the original evidence before dispatch; fixtures assert invocation
 counts. Unsupported or missing original assets block recovery rather than using
 current replacement prompts. [Upgrades, backup and restore](../../recovery.md)
-implements the suite side against fixture engine and host adapters; the engine
-side still needs a released engine.
+implements the suite side against fixture engine and host adapters, and binds
+the engine adapter to the unreleased Agent Workflow `main` maintenance CLI;
+supported recovery still needs a released engine.

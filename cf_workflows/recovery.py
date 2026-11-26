@@ -21,8 +21,10 @@ configuration is `$XDG_CONFIG_HOME/cf-workflows/configuration.json`.
   backup; an interrupted upgrade resumes and never replaces that backup.
 - `cost()` keeps fixture proxies apart from provider-reported dollar cost.
 
-The engine side (`agent-workflow backup`, `bundle` and `restore`) is reached only
-through a caller-supplied adapter; there is no released engine to bind yet.
+The engine side is reached through an adapter. `Engine` binds it to the
+`agent-workflow stop|backup|bundle|restore|resume` CLI of Agent Workflow main
+8758775 and reads the retained admitted helpers from the bundle's `assets` trees;
+no released engine has these commands yet.
 """
 import hashlib
 import json
@@ -34,6 +36,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 from cf_workflows import admission, dk_pr_fix
@@ -356,6 +359,200 @@ def _snapshot_once(suite, target, attempts):
             for connection in sources + probes:
                 connection.close()
     raise RecoveryError('retained state kept changing during the backup; retry or pause writers')
+
+
+# -- Engine ------------------------------------------------------------------------------------
+
+ENGINE_STATE = '.agent-workflow'
+# A recovery bundle of `agent-workflow bundle` (Agent Workflow main 8758775, pkg/workflows/bundle.go):
+# a gzip tar of manifest.json, state.db and these engine-owned trees.
+BUNDLE_TREES = ('workspaces', 'providers', 'invocations', 'assets')
+BUNDLE_ROOT = ('manifest.json', 'state.db')
+# A committed retained asset tree: its bundle.json and the files it lists, under files/.
+ASSET_TREE = re.compile(r'assets/([0-9a-f]{32})/([0-9a-f]{64})/')
+# The admitted helpers sit at helpers/ in the retained tree, mounted at /actions/helpers.
+HELPERS = 'helpers/'
+SHA256 = re.compile(r'[0-9a-f]{64}')
+
+
+def _members(archive):
+    """Every member of an engine bundle; anything outside its engine-owned trees rejects."""
+    import posixpath
+    seen = set()
+    for member in archive:
+        name = member.name
+        if name in seen:
+            raise RecoveryError('duplicate engine bundle entry: ' + repr(name))
+        seen.add(name)
+        parts = name.split('/')
+        unsafe = name.startswith('/') or '\\' in name or '\0' in name or any(part in ('', '.', '..') for part in parts)
+        root = parts[0] in BUNDLE_ROOT and not (len(parts) == 1 and member.isfile())
+        if unsafe or root or parts[0] not in BUNDLE_ROOT + BUNDLE_TREES:
+            raise RecoveryError('not an engine recovery bundle entry: ' + repr(name))
+        if not (member.isfile() or member.isdir() or (member.issym() and parts[0] == 'workspaces')):
+            raise RecoveryError('engine bundle entry is not a file or directory: ' + name)
+        if member.issym() and (member.linkname.startswith('/') or not posixpath.normpath(posixpath.join(
+                posixpath.dirname(name), member.linkname)).startswith('workspaces/')):
+            raise RecoveryError('engine bundle link leaves its workspaces tree: ' + name)
+        yield member
+
+
+def bundle_assets(bundle):
+    """{'origin/id': {path: sha256}} of each retained asset tree in an engine bundle.
+
+    Every tree must hold exactly the files its bundle.json lists, with their sizes
+    and digests; a tree without a manifest, or a manifest without its files, rejects.
+    """
+    manifests, files = {}, {}
+    try:
+        with tarfile.open(bundle, 'r:gz') as archive:
+            for member in _members(archive):
+                match = ASSET_TREE.match(member.name)
+                if member.name.startswith('assets/') and member.isfile() and not match:
+                    raise RecoveryError('engine bundle asset outside a retained tree: ' + member.name)
+                if not match or not member.isfile():
+                    continue
+                key, rest = '/'.join(match.groups()), member.name[match.end():]
+                data = archive.extractfile(member).read()
+                if rest == 'bundle.json':
+                    manifests[key] = data
+                elif rest.startswith('files/'):
+                    files.setdefault(key, {})[rest[len('files/'):]] = (len(data), hashlib.sha256(data).hexdigest())
+                elif rest != 'owner.json':
+                    raise RecoveryError('unexpected retained asset entry: ' + member.name)
+    except (tarfile.TarError, OSError, EOFError) as error:
+        raise RecoveryError('unreadable engine bundle: ' + str(error)) from error
+    result = {}
+    for key in sorted(set(manifests) | set(files)):
+        if key not in manifests:
+            raise RecoveryError('retained asset tree has no bundle.json: assets/' + key)
+        try:
+            manifest = json.loads(manifests[key])
+        except ValueError as error:
+            raise RecoveryError('unreadable retained asset manifest: assets/' + key) from error
+        origin, ident = key.split('/')
+        if not isinstance(manifest, dict) or (manifest.get('origin_run_id'), manifest.get('id')) != (origin, ident):
+            raise RecoveryError('retained asset manifest names another tree: assets/' + key)
+        # The historical helper bundle lists files; a versioned asset bundle lists entries with a kind.
+        entries = manifest.get('entries') if manifest.get('version') else manifest.get('files')
+        if not isinstance(entries, list):
+            raise RecoveryError('retained asset manifest lists no files: assets/' + key)
+        listed = {}
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get('kind', 'file') not in ('file', 'directory'):
+                raise RecoveryError('unsupported retained asset entry: assets/' + key)
+            if entry.get('kind', 'file') == 'directory':
+                continue
+            if (not isinstance(entry.get('path'), str) or not isinstance(entry.get('size'), int)
+                    or not SHA256.fullmatch(str(entry.get('sha256')))):
+                raise RecoveryError('invalid retained asset file entry: assets/' + key)
+            listed[entry['path']] = (entry['size'], entry['sha256'])
+        if files.get(key, {}) != listed:
+            raise RecoveryError('retained asset files differ from their manifest: assets/' + key)
+        result[key] = {path: digest for path, (_, digest) in sorted(listed.items())}
+    return result
+
+
+def helper_digest(files):
+    """The helper-manifest digest of a retained tree's helpers/, as an admitted plan records it; None without them."""
+    helpers = {path[len(HELPERS):]: digest for path, digest in files.items() if path.startswith(HELPERS)
+               and '__pycache__' not in path.split('/') and not path.endswith('.pyc')}
+    return admission.digest(helpers) if helpers else None
+
+
+class Engine:
+    """The engine adapter bound to the `agent-workflow` CLI of one workspace.
+
+    It reaches the maintenance commands of Agent Workflow main 8758775 (`stop`,
+    `backup`, `bundle`, `restore`, `resume`); no released engine has them yet.
+    status() reports the controller stopped only when the workspace's execution
+    owner lock is free, the same lock `backup`, `bundle` and `restore` take.
+    """
+
+    def __init__(self, cli, workspace, *, timeout=600, environment=None):
+        self.cli, self.workspace = str(cli), Path(workspace).resolve()
+        self.state = self.workspace / ENGINE_STATE
+        self.timeout, self.environment = timeout, environment
+
+    def command(self, verb, *args, workspace=True):
+        argv = [self.cli, verb, *(('--workspace', str(self.workspace)) if workspace else ()), *map(str, args)]
+        completed = subprocess.run(argv, capture_output=True, timeout=self.timeout, env=self.environment,
+                                   cwd=self.workspace, stdin=subprocess.DEVNULL)
+        if completed.returncode != 0:
+            raise RecoveryError(f'agent-workflow {verb} failed: '
+                                + (completed.stderr or completed.stdout).decode(errors='replace').strip()[-2000:])
+        try:
+            return json.loads(completed.stdout)
+        except ValueError as error:
+            raise RecoveryError(f'agent-workflow {verb} printed no JSON result') from error
+
+    def owned(self):
+        """Whether an execution owner (a controller or a foreground run) holds the workspace."""
+        import fcntl
+        try:
+            handle = open(self.state / 'owner.lock', 'rb')
+        except FileNotFoundError:
+            return False
+        with handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+
+    def status(self):
+        return {'controller': 'running' if self.owned() else 'stopped',
+                'version': self.command('version', workspace=False).get('version')}
+
+    def stop(self, wait=30):
+        """Ask the controller to shut down and wait until it releases the workspace."""
+        import time
+        if not self.owned():
+            return {'stopped': True}
+        result = self.command('stop')
+        deadline = time.monotonic() + wait
+        while self.owned():
+            if time.monotonic() > deadline:
+                raise RecoveryError('the engine controller did not release the workspace')
+            time.sleep(0.05)
+        return result
+
+    def backup(self, path):
+        return self.command('backup', path)
+
+    def bundle(self, path):
+        return self.command('bundle', path)
+
+    def retained(self, bundle):
+        """The helper-manifest digests of the admitted helpers the bundle's retained asset trees hold."""
+        return {digest for digest in map(helper_digest, bundle_assets(bundle).values()) if digest is not None}
+
+    def restore(self, database, bundle):
+        """Put the bundle's engine-owned trees back, then the database through `agent-workflow restore`.
+
+        Nothing is merged: an existing entry at a bundle path refuses before any
+        change. The engine quarantines every unfinished run as
+        `restore_uncertainty`; resuming it needs resume(run, retry_uncertain=True).
+        """
+        if self.owned():
+            raise RecoveryError('stop the engine controller before restoring its database and bundle')
+        assets = bundle_assets(bundle)  # Verified before anything changes.
+        with tarfile.open(bundle, 'r:gz') as archive:
+            members = [member for member in _members(archive) if member.name not in BUNDLE_ROOT]
+            existing = [member.name for member in members if os.path.lexists(self.state / member.name)
+                        and not (member.isdir() and (self.state / member.name).is_dir()
+                                 and not (self.state / member.name).is_symlink())]
+            if existing:
+                raise RecoveryError('engine state exists at bundle paths; restore never merges: '
+                                    + ', '.join(sorted(existing)[:8]))
+            self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
+            archive.extractall(self.state, members=members, filter='data')
+        return {**self.command('restore', database), 'assets': sorted(assets)}
+
+    def resume(self, run, *, retry_uncertain=False):
+        """Resume an engine run through a (re)started controller; restored work needs retry_uncertain."""
+        return self.command('resume', '--detach', *(('--retry-uncertain',) if retry_uncertain else ()), run)
 
 
 # -- Backup ------------------------------------------------------------------------------------

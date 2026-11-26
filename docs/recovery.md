@@ -82,6 +82,30 @@ install the newer release instead of downgrading. It never merges:
 - a backup that holds the engine bundle needs the engine adapter, which restores
   its database and bundle first.
 
+## Engine binding
+
+`recovery.Engine(cli, workspace)` is the engine adapter bound to the
+`agent-workflow` CLI of one engine workspace. It uses the maintenance commands
+of Agent Workflow `main` at
+[`8758775`](https://github.com/dk-code-factory/agent-workflow/blob/87587758fdb3633db744aa54d0380f31774fb1e3/cmd/agent-workflow/maintenance.go).
+No release has them yet.
+
+| Adapter call | Engine side |
+| --- | --- |
+| `status()` | The controller is `stopped` only when the workspace's `.agent-workflow/owner.lock` is free. `backup`, `bundle` and `restore` take the same lock. The version is from `agent-workflow version`. |
+| `stop()` | `agent-workflow stop`, then it waits until the lock is released. |
+| `backup(path)`, `bundle(path)` | `agent-workflow backup PATH`, `agent-workflow bundle PATH`. |
+| `retained(bundle)` | It reads the bundle's `assets/<origin>/<id>/` trees. Each tree must hold exactly the files its `bundle.json` lists, with their sizes and digests. A tree's `helpers/` files give the same helper-manifest digest that an admitted plan records. |
+| `restore(database, bundle)` | It checks the whole bundle first, and then puts its `workspaces/`, `providers/`, `invocations/` and `assets/` trees back. Then it runs `agent-workflow restore DATABASE`. It refuses an existing entry at a bundle path, before it changes anything. |
+| `resume(run, retry_uncertain=...)` | `agent-workflow resume --detach`. This restarts the controller. |
+
+A bundle entry outside these trees refuses. So do a duplicate entry, a path
+that escapes, and a link that is outside `workspaces/` or points out of it. The engine itself restores the database. It puts
+every unfinished run into `needs_attention` with `restore_uncertainty`. The
+controller then refuses to resume that run until `retry_uncertain=True`
+acknowledges that an uncertain effect can repeat. The engine checks a retained
+asset tree's identity again when it uses the tree.
+
 The state is then staged next to its final place and renamed into it. The
 report lists, per logical run:
 
@@ -187,16 +211,40 @@ adapters record native dispatches. The cases cover the following:
   operation; and an uncertain configuration write is settled by readback.
 - **Cost.** Proxies stay apart from reported cost, a later session's run is
   counted once, and unknown cost stays null.
+- **Engine binding.** `recovery.Engine` runs against a fail-closed fake of the
+  8758775 maintenance CLI. Synthetic bundles use the engine's own layout (both
+  retained-asset formats). The installed helpers in a tree map to the installed
+  helper digest. Tampered, unlisted, orphaned, stray, foreign, duplicate,
+  escaping and linked entries refuse before any change. A held owner lock refuses backup and
+  restore, and `stop()` waits for its release. Backup, total loss and restore
+  call `version`, `backup`, `bundle` and `restore` once each. A second restore
+  over restored engine state refuses. Resume needs the acknowledgement. After a
+  plugin replacement, a bundle tree with the original helpers reports the run
+  `retained` and resumes it from the restored tree. A tree with only the
+  replacement's helpers reports it `blocked`.
+- **Engine integration (opt-in).** With `CF_AGENT_WORKFLOW` set to a local
+  Agent Workflow clone, a test builds the CLI from the pinned commit, as
+  [`scripts/check_package_build.py`](../scripts/check_package_build.py) does. It
+  runs a fixture workflow on the host: one command step, then an external-input
+  gate. The test backs up the suite and the engine, deletes both, and restores
+  them. The restored run is quarantined. A resume without the acknowledgement is
+  refused, and the acknowledged resume restarts the controller. After the gate
+  is answered, the run succeeds. The completed step does not run again. No
+  provider, container or network is used.
 
 ## What remains
 
 - No released engine has the maintenance commands or retained assets used here
   (Agent Workflow #130 and the release that ships it; the plugin pins `0.2.2`,
-  which has no release). The engine adapter is a fixture contract. Its
-  `retained(bundle)` query, which reports the helper digests a bundle holds, has
-  no upstream binding yet.
-- No command or installed workflow calls these operations yet, and no real
-  engine run, provider session or host restart has been exercised.
+  which has no release). `recovery.Engine` is bound to unreleased `main`
+  (`8758775`). The opt-in integration test runs only on a source build, so no
+  engine version is supported or verified.
+- No command or installed workflow calls these operations yet. No provider
+  session or host restart has been exercised. The installed dk-pr-fix workflow
+  has not been recovered on the engine either: its helpers run as `action-v1`
+  steps in container jobs, and `agent-workflow plugin test` at `8758775` refuses
+  container jobs. So per-row recovery on the engine waits for a released engine
+  that can run the installed workflow.
 - Live dollar cost is not measured. It needs authorized live runs whose engine
   usage reports cost.
 - The entry-store cases cover each store's recovery path once through one
