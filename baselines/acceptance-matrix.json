@@ -1,0 +1,1244 @@
+{
+  "schema_version": 1,
+  "kind": "acceptance_matrix",
+  "suite": "cf-workflows",
+  "rows": [
+    {
+      "skill": "dk-pr-iter",
+      "delivery_issues": [
+        24,
+        25
+      ],
+      "behavior": [
+        "cf_workflows/routing.py"
+      ],
+      "documentation": "docs/review.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_routing.Routing.test_own_pr_routes_to_fixing_and_another_authors_to_review",
+        "test_routing.Routing.test_renamed_and_reused_logins_never_decide_ownership",
+        "test_routing.Routing.test_missing_or_inconsistent_identity_never_guesses_a_route"
+      ],
+      "composed": [
+        "test_routing.RoutedPreflight.test_routed_requests_admit_on_their_entry_points"
+      ],
+      "recovery": [
+        "test_routing.RoutedPreflight.test_analysis_only_routing_disables_every_enabled_write",
+        "test_routing.Routing.test_routing_preserves_the_exact_request_and_grants_nothing"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A router library, not a listed plugin skill; it has no installed workflow of its own. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-fix",
+      "delivery_issues": [
+        14,
+        15,
+        16
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_fix.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/main.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix"
+      ],
+      "documentation": "docs/dk-pr-fix.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_dk_pr_fix.RelocatedReadOnlyRun.test_preparation_and_first_claim_from_installed_resources",
+        "test_dk_pr_fix.Preflight.test_default_plan_maps_admitted_options_to_declared_inputs",
+        "dk_pr_fix.test_app.AppTests.test_independent_verifier_must_account_for_every_original_finding",
+        "test_dk_pr_fix_continuation.Continuation.test_relevant_changes_refresh_only_affected_occurrences"
+      ],
+      "composed": [
+        "test_dk_pr_fix_responses.BeforeReview.test_dk_workflows_255_replies_settle_before_a_failing_review_and_survive_resume",
+        "test_publication_skills.Publish.test_composed_dk_pr_fix_publication_shares_the_journal_and_never_duplicates"
+      ],
+      "recovery": [
+        "test_dk_pr_fix_continuation.Continuation.test_partial_parallel_failure_keeps_sibling_and_needs_explicit_continuation",
+        "test_recovery.Helpers.test_codex_host_partial_run_survives_backup_and_restore",
+        "test_recovery.Helpers.test_claude_host_partial_run_survives_backup_and_restore",
+        "test_dk_pr_fix.Preflight.test_publication_needs_enabled_permission_and_explicit_authorization"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": true,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Listed in the plugin descriptor, but the installed workflow has never run through a released engine. Supplied skills (#16) stay rejected at preflight until a released engine ships Agent Workflow #139. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-review",
+      "delivery_issues": [
+        24,
+        25
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_review.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/review.yml"
+      ],
+      "documentation": "docs/review.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_dk_pr_review.Helpers.test_review_mode_reads_another_authors_pr_and_never_fixes",
+        "test_dk_pr_review.Helpers.test_clean_review_needs_every_required_session_and_independent_verification",
+        "test_dk_pr_review.ReviewPreflight.test_review_preset_maps_onto_the_review_entry"
+      ],
+      "composed": [
+        "test_dk_pr_review_findings.BodyAndInline.test_mixed_findings_keep_honest_anchors_and_never_duplicate",
+        "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing"
+      ],
+      "recovery": [
+        "test_dk_pr_review_findings.RerunsAndRecovery.test_lost_response_after_the_effect_settles_by_reconciliation",
+        "test_dk_pr_review.ReviewPreflight.test_review_plans_never_write_or_publish_here"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": true,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-repo-onboard",
+      "delivery_issues": [
+        26
+      ],
+      "behavior": [
+        "cf_workflows/configuration.py",
+        "cf_workflows/entries.py"
+      ],
+      "documentation": "docs/configuration-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_configuration_skills.Onboarding.test_fresh_discovery_reports_every_source_and_saves_nothing",
+        "test_configuration_skills.Onboarding.test_unreadable_unsafe_and_uninspected_sources_leave_discovery_incomplete"
+      ],
+      "composed": [
+        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow"
+      ],
+      "recovery": [
+        "test_configuration_skills.Onboarding.test_entry_preset_cannot_expand_execution_or_publication_authority",
+        "test_configuration_skills.Onboarding.test_session_cannot_upgrade_status_govern_with_evidence_or_act"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-config",
+      "delivery_issues": [
+        26
+      ],
+      "behavior": [
+        "cf_workflows/configuration.py",
+        "cf_workflows/acceptance.py"
+      ],
+      "documentation": "docs/configuration-skills.md",
+      "composition": "boundary",
+      "direct": [
+        "test_configuration_skills.Config.test_saved_change_writes_the_exact_admitted_revision_and_reads_it_back",
+        "test_configuration_skills.Config.test_explanation_is_transient"
+      ],
+      "composed": [
+        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow"
+      ],
+      "recovery": [
+        "test_configuration_skills.Config.test_lost_write_response_is_settled_by_readback_not_retried",
+        "test_configuration_skills.Config.test_concurrent_writer_rejects_the_stale_proposal_and_a_fresh_one_is_assessed",
+        "test_recovery.ConfigurationRecovery.test_lost_write_response_is_settled_by_readback_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-preferences",
+      "delivery_issues": [
+        26
+      ],
+      "behavior": [
+        "cf_workflows/configuration.py"
+      ],
+      "documentation": "docs/configuration-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_configuration_skills.Preferences.test_new_preference_gets_explicit_modes_a_stable_id_and_readback",
+        "test_configuration_skills.Preferences.test_overlapping_preferences_need_the_user_not_an_invented_winner"
+      ],
+      "composed": [
+        "test_configuration_skills.Preferences.test_composed_pr_admission_consumes_saved_scoped_preferences"
+      ],
+      "recovery": [
+        "test_configuration_skills.Preferences.test_preferences_are_personal_or_for_this_repository",
+        "test_configuration_skills.Selection.test_admission_rejects_malformed_preference_scopes_and_targets"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-issue-alternatives",
+      "delivery_issues": [
+        27
+      ],
+      "behavior": [
+        "cf_workflows/alternatives.py"
+      ],
+      "documentation": "docs/alternatives.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_alternatives.Scope.test_issue_only_analysis_persists_nothing_and_invents_no_pr",
+        "test_alternatives.Scope.test_issue_only_question_is_asked_once_and_its_answer_is_used"
+      ],
+      "composed": [
+        "test_alternatives.Composition.test_fix_route_hands_settled_choices_and_required_changes_to_implementation"
+      ],
+      "recovery": [
+        "test_alternatives.Scope.test_issue_only_rejection_is_retried_without_a_record",
+        "test_alternatives.Presets.test_default_run_loads_no_skill_and_rejects_authority_expansion"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-alternatives",
+      "delivery_issues": [
+        27
+      ],
+      "behavior": [
+        "cf_workflows/alternatives.py",
+        "cf_workflows/alignment.py"
+      ],
+      "documentation": "docs/alternatives.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_alternatives.Selection.test_manual_choice_is_asked_once_resumed_and_sourced",
+        "test_alternatives.Scope.test_inherited_decisions_are_inventoried_and_compared",
+        "test_alternatives.Boundary.test_analysis_settles_once_per_pr_across_requirements_guidance_heads_and_routes"
+      ],
+      "composed": [
+        "test_alternatives.Composition.test_coordinators_compose_only_their_scope"
+      ],
+      "recovery": [
+        "test_alternatives.Boundary.test_interrupted_analysis_resumes_its_claim_without_a_second_session",
+        "test_alternatives.Boundary.test_retained_allowance_is_never_renewed",
+        "test_recovery.AlignmentRecovery.test_settled_stages_reuse_and_the_open_stage_resumes_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-alternatives-review",
+      "delivery_issues": [
+        27
+      ],
+      "behavior": [
+        "cf_workflows/alternatives.py"
+      ],
+      "documentation": "docs/alternatives.md",
+      "composition": "delegate",
+      "direct": [
+        "test_alternatives.Compatibility.test_routes_run_the_delegate_under_its_own_identity_with_the_original_instruction",
+        "test_alternatives.Compatibility.test_unsupported_routes_and_legacy_assignments_are_never_concealed"
+      ],
+      "composed": [
+        "test_alternatives.Compatibility.test_compatibility_reuses_settled_analysis_and_cannot_authorize_a_fresh_one"
+      ],
+      "recovery": [
+        "test_alternatives.Compatibility.test_compatibility_reuses_settled_analysis_and_cannot_authorize_a_fresh_one"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A compatibility entry whose delegate runs under the entry identity; it does not establish its delegate. A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-review-alternatives",
+      "delivery_issues": [
+        27
+      ],
+      "behavior": [
+        "cf_workflows/alternatives.py",
+        "cf_workflows/alignment.py"
+      ],
+      "documentation": "docs/alternatives.md",
+      "composition": "boundary",
+      "direct": [
+        "test_alternatives.Boundary.test_explicit_fresh_comparison_refreshes_requested_analysis_once_per_request",
+        "test_alternatives.Boundary.test_interrupted_fresh_request_resumes_without_repeating_siblings"
+      ],
+      "composed": [
+        "test_alternatives.Boundary.test_only_a_distinct_direct_user_request_authorizes_a_fresh_comparison"
+      ],
+      "recovery": [
+        "test_alternatives.Boundary.test_automatic_route_never_supersedes_an_interrupted_direct_request",
+        "test_alternatives.Boundary.test_only_a_distinct_direct_user_request_authorizes_a_fresh_comparison"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Only a distinct direct user request authorizes its fresh comparison, so composed and delegated requests are refused (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-plain-english",
+      "delivery_issues": [
+        33
+      ],
+      "behavior": [
+        "cf_workflows/prose.py"
+      ],
+      "documentation": "docs/prose.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_prose.Direct.test_direct_pass_edits_only_changed_prose_and_commits_locally",
+        "test_prose.Direct.test_no_op_needs_a_sourced_assessment_and_incomplete_passes_commit_nothing",
+        "test_prose.Direct.test_quoted_user_wording_is_kept_verbatim"
+      ],
+      "composed": [
+        "test_prose.Composed.test_composed_passes_run_in_order_through_the_same_procedure",
+        "test_prose.Composed.test_finalizer_order_replacement_and_explicit_empty_lists"
+      ],
+      "recovery": [
+        "test_prose.Direct.test_lost_response_reconciles_the_original_claim",
+        "test_prose.Direct.test_interrupted_commit_settles_from_its_intent_without_a_second_commit",
+        "test_recovery.ProseRecovery.test_accepted_pass_is_reused_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "The installed dk-pr-fix workflow refuses prose finalizers until they run as engine-managed sessions. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-asd-ste100",
+      "delivery_issues": [
+        33
+      ],
+      "behavior": [
+        "cf_workflows/prose.py"
+      ],
+      "documentation": "docs/prose.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_prose.SimplifiedTechnicalEnglish.test_unverified_pass_records_limits_and_never_claims_compliance",
+        "test_prose.SimplifiedTechnicalEnglish.test_certification_claims_and_invented_rules_are_rejected",
+        "test_prose.SimplifiedTechnicalEnglish.test_supplied_reference_enables_checks_and_refreshes_the_full_pass"
+      ],
+      "composed": [
+        "test_prose.Composed.test_composed_passes_run_in_order_through_the_same_procedure"
+      ],
+      "recovery": [
+        "test_prose.Presets.test_preset_cannot_expand_authority_or_target",
+        "test_prose.Direct.test_lost_response_reconciles_the_original_claim"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "ASD-STE100 conformance is never certified; only supplied-reference checks run. The installed dk-pr-fix workflow refuses prose finalizers until they run as engine-managed sessions. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-code-simplify",
+      "delivery_issues": [
+        29
+      ],
+      "behavior": [
+        "cf_workflows/reviewers.py"
+      ],
+      "documentation": "docs/reviewer-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_reviewer_skills.ReviewerHelpers.test_simplification_recommends_without_review_coverage_or_authority",
+        "test_reviewer_skills.ReviewerPreflight.test_simplify_options_select_one_bounded_reviewer"
+      ],
+      "composed": [
+        "test_reviewer_skills.ReviewerHelpers.test_direct_and_composed_runs_share_occurrences_and_coverage"
+      ],
+      "recovery": [
+        "test_reviewer_skills.ReviewerHelpers.test_a_simplification_policy_change_refreshes_only_that_reviewer",
+        "test_reviewer_skills.ReviewerPreflight.test_unsupported_controls_and_authority_reject_before_the_engine"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-reviewers-run",
+      "delivery_issues": [
+        29
+      ],
+      "behavior": [
+        "cf_workflows/reviewers.py"
+      ],
+      "documentation": "docs/reviewer-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_reviewer_skills.ReviewerHelpers.test_capacity_one_keeps_required_passes_and_original_sibling_reports",
+        "test_reviewer_skills.ReviewerHelpers.test_repeated_occurrences_each_need_their_own_session",
+        "test_reviewer_skills.ReviewerPreflight.test_ordered_groups_repeats_and_optional_reviewers_are_preserved"
+      ],
+      "composed": [
+        "test_reviewer_skills.ReviewerHelpers.test_direct_and_composed_runs_share_occurrences_and_coverage",
+        "test_reviewer_skills.ReviewerPreflight.test_direct_and_composed_entries_admit_the_same_reviewer_inputs"
+      ],
+      "recovery": [
+        "test_reviewer_skills.ReviewerPreflight.test_unsupported_controls_and_authority_reject_before_the_engine",
+        "test_reviewer_skills.ReviewerPreflight.test_reviewers_need_an_explicit_selection"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Supplied reviewer skills need a released engine with Agent Workflow #139. A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-approvers",
+      "delivery_issues": [
+        29
+      ],
+      "behavior": [
+        "cf_workflows/approvers.py"
+      ],
+      "documentation": "docs/reviewer-skills.md",
+      "composition": "boundary",
+      "direct": [
+        "test_reviewer_skills.Approvers.test_discovery_selects_only_eligible_evidenced_recipients",
+        "test_reviewer_skills.Approvers.test_an_exact_override_skips_discovery_including_an_empty_one",
+        "test_reviewer_skills.Approvers.test_codeowners_patterns_follow_github_matching"
+      ],
+      "composed": [
+        "test_reviewer_skills.ReviewerPreflight.test_approver_discovery_never_runs_as_a_plain_task"
+      ],
+      "recovery": [
+        "test_reviewer_skills.Approvers.test_missing_or_changed_evidence_is_never_an_empty_selection",
+        "test_reviewer_skills.Approvers.test_the_entry_has_no_authority_and_needs_a_pull_request"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "Approver discovery is refused as a plain task in a fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-feedback-read",
+      "delivery_issues": [
+        30
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py"
+      ],
+      "documentation": "docs/feedback-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_feedback_skills.EntryRuns.test_read_captures_every_page_and_truncation_never_completes",
+        "test_feedback_skills.EntryRuns.test_an_edited_source_is_assessed_again_and_keeps_its_obligation"
+      ],
+      "composed": [
+        "test_feedback_skills.EntryPreflight.test_presets_select_bundled_adapters_on_the_shared_logical_run"
+      ],
+      "recovery": [
+        "test_feedback_skills.EntryPreflight.test_each_entry_accepts_only_its_own_remote_writes",
+        "test_feedback_skills.EntryRuns.test_a_source_arriving_during_acceptance_is_left_for_the_next_read"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-feedback-address",
+      "delivery_issues": [
+        30
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/feedback.py"
+      ],
+      "documentation": "docs/feedback-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_feedback_skills.EntryRuns.test_a_fixed_decision_needs_its_cited_paths_changed_and_intact",
+        "test_feedback_skills.EntryRuns.test_a_later_commit_to_the_fixed_file_keeps_the_fix_and_a_revert_drops_it"
+      ],
+      "composed": [
+        "test_feedback_skills.EntryRuns.test_address_keeps_obligations_and_decisions_and_never_implements_twice"
+      ],
+      "recovery": [
+        "test_feedback_skills.EntryPreflight.test_each_entry_accepts_only_its_own_remote_writes",
+        "test_feedback.RejectedSuggestions.test_unauthorized_replies_block_without_removing_the_obligation"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-feedback-reply",
+      "delivery_issues": [
+        30
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_feedback.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/responses.py"
+      ],
+      "documentation": "docs/feedback-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_feedback_skills.ReplyEntry.test_refused_reply_and_denied_authority_never_count_as_answers",
+        "test_feedback_skills.EntryRuns.test_the_reply_preset_prepares_one_shared_responder_stage"
+      ],
+      "composed": [
+        "test_feedback_skills.ReplyEntry.test_standalone_replies_are_never_repeated_by_a_composed_run"
+      ],
+      "recovery": [
+        "test_feedback_skills.ReplyEntry.test_lost_reply_response_is_reconciled_on_resume_without_a_resend",
+        "test_feedback_skills.ReplyEntry.test_refused_and_uncertain_resolution_keep_the_entry_incomplete"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-review-post",
+      "delivery_issues": [
+        31
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_publish.py"
+      ],
+      "documentation": "docs/publication-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_publication_skills.ReviewPost.test_partial_review_comments_and_is_never_approved",
+        "test_publication_skills.ReviewPost.test_clean_review_is_approved_once_with_an_empty_body",
+        "test_publication_skills.Entries.test_review_post_maps_options_and_keeps_actions_separate"
+      ],
+      "composed": [
+        "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing"
+      ],
+      "recovery": [
+        "test_publication_skills.ReviewPost.test_approval_needs_its_own_grant_and_never_approves_own_pr",
+        "test_publication_skills.ReviewPost.test_lost_approval_response_after_the_effect_settles_by_reconciliation"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-description",
+      "delivery_issues": [
+        32
+      ],
+      "behavior": [
+        "cf_workflows/drafting.py"
+      ],
+      "documentation": "docs/drafting.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_drafting.Description.test_fallback_draft_is_private_without_authority_and_reused_unchanged",
+        "test_drafting.Description.test_repository_template_governs_and_validation_needs_evidence"
+      ],
+      "composed": [
+        "test_drafting.Description.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+      ],
+      "recovery": [
+        "test_drafting.Description.test_authorized_update_reconciles_lost_responses_and_never_duplicates",
+        "test_drafting.Description.test_lost_request_before_the_effect_stays_pending_and_is_never_resent",
+        "test_recovery.DraftingRecovery.test_accepted_draft_is_reused_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-decisions",
+      "delivery_issues": [
+        28
+      ],
+      "behavior": [
+        "cf_workflows/decisions.py"
+      ],
+      "documentation": "docs/decisions.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_decisions.Reconcile.test_sourced_decisions_and_contradictions_stay_distinct_until_the_user_answers",
+        "test_decisions.Publish.test_authorized_update_changes_only_the_bounded_section"
+      ],
+      "composed": [
+        "test_decisions.Composed.test_dk_pr_fix_occurrence_uses_the_same_procedure"
+      ],
+      "recovery": [
+        "test_decisions.Reconcile.test_lost_session_response_reconciles_to_the_original_claim",
+        "test_decisions.Publish.test_uncertain_publication_is_reconciled_and_never_resent",
+        "test_recovery.DecisionRecovery.test_lost_session_response_recovers_its_original_claim_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-commit-split",
+      "delivery_issues": [
+        34
+      ],
+      "behavior": [
+        "cf_workflows/splitting.py"
+      ],
+      "documentation": "docs/splitting.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_splitting.CommitSplit.test_tree_preserving_reorder_keeps_authorship_dirty_work_and_a_recovery_ref",
+        "test_splitting.CommitSplit.test_every_commit_is_assessed_and_an_unchanged_series_is_a_no_op_reused_without_a_session"
+      ],
+      "composed": [
+        "test_splitting.CommitSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+      ],
+      "recovery": [
+        "test_splitting.CommitSplit.test_interrupted_rewrite_reconciles_its_original_refs_before_continuing",
+        "test_splitting.CommitSplit.test_publication_needs_its_own_grant_an_exact_lease_and_a_clean_checkout",
+        "test_recovery.SplittingRecovery.test_interrupted_rewrite_reconciles_its_original_refs_after_restore"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-split",
+      "delivery_issues": [
+        34
+      ],
+      "behavior": [
+        "cf_workflows/splitting.py"
+      ],
+      "documentation": "docs/splitting.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_splitting.PrSplit.test_split_preserves_every_change_authorship_and_unrelated_dirty_work",
+        "test_splitting.PrSplit.test_kept_work_reports_size_and_is_reused"
+      ],
+      "composed": [
+        "test_splitting.PrSplit.test_composed_dk_pr_fix_occurrence_uses_the_same_procedure"
+      ],
+      "recovery": [
+        "test_splitting.PrSplit.test_partial_publication_failure_is_reconciled_without_a_resend",
+        "test_splitting.PrSplit.test_interrupted_split_reconciles_refs_and_the_moved_paths"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-pr-publish",
+      "delivery_issues": [
+        31
+      ],
+      "behavior": [
+        "cf_workflows/dk_pr_publish.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/publishing.py"
+      ],
+      "documentation": "docs/publication-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_publication_skills.Publish.test_direct_publication_uses_exact_intents_audience_and_receipts_once",
+        "test_publication_skills.Entries.test_changes_preset_runs_its_own_adapter_and_publication_stage_only"
+      ],
+      "composed": [
+        "test_publication_skills.Publish.test_composed_dk_pr_fix_publication_shares_the_journal_and_never_duplicates"
+      ],
+      "recovery": [
+        "test_publication_skills.Publish.test_denied_action_rejects_before_any_write",
+        "test_publication_skills.Publish.test_lost_effects_are_reconciled_and_never_resent"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-ci-approve",
+      "delivery_issues": [
+        35
+      ],
+      "behavior": [
+        "cf_workflows/dk_ci.py"
+      ],
+      "documentation": "docs/ci-skills.md",
+      "composition": "boundary",
+      "direct": [
+        "test_ci_skills.ForkApproval.test_complete_review_approves_each_eligible_run_attempt_once",
+        "test_ci_skills.ForkApproval.test_no_gated_run_is_the_verified_noop"
+      ],
+      "composed": [
+        "test_ci_skills.ForkApproval.test_dk_pr_fix_plans_never_list_or_prepare_fork_approval"
+      ],
+      "recovery": [
+        "test_ci_skills.ForkApproval.test_lost_responses_are_reconciled_and_an_uncertain_approval_is_never_resent",
+        "test_ci_skills.ForkApproval.test_other_publication_or_merge_authority_never_implies_fork_approval"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "dk-pr-fix plans never list or prepare fork approval (composition boundary). A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-ci",
+      "delivery_issues": [
+        35
+      ],
+      "behavior": [
+        "cf_workflows/dk_ci.py",
+        "cf_workflows/ci_flakes.py"
+      ],
+      "documentation": "docs/ci-skills.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_ci_skills.Observation.test_issue_backed_flake_accepts_only_its_exact_attempt",
+        "test_ci_skills.Observation.test_pending_only_extension_is_granted_once_and_survives_resume",
+        "test_ci_skills.Observation.test_mismatched_issue_evidence_never_waives_the_failure"
+      ],
+      "composed": [
+        "test_ci_skills.Observation.test_direct_and_composed_observation_share_one_window_and_never_renew_it",
+        "test_ci_skills.Entries.test_dk_ci_observes_only_in_the_shared_fix_run"
+      ],
+      "recovery": [
+        "test_ci_skills.Observation.test_interrupted_wait_resumes_the_original_window",
+        "test_ci_skills.Observation.test_exhausted_extension_allowance_is_not_replenished_in_a_new_run_ledger_connection"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-ci-flakes",
+      "delivery_issues": [
+        35
+      ],
+      "behavior": [
+        "cf_workflows/ci_flakes.py"
+      ],
+      "documentation": "docs/ci-skills.md",
+      "composition": "boundary",
+      "direct": [
+        "test_ci_skills.FlakeDiscovery.test_linked_and_candidate_contexts_come_only_from_verified_evidence",
+        "test_ci_skills.FlakeDiscovery.test_limits_targets_and_gaps_are_reported_never_coverage"
+      ],
+      "composed": [
+        "test_ci_skills.Entries.test_flake_entry_options_and_adapter_stay_in_their_entry"
+      ],
+      "recovery": [
+        "test_ci_skills.FlakeDiscovery.test_failed_reads_block_and_quiet_history_needs_no_session",
+        "test_ci_skills.FlakeDiscovery.test_the_entry_has_no_authority"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-commit-message",
+      "delivery_issues": [
+        32
+      ],
+      "behavior": [
+        "cf_workflows/drafting.py"
+      ],
+      "documentation": "docs/drafting.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_drafting.CommitMessage.test_draft_accounts_for_every_change_and_changes_no_git_state",
+        "test_drafting.CommitMessage.test_policy_replaces_fallbacks_and_validation_needs_evidence"
+      ],
+      "composed": [
+        "test_drafting.CommitMessage.test_composed_occurrence_hands_the_message_to_its_committer"
+      ],
+      "recovery": [
+        "test_drafting.CommitMessage.test_lost_session_response_reconciles_by_claim",
+        "test_drafting.CommitMessage.test_unsupported_messages_reject"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    },
+    {
+      "skill": "dk-issue",
+      "delivery_issues": [
+        32
+      ],
+      "behavior": [
+        "cf_workflows/drafting.py"
+      ],
+      "documentation": "docs/drafting.md",
+      "composition": "shared_workflow",
+      "direct": [
+        "test_drafting.Issue.test_fallback_draft_with_verified_metadata_and_no_write",
+        "test_drafting.Issue.test_issue_form_template_and_reproduction_need_evidence"
+      ],
+      "composed": [
+        "test_drafting.Issue.test_composed_pr_occurrence_shares_the_pr_run_journal"
+      ],
+      "recovery": [
+        "test_drafting.Issue.test_creation_reconciles_uncertainty_and_never_duplicates",
+        "test_drafting.Issue.test_lost_request_before_creation_stays_pending_and_is_never_resent",
+        "test_drafting.IssuePublication.test_payloads_permissions_and_repository_plans_are_bounded"
+      ],
+      "status": {
+        "parity": "not_implemented",
+        "deterministic": "fixture_verified",
+        "installed_workflow": false,
+        "native_execution": "pending",
+        "live_acceptance": "pending"
+      },
+      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+    }
+  ],
+  "defects": [
+    {
+      "upstream": "dk-code-factory/dk-workflows#244",
+      "required_behavior": "Declining a code change does not remove a concrete author's response obligation.",
+      "delivery": [
+        "#4",
+        "#20",
+        "#30"
+      ],
+      "provenance": [
+        {
+          "pr": 45,
+          "merge_commit": "da21e12a93fa4aba85ebbc45af648fbb11f3eb19"
+        }
+      ],
+      "tests": [
+        "test_feedback.RejectedSuggestions.test_rejected_bot_and_style_suggestions_keep_their_response_obligation",
+        "test_feedback.RejectedSuggestions.test_a_reassessment_cannot_drop_an_obligation"
+      ],
+      "live_acceptance": [
+        "github_publication"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#255",
+      "required_behavior": "Complete applicable feedback replies before independent review can block finalization.",
+      "delivery": [
+        "#4",
+        "#21"
+      ],
+      "provenance": [
+        {
+          "pr": 52,
+          "merge_commit": "60dc914fb382528e2d1bbcf2943fb58aba2fe93c"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_fix_responses.BeforeReview.test_dk_workflows_255_replies_settle_before_a_failing_review_and_survive_resume"
+      ],
+      "live_acceptance": [
+        "github_publication",
+        "live_provider"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#253",
+      "required_behavior": "Pending user/team reviews, including renewed requests after same-head approval, hold merge.",
+      "delivery": [
+        "agent-workflow#138",
+        "#5",
+        "#19"
+      ],
+      "provenance": [
+        {
+          "pr": 50,
+          "merge_commit": "eba28adc1c3d7cfb14a6622506d9013c632a4f1e"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_fix_publication.MergeGating.test_renewed_same_head_requests_hold_every_aggregate_decision",
+        "test_dk_pr_fix_publication.MergeGating.test_requests_and_ci_changes_after_preparation_are_caught_at_dispatch"
+      ],
+      "live_acceptance": [
+        "github_publication"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#260",
+      "required_behavior": "Conclusive pending-review rejection can settle as not_applied; preserve drafts and ambiguous effects.",
+      "delivery": [
+        "#5",
+        "#18"
+      ],
+      "provenance": [
+        {
+          "pr": 49,
+          "merge_commit": "b6afad9d29421f2893d4f1e7959944e80bf682a4"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_fix_pending_review.PendingReviews.test_conclusive_rejection_settles_not_applied_and_keeps_the_draft",
+        "test_dk_pr_fix_pending_review.PendingReviews.test_ambiguous_failures_stay_pending_even_with_a_current_draft"
+      ],
+      "live_acceptance": [
+        "github_publication"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#254",
+      "required_behavior": "Require real coordinator/child execution evidence, never report-only substitutes.",
+      "delivery": [
+        "#14",
+        "#24",
+        "agent-workflow#139",
+        "#16"
+      ],
+      "provenance": [
+        {
+          "pr": 54,
+          "merge_commit": "a29c74d0a6e50ed715b177fa602e2245969e057c"
+        },
+        {
+          "pr": 46,
+          "merge_commit": "5eedde4d1a50661459c3bd36391d81c014d07138"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_review.Helpers.test_report_only_pass_claims_never_cover_sibling_passes",
+        "test_skills.IncomingReviewCoordinator.test_report_only_and_partial_children_never_cover_the_coordinator"
+      ],
+      "live_acceptance": [
+        "live_provider",
+        "user_supplied_skill"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#259",
+      "required_behavior": "Allow pinned provisional private analysis during metadata disagreement; withhold external readiness.",
+      "delivery": [
+        "#6",
+        "#22"
+      ],
+      "provenance": [
+        {
+          "pr": 51,
+          "merge_commit": "c5eeb475f5b79769d047a1bd4bc99dc99f22dec0"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_fix_provisional.Provisional.test_lagging_metadata_permits_private_provisional_analysis_without_external_effects",
+        "test_dk_pr_fix_provisional.Provisional.test_same_revision_reconciliation_reuses_eligible_analysis_and_unblocks_publication"
+      ],
+      "live_acceptance": [
+        "github_publication",
+        "live_provider"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#239",
+      "required_behavior": "Recover current-head alignment without requiring a historical rejection receipt.",
+      "delivery": [
+        "#6",
+        "#23"
+      ],
+      "provenance": [
+        {
+          "pr": 53,
+          "merge_commit": "98c77b4fffb1e5af0d3d05ed40a7181bac5a4732"
+        }
+      ],
+      "tests": [
+        "test_alignment.CurrentAlignmentTest.test_239_later_head_recovers_without_a_historical_rejection_receipt"
+      ],
+      "live_acceptance": [
+        "live_provider"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#241",
+      "required_behavior": "Refresh uncertain alignment with new requirements without repeating settled comparisons.",
+      "delivery": [
+        "#6",
+        "#23",
+        "#27"
+      ],
+      "provenance": [
+        {
+          "pr": 53,
+          "merge_commit": "98c77b4fffb1e5af0d3d05ed40a7181bac5a4732"
+        },
+        {
+          "pr": 59,
+          "merge_commit": "d8fe4278b7534e48695258518091b6987b3afa46"
+        }
+      ],
+      "tests": [
+        "test_alignment.CurrentAlignmentTest.test_241_uncertain_alignment_consumes_new_requirements_without_repeating_comparison",
+        "test_alternatives.Boundary.test_new_requirements_refresh_alignment_without_comparison"
+      ],
+      "live_acceptance": [
+        "live_provider"
+      ]
+    },
+    {
+      "upstream": "dk-code-factory/dk-workflows#240",
+      "required_behavior": "Publish unanchorable verified metadata findings in the review body even with summaries disabled.",
+      "delivery": [
+        "#7",
+        "#25"
+      ],
+      "provenance": [
+        {
+          "pr": 56,
+          "merge_commit": "1ab8ef21d0c8dea0b785ef159445fcd21756e31d"
+        }
+      ],
+      "tests": [
+        "test_dk_pr_review_findings.BodyAndInline.test_dk_workflows_240_body_only_findings_publish_with_summaries_disabled"
+      ],
+      "live_acceptance": [
+        "github_publication"
+      ]
+    }
+  ],
+  "configuration_admission": [
+    {
+      "case": "default_plan_structural_only",
+      "tests": [
+        "test_admission.DefaultPlan.test_default_plan_is_admitted_structurally_without_semantic_stage",
+        "test_semantic.Routing.test_default_plan_incurs_no_validator_session"
+      ]
+    },
+    {
+      "case": "default_plan_loads_no_skills",
+      "tests": [
+        "test_skills.Bindings.test_default_plan_loads_no_skills_and_needs_no_skill_capability",
+        "test_skills.Evidence.test_default_sessions_load_and_invoke_nothing"
+      ]
+    },
+    {
+      "case": "structural_rejection_before_engine",
+      "tests": [
+        "test_admission.Rejections.test_invalid_inputs_fail_before_any_engine_operation",
+        "test_admission.Rejections.test_symlinks_and_escaping_links_reject"
+      ]
+    },
+    {
+      "case": "semantic_verdicts",
+      "tests": [
+        "test_semantic.Verdicts.test_accepted_runs_one_fixed_role_session_without_skills",
+        "test_semantic.Verdicts.test_rejected_preserves_concrete_conflicts",
+        "test_semantic.Verdicts.test_needs_clarification_opens_one_durable_gate_with_the_verdict",
+        "test_semantic.Verdicts.test_blocked_verdict_and_session_failure_block_preflight"
+      ]
+    },
+    {
+      "case": "clarification_and_reconciliation",
+      "tests": [
+        "test_semantic.Clarification.test_interrupted_clarification_resumes_and_validates_the_revised_proposal",
+        "test_acceptance.Clarified.test_lost_gate_response_neither_loses_the_question_nor_repeats_the_session",
+        "test_semantic.Clarification.test_changed_proposal_is_a_new_request_and_ignores_old_answers"
+      ]
+    },
+    {
+      "case": "prohibitions_cannot_be_waived",
+      "tests": [
+        "test_admission.Rejections.test_prohibition_contradicting_authorization_rejects",
+        "test_semantic.Authority.test_validator_cannot_waive_or_grant",
+        "test_semantic.Clarification.test_answers_cannot_weaken_prohibitions"
+      ]
+    },
+    {
+      "case": "permission_denial",
+      "tests": [
+        "test_admission.DefaultPlan.test_remote_writes_need_permission_and_authorization",
+        "test_dk_pr_fix.Preflight.test_publication_needs_enabled_permission_and_explicit_authorization",
+        "test_semantic.Authority.test_acceptance_grants_no_permission_or_capability"
+      ]
+    },
+    {
+      "case": "unsupported_capability",
+      "tests": [
+        "test_admission.Rejections.test_unavailable_provider_rejects_after_one_probe",
+        "test_admission.DefaultPlan.test_merge_grant_requires_engine_merge_guard",
+        "test_dk_pr_fix.Preflight.test_unavailable_publication_actions_reject"
+      ]
+    },
+    {
+      "case": "supplied_skills_rejected_until_supported",
+      "tests": [
+        "test_dk_pr_fix.Preflight.test_custom_prompts_and_supplied_skills_reject_at_preflight",
+        "test_semantic.Routing.test_supplied_skills_stay_rejected_before_any_session",
+        "test_skills.Bindings.test_supplied_skills_stay_rejected_until_session_scoped_loading_exists"
+      ]
+    },
+    {
+      "case": "selective_acceptance_reuse",
+      "tests": [
+        "test_acceptance.Reuse.test_unchanged_fresh_session_reuses_original_evidence",
+        "test_acceptance.Reuse.test_each_relevant_input_invalidates_only_affected_units"
+      ]
+    },
+    {
+      "case": "configuration_write_recovery",
+      "tests": [
+        "test_acceptance.Writes.test_lost_response_is_settled_by_readback",
+        "test_acceptance.Writes.test_compare_and_swap_rejection_is_not_applied",
+        "test_acceptance.Writes.test_interruption_after_the_write_reconciles_without_reapplying"
+      ]
+    },
+    {
+      "case": "no_import_of_prior_settings_or_state",
+      "tests": [
+        "test_acceptance.Isolation.test_no_dk_workflows_configuration_or_state_is_imported",
+        "test_recovery.Backup.test_foreign_or_newer_state_is_never_imported"
+      ]
+    },
+    {
+      "case": "bootstrap_boundary",
+      "tests": [
+        "test_admission.Bootstrap.test_bundled_validator_is_structural_only",
+        "test_admission.Bootstrap.test_changed_validator_definition_rejects_instead_of_recursing"
+      ]
+    },
+    {
+      "case": "unconfigured_fixture_fails_closed",
+      "tests": [
+        "test_admission.Rejections.test_unconfigured_fixture_operation_fails_closed",
+        "test_dk_pr_fix.RelocatedReadOnlyRun.test_unconfigured_github_operation_fails_without_fallback"
+      ]
+    }
+  ],
+  "live_acceptance": {
+    "user_supplied_skill": {
+      "status": "pending_authorization",
+      "records": []
+    },
+    "live_provider": {
+      "status": "pending_authorization",
+      "records": []
+    },
+    "github_publication": {
+      "status": "pending_authorization",
+      "records": []
+    }
+  },
+  "verified_combinations": []
+}

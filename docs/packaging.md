@@ -71,8 +71,10 @@ as JSON, and exits 1 on a diagnostic. The status:
 - lists each skill with its inventory parity status (currently
   `not_implemented`);
 - reports `releasable: false` with its blockers: the upstream capabilities, the
-  missing engine release, the non-runnable suite and every listed row without
-  implemented parity. The upstream blockers stay listed until a released
+  missing engine release, the non-runnable suite, every listed row without
+  implemented parity, and the [acceptance matrix](qualification.md#release-readiness)
+  blockers (pending live procedures, no verified combination, rows without
+  native evidence). The upstream blockers stay listed until a released
   capability is actually consumed here. Editing the inventory cannot remove them.
 
 Adding a skill to the descriptor needs an inventory row and its installed
@@ -146,6 +148,10 @@ descriptor, against a separate checkout that contains no workflow definitions.
 - [agent-workflow #133](https://github.com/dk-code-factory/agent-workflow/issues/133):
   release validation of generated artifacts, checksums and compatibility.
 - A published engine release of the pinned version, for the verified download.
+
+As of 2026-11-26, agent-workflow #127–#133 are closed upstream, but there is
+still no published release (the newest tag is `v0.2.1`, which predates them).
+None of them is consumed here, so the blockers stay listed.
 
 Installed-package smoke execution through the engine, plugin check/test of
 both targets and the archive comparison wait for these. They need no change to

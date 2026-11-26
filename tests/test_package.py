@@ -241,7 +241,9 @@ class InventoryStatus(unittest.TestCase):
         missing = {item['prerequisite'] for item in status['blockers']}
         self.assertTrue({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132', 'agent-workflow#133',
                          'engine release', 'cf-workflows', 'cf-workflows:dk-pr-fix',
-                         'cf-workflows:dk-pr-review'} <= missing)
+                         'cf-workflows:dk-pr-review', 'live acceptance: user_supplied_skill',
+                         'live acceptance: live_provider', 'live acceptance: github_publication',
+                         'compatibility', 'acceptance matrix'} <= missing)
 
     def test_unknown_rows_and_foreign_identities_reject(self):
         for change in ({'skills': [{'name': 'dk-everything', 'path': 'skills/x/SKILL.md',
@@ -263,11 +265,17 @@ class InventoryStatus(unittest.TestCase):
                 row['parity_status'] = 'implemented'
             (repository / 'baselines/sources.json').write_text(json.dumps(sources))
             (repository / 'baselines/inventory.json').write_text(json.dumps(inventory))
+            matrix = json.loads((ROOT / 'baselines/acceptance-matrix.json').read_text())
+            for row in matrix['rows']:
+                row['status'].update(parity='implemented', native_execution='verified', live_acceptance='recorded')
+            (repository / 'baselines/acceptance-matrix.json').write_text(json.dumps(matrix))
             status = package.inventory_status(self.descriptor(), repository)
-            # Upstream toolchain and engine release blockers remain until actually consumed.
+            # Upstream toolchain and engine release blockers remain until actually consumed, and
+            # matrix statuses without accepted live evidence invalidate the matrix instead of passing.
             self.assertFalse(status['releasable'])
             self.assertEqual([item['prerequisite'] for item in status['blockers']],
-                             [name for name, _ in package.UPSTREAM_BLOCKERS])
+                             [name for name, _ in package.UPSTREAM_BLOCKERS] + ['acceptance matrix'])
+            self.assertIn('native_execution must be pending', status['blockers'][-1]['missing'])
 
 
 if __name__ == '__main__':

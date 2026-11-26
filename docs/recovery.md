@@ -197,4 +197,5 @@ adapters record native dispatches. The cases cover the following:
   usage reports cost.
 - The entry-store cases cover each store's recovery path once through one
   entry's harness. They are not separate end-to-end recovery scenarios for each
-  of the 29 rows; the acceptance matrix is #38.
+  of the 29 rows. The [acceptance matrix](qualification.md) lists each row's
+  own recovery or permission-denial scenarios.

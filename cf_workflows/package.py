@@ -26,7 +26,7 @@ import stat
 import sys
 import unicodedata
 
-from . import admission, dk_pr_fix
+from . import admission, dk_pr_fix, qualification
 
 ROOT = dk_pr_fix.INSTALL
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -419,11 +419,14 @@ def check(root=ROOT):
     return {'descriptor': descriptor, 'files': files, 'closure_digest': admission.digest(files)}
 
 
-def inventory_status(descriptor, repository=REPOSITORY):
+def inventory_status(descriptor, repository=REPOSITORY, closure_digest=None):
     """Check that the descriptor lists only inventory rows and report what it may claim.
 
     The plugin version is the suite version from sources.json and is independent
-    of the engine version. Nothing is releasable while any blocker remains.
+    of the engine version. The acceptance matrix adds its own blockers: live
+    procedures without accepted records, no verified host/provider/engine
+    combination and rows without native-execution evidence. Live records count
+    only for `closure_digest`. Nothing is releasable while any blocker remains.
     """
     sources = json.loads((Path(repository) / 'baselines/sources.json').read_text())
     inventory = json.loads((Path(repository) / 'baselines/inventory.json').read_text())
@@ -442,6 +445,9 @@ def inventory_status(descriptor, repository=REPOSITORY):
         blockers.append({'prerequisite': 'cf-workflows', 'missing': 'the suite is not runnable yet'})
     blockers += [{'prerequisite': item['skill'], 'missing': 'parity status ' + item['parity_status']}
                  for item in listed if item['parity_status'] != 'implemented']
+    blockers += qualification.release_blockers(
+        repository, inventory=inventory, descriptor_skills={skill['name'] for skill in descriptor['skills']},
+        closure_digest=closure_digest, engine_version=descriptor['engine-version'])
     return {'plugin': descriptor['name'], 'version': descriptor['version'],
             'engine_version': descriptor['engine-version'], 'hosts': descriptor['hosts'],
             'listed': listed, 'inventory_rows': len(rows), 'releasable': not blockers, 'blockers': blockers}
@@ -450,7 +456,8 @@ def inventory_status(descriptor, repository=REPOSITORY):
 def report(root=ROOT, repository=REPOSITORY):
     checked = check(root)
     return {'schema_version': 1, 'kind': 'package_check', 'closure_digest': checked['closure_digest'],
-            'files': len(checked['files']), **inventory_status(checked['descriptor'], repository)}
+            'files': len(checked['files']),
+            **inventory_status(checked['descriptor'], repository, closure_digest=checked['closure_digest'])}
 
 
 if __name__ == '__main__':

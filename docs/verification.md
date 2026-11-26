@@ -8,6 +8,7 @@ python3 scripts/check_baselines.py \
   --dk-workflows /path/to/dk-workflows \
   --agent-workflow /path/to/agent-workflow
 python3 -B -m cf_workflows.package
+python3 -B scripts/check_acceptance.py
 python3 -m unittest discover -s tests -v
 ```
 
@@ -173,9 +174,22 @@ invocation counts for changed-input selective reuse, capacity-one execution,
 claim/result loss, interruptions, concurrent writers, uncertain publication and
 exhausted budgets. Keep original outputs/claims/effects and absolute deadlines.
 
-The [inventory](inventory.md) is a list of obligations, not a passing acceptance
-matrix. Each row eventually needs separate direct and composed scenarios,
-recovery/permission-denial cases and actual supported-host capability evidence.
-All nine inherited defect mappings in the suite tracker remain required. Real
-native-host adherence, live providers, GitHub publication conformance and release
-certification stay separate and pending until explicitly authorized and verified.
+The [inventory](inventory.md) is a list of obligations. The
+[acceptance matrix](qualification.md) traces each row to its own direct,
+composed and recovery or permission-denial scenarios. It also maps the nine
+inherited defects, with merge provenance, and the configuration-admission
+cases:
+
+```sh
+python3 -B scripts/check_acceptance.py --run
+```
+
+The checker rejects missing rows, aliases, aggregate or dangling test
+references and statuses that the evidence does not support. With `--run` it
+runs each referenced test on its own. Its own tests are in
+`tests/test_qualification.py`. Deterministic coverage does not establish
+supported-host capability. Real native-host adherence, live providers, GitHub
+publication conformance and release certification stay separate and pending
+until explicitly authorized and verified. The
+[live acceptance procedures](qualification.md#live-acceptance-procedures)
+define them and their evidence records.
