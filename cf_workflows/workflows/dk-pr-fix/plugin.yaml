@@ -37,6 +37,15 @@ skills:
   - name: dk-pr-decisions
     path: skills/dk-pr-decisions/SKILL.md
     workflow: workflows/decisions.yml
+  - name: dk-pr-reviewers-run
+    path: skills/dk-pr-reviewers-run/SKILL.md
+    workflow: workflows/reviewers-run.yml
+  - name: dk-code-simplify
+    path: skills/dk-code-simplify/SKILL.md
+    workflow: workflows/code-simplify.yml
+  - name: dk-pr-approvers
+    path: skills/dk-pr-approvers/SKILL.md
+    workflow: workflows/approvers.yml
 resources:
   - LICENSE
   - agents.yml

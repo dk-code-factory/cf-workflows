@@ -150,8 +150,11 @@ and count sessions, pages, commits and writes across resume and composed runs.
 [Reviewer entry](reviewer-skills.md#verification) tests
 (`tests/test_reviewer_skills.py`) drive dk-pr-reviewers-run and dk-code-simplify
 through the installed helpers at capacity one and uncapped, and dk-pr-approvers
-with a disposable repository, a fake GitHub transport and a fake engine. They
-count native dispatches, sessions and GitHub reads.
+with a disposable repository, a fake GitHub transport and a fake engine, both as
+a library procedure and through the installed `approvers_collect` and
+`approvers_check` helper operations. They count native dispatches, sessions and
+GitHub reads, and check that each installed entry workflow declares exactly its
+preflight inputs.
 [Publication entry](publication-skills.md#verification) tests
 (`tests/test_publication_skills.py`) drive dk-pr-publish and dk-pr-review-post
 directly and from dk-pr-fix and dk-pr-review plans on a fail-closed fake GitHub.

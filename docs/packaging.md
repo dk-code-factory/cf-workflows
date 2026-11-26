@@ -33,9 +33,13 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   [publication entries](publication-skills.md) `dk-pr-publish` and
   `dk-pr-review-post` (`workflows/publish.yml` and `workflows/review-post.yml`),
   the [prose presets](prose.md#installed-workflow) `dk-plain-english` and
-  `dk-asd-ste100` (`workflows/plain-english.yml` and `workflows/asd-ste100.yml`)
-  and the [decisions preset](decisions.md#installed-workflow) `dk-pr-decisions`
-  (`workflows/decisions.yml`).
+  `dk-asd-ste100` (`workflows/plain-english.yml` and `workflows/asd-ste100.yml`),
+  the [decisions preset](decisions.md#installed-workflow) `dk-pr-decisions`
+  (`workflows/decisions.yml`) and the
+  [reviewer entries](reviewer-skills.md#installed-workflows)
+  `dk-pr-reviewers-run`, `dk-code-simplify` and `dk-pr-approvers`
+  (`workflows/reviewers-run.yml`, `workflows/code-simplify.yml` and
+  `workflows/approvers.yml`).
   Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
