@@ -49,8 +49,10 @@ Past 4096 files, the changed paths and the guidance files stay readable first.
 
 A rejected output or observation closes its attempt: the result never becomes
 current, the reservation stays consumed, and the next call starts a new attempt.
-A lost transport response keeps the claim open, so the next call resumes it and
-the engine returns the original result.
+An issue-only run keeps no record of a rejection, so it retries in the same call,
+up to three attempts per stage; later calls replay those claims without a new
+session. A lost transport response keeps the claim open, so the next call
+resumes it and the engine returns the original result.
 
 | Stage | Checks |
 | --- | --- |
@@ -87,8 +89,12 @@ routes, sessions, heads and guidance versions.
 | Mode | Behavior |
 | --- | --- |
 | `automatic` | The session may pick a winner that passes the checks. Otherwise the choice stays pending. Nothing asks the user, and a repeated call starts no session |
-| `manual` | The helper refuses an automatic pick. A pending choice opens one engine input gate with the evaluated options |
-| `semi-manual` | Like `automatic`, but a pending choice, or an automatic pick that fails the checks, opens the gate |
+| `manual` | An automatic pick never settles the choice. A pending choice opens one engine input gate with the evaluated options |
+| `semi-manual` | Like `automatic`, but a pending choice opens the gate |
+
+An automatic pick that fails the checks is recorded with no choice, keeping the
+session's original output and the reason, so no later session settles it by
+repetition.
 
 An automatic pick must be feasible and confident, have no material doubts, and
 lead every other feasible option by at least `min_score_gap`. A sole feasible
@@ -98,7 +104,8 @@ choice must cite the recorded gate answer and match it. Gates are found by their
 own identity (the comparison, request and question round), so issue-only runs
 without a record find them too. A waiting gate returns `waiting` with no new
 session or gate. An answer that names no evaluated feasible option is never
-dispatched; the next round asks again and lists the rejected answers. A valid
+dispatched (an answer must be text); the next round asks again and lists the
+rejected answers. A valid
 answer refreshes only that selection.
 A choice grants no edit or publication permission.
 
@@ -176,9 +183,10 @@ asserts its transport call counts or new sessions per stage.
   engine claims; separate whole-problem and branch records; each scope's
   inventory and comparison contract; inherited decisions inventoried and compared.
 - **Selection.** Automatic mode that never prompts and never chooses over time,
-  a refused pick without the score lead, a semi-manual question instead of an
-  unqualified pick, manual gates asked once and resumed, answers that name no
-  feasible option asked again, issue-only questions asked once, and an invented
+  an unqualified pick recorded with no choice, manual and semi-manual questions
+  instead of an unqualified pick, manual gates asked once and resumed, answers
+  that name no feasible option or are not text asked again, issue-only questions
+  asked once, issue-only rejections retried without a record, and an invented
   user source.
 - **Boundary.** Analysis settled across requirements, guidance, options, heads
   and routes; dk-workflows#241 and #239 alignment refresh with no architectural

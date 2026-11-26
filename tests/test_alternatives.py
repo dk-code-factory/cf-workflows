@@ -252,6 +252,15 @@ class Fixture(unittest.TestCase):
     def new_sessions(self, before):
         return +(self.engine.sessions - before)
 
+    def record(self, key):
+        [path] = [p for p in (self.state / 'runs').iterdir() if '.whole-problem.' not in p.name]
+        ledger = alignment.Ledger(path, logical_run='alternatives_' + admission.digest(
+            admission.pr_identity(PR, 'pr')['url'])[:32], pr=admission.pr_identity(PR, 'pr'))
+        try:
+            return ledger.latest(key)
+        finally:
+            ledger.close()
+
     def pr_run(self, name, script, *, head=None, caller=None, instructions='Compare the retry design.', run=None,
                **extra):
         transport = self.transport(script, **{k: extra.pop(k) for k in ('lose', 'validators') if k in extra})
@@ -377,6 +386,24 @@ class Scope(Fixture):
         missing = self.issue_only(script, requirements=[])
         self.assertEqual((missing['status'], missing['error']['path']), ('rejected', 'requirements'))
 
+    def test_issue_only_rejection_is_retried_without_a_record(self):
+        script = whole_script(kinds=('smallest', 'alternative'))
+        script['inventory'] = [whole_inventory(origin='inherited'), whole_inventory()]
+        result = self.issue_only(script)
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(self.engine.sessions['inventory'], 2)
+        before = copy.copy(self.engine.sessions)
+        self.assertEqual(self.issue_only(script)['status'], 'complete')  # Replays the claims: no session.
+        self.assertEqual(self.new_sessions(before), Counter())
+        # Every attempt rejected: bounded per stage, and later calls start no session.
+        self.state, script['inventory'] = self.base / 'x', [whole_inventory(origin='inherited')] * 3
+        blocked = self.issue_only(script, instructions='Compare again for issue 27.')
+        self.assertEqual((blocked['status'], blocked['stage']), ('blocked', 'inventory'))
+        self.assertEqual(self.engine.sessions['inventory'], 5)
+        self.assertEqual(self.issue_only(script, instructions='Compare again for issue 27.')['status'], 'blocked')
+        self.assertEqual(self.engine.sessions['inventory'], 5)
+        self.assertFalse(self.state.exists())
+
     def test_issue_only_question_is_asked_once_and_its_answer_is_used(self):
         close = comparison(('smallest', 'alternative'), ratings={'smallest': 70, 'alternative': 65})
         script = whole_script(kinds=('smallest', 'alternative'), **{'comparison:whole': close,
@@ -447,11 +474,42 @@ class Selection(Fixture):
         again = self.pr_run('dk-pr-alternatives', script, options=options)
         self.assertEqual(again['status'], 'choice_pending')
         self.assertEqual(self.new_sessions(before), Counter())
-        # A pick without the required lead is refused by the helper.
+        # A pick without the required lead settles nothing and stays pending; no later session decides it.
         self.state = self.base / 'other'
-        refused = self.pr_run('dk-pr-alternatives', branch_script(**{'comparison:retry': close}), options=options)
-        self.assertEqual((refused['status'], refused['stage']), ('blocked', 'selection:retry'))
-        self.assertIn('min_score_gap', refused['error']['message'])
+        script = branch_script(**{'comparison:retry': close, 'selection:retry': [auto(), auto()]})
+        refused = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((refused['status'], refused['decisions']), ('choice_pending', ['retry']), refused)
+        self.assertEqual(self.engine.gates, [])
+        before = copy.copy(self.engine.sessions)
+        again = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((again['status'], self.new_sessions(before)), ('choice_pending', Counter()))
+        record = self.record('selection:retry')
+        self.assertEqual((record['result']['choice'], record['result']['unqualified']['original']['choice']),
+                         (None, 'smallest'))
+        self.assertIn('min_score_gap', record['result']['unqualified']['message'])
+
+    def test_manual_mode_asks_instead_of_accepting_an_automatic_pick(self):
+        script = branch_script(**{'selection:retry': [auto(), manual()], 'selection:scheduler': [auto(), manual()]})
+        options = {'selection': {'mode': 'manual'}}
+        result = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((result['status'], sorted(result['decisions'])), ('waiting', ['retry', 'scheduler']))
+        self.assertEqual(len(self.engine.gates), 2)
+        for gate in self.engine.gates:
+            self.engine.answer(gate['gate_id'], 'answer-' + gate['gate_id'], 'alternative')
+        done = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual(done['status'], 'complete', done)
+        self.assertEqual(self.engine.sessions['selection:retry'], 2)
+
+    def test_an_answer_that_is_not_text_is_asked_again(self):
+        script = branch_script(**{'selection:retry': [auto(None), manual()],
+                                  'selection:scheduler': [auto(None), manual()]})
+        options = {'selection': {'mode': 'manual'}}
+        self.pr_run('dk-pr-alternatives', script, options=options)
+        self.engine.answer(self.engine.gates[0]['gate_id'], 'answer-list', ['smallest'])
+        self.engine.answer(self.engine.gates[1]['gate_id'], 'answer-ok', 'smallest')
+        again = self.pr_run('dk-pr-alternatives', script, options=options)
+        self.assertEqual((again['status'], again['decisions'], len(self.engine.gates)), ('waiting', ['retry'], 3))
+        self.assertEqual(self.engine.gates[2]['request']['payload']['rejected_answers'], ['answer-list'])
 
     def test_manual_choice_is_asked_once_resumed_and_sourced(self):
         script = branch_script(**{'selection:retry': [auto(None), manual()],
@@ -554,6 +612,7 @@ class Boundary(Fixture):
                                verification=verified())
         first = self.pr_run('dk-pr-alternatives', script, caller='cf-workflows:dk-pr-review')
         self.assertEqual(first['status'], 'alignment_uncertain', first)
+        self.assertEqual(first['gate']['allowance']['used'], 1)  # This run's own alignment count.
         before = copy.copy(self.engine.sessions)
         ticket = [{'source': 'ticket:9', 'text': 'Retries go through the scheduler.'}]
         second = self.pr_run('dk-pr-alternatives', script, caller='cf-workflows:dk-pr-review',
@@ -688,6 +747,7 @@ class Boundary(Fixture):
                                 run='run-b')
         self.assertEqual(other['status'], 'released', other)
         self.assertEqual(self.new_sessions(before), Counter({'alignment': 1}))
+        self.assertEqual(other['allowances']['alignment']['used'], 1)
         self.assertEqual(other['allowances']['architecture']['used'], 7)
 
     def test_retained_allowance_is_never_renewed(self):

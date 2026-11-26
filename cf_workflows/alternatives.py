@@ -91,6 +91,7 @@ KINDS = ('pr', 'smallest', 'alternative')
 WORK_TYPES = ('small_fix', 'feature', 'mixed')
 VOLUME_CRITERIA = ('low_loc', 'low_intrusiveness')
 MAX_READABLE = 4096
+ISSUE_ATTEMPTS = 3  # Attempts per stage of an issue-only run, which keeps no record of rejections.
 MAX_ROUNDS = 8  # Questions about one choice after answers that named no feasible option.
 SOLUTION_FIELDS = ('id', 'kind', 'approach', 'pros', 'cons', 'handled_edges', 'unhandled_edges', 'evidence',
                    'complexity', 'intrusiveness', 'feasible', 'feasibility_reason', 'material_doubts',
@@ -444,10 +445,10 @@ class _Walk:
     """One call's walk over the fixed stages; every decision is the ledger's."""
 
     def __init__(self, *, admitted, values, ledger, scope, pins_, requirements, evidence, transport, request,
-                 delegate, namespace):
+                 delegate, namespace, persisted=True):
         self.admitted, self.values, self.ledger, self.scope = admitted, values, ledger, scope
         self.pins, self.requirements, self.transport, self.request = pins_, requirements, transport, request
-        self.delegate, self.namespace = entries.ENTRIES[delegate], namespace
+        self.delegate, self.namespace, self.persisted = entries.ENTRIES[delegate], namespace, persisted
         snapshot = admitted['snapshot']
         self.citable = set(pins_['readable']) | {item['source'] for item in requirements}
         self.evidence = copy.deepcopy(evidence or [])
@@ -495,6 +496,18 @@ class _Walk:
         if found is not None:
             self.stages.append({'key': stage_key, 'action': 'reuse', 'reference': found['reference']})
             return found['result']
+        while True:
+            try:
+                return self.attempt(stage, decision, stage_key, context=context, check=check, answer=answer)
+            except _Stop as stop:
+                # Without a record nothing remembers a rejection across calls: an issue-only run walks
+                # its claims (replays cost no session) and retries a rejected attempt in the same call,
+                # up to ISSUE_ATTEMPTS attempts per stage. A PR record retries on the next call.
+                if (self.persisted or not stop.detail.get('rejected')
+                        or len(self.ledger.history(stage_key)) >= ISSUE_ATTEMPTS):
+                    raise
+
+    def attempt(self, stage, decision, stage_key, *, context, check, answer):
         inputs = self.inputs(stage, decision, answer)
         head = self.pins['head']
         _, binding = self.ledger.binding(stage, decision, inputs=inputs, head=head)
@@ -530,10 +543,18 @@ class _Walk:
                 # The transport failed: the session may have run, so its claim stays open to resume.
                 raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
             self.ledger.abandon(action['operation'])
-            raise _Stop('blocked', stage=stage_key, error=_failure(error)) from None
+            raise _Stop('blocked', stage=stage_key, error=_failure(error), rejected=True) from None
         try:
-            check(output)
-            record = self.ledger.finish(action['operation'], output, session=session_id)
+            try:
+                check(output)
+                accepted = output
+            except Unqualified as error:
+                # An automatic pick the policy cannot accept settles nothing: the attempt records no
+                # choice and keeps the session's original output. Automatic mode stays pending;
+                # manual and semi-manual ask the user.
+                accepted = {'mode': 'auto', 'choice': None, 'unqualified': {
+                    'path': error.path, 'message': error.message, 'original': copy.deepcopy(output)}}
+            record = self.ledger.finish(action['operation'], accepted, session=session_id)
         except (AdmissionError, alignment.AlignmentError, TypeError, KeyError, AttributeError,
                 ValueError) as error:
             # A rejected result never becomes current, and the next call starts a new attempt
@@ -541,8 +562,7 @@ class _Walk:
             self.ledger.abandon(action['operation'])
             failure = ({'path': stage_key, 'message': str(error)} if isinstance(error, alignment.AlignmentError)
                        else _failure(error))
-            raise _Stop('blocked', stage=stage_key, error=failure,
-                        **({'unqualified': True} if isinstance(error, Unqualified) else {})) from None
+            raise _Stop('blocked', stage=stage_key, error=failure, rejected=True) from None
         self.dispatches += 1
         self.stages[-1].update(evidence='native:' + reference, session=session_id)
         return record['result']
@@ -623,7 +643,8 @@ class _Walk:
                 answered = [gate['answer'] for gate in gates if gate['status'] == 'answered']
                 if not answered:
                     break
-                if answered[-1]['value'] in feasible:
+                value = answered[-1]['value']
+                if isinstance(value, str) and value in feasible:
                     answer = answered[-1]
                     break
                 # Not an evaluated feasible option: ask again in a new round, never dispatch it.
@@ -632,17 +653,11 @@ class _Walk:
                 if round_ > MAX_ROUNDS:
                     raise _Stop('blocked', stage=stage_key, error={'path': 'gates', 'message':
                                                                    'too many answers that name no feasible option'})
-        try:
-            result = self.stage('selection', decision['id'], answer=answer, context={
-                'comparison': comparison, 'scores': totals, 'policy': policy,
-                'user_choice': copy.deepcopy(answer)},
-                check=lambda out: check_selection(out, comparison=comparison, totals=totals, policy=policy,
-                                                  answer=answer, citable=self.citable))
-        except _Stop as stop:
-            # Semi-manual asks the user when the automatic checks cannot settle the choice.
-            if not (stop.detail.get('unqualified') and policy['mode'] == 'semi-manual' and answer is None):
-                raise
-            result = {'choice': None, 'mode': 'auto'}
+        result = self.stage('selection', decision['id'], answer=answer, context={
+            'comparison': comparison, 'scores': totals, 'policy': policy,
+            'user_choice': copy.deepcopy(answer)},
+            check=lambda out: check_selection(out, comparison=comparison, totals=totals, policy=policy,
+                                              answer=answer, citable=self.citable))
         if result['choice'] is None and policy['mode'] != 'automatic':
             request = {'request_id': gate_id(round_), 'evidence_id': self.stages[-1]['reference'],
                        'prompt': 'Choose one evaluated feasible option for this decision.',
@@ -756,7 +771,8 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
                          requirements=reqs, evidence=evidence, transport=transport, request=direct,
                          delegate=delegate,
                          # Engine claims never collide across records; issue-only claims stay stable.
-                         namespace=str(ledger.path.resolve()) if persisted else f'issue:{repository_id}')
+                         namespace=str(ledger.path.resolve()) if persisted else f'issue:{repository_id}',
+                         persisted=persisted)
             outcome = {'status': 'complete'}
             try:
                 interactions = walk.analysis()
@@ -768,7 +784,7 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
                     outcome['alignment'] = current
                     if through == 'verification':
                         outcome['gate'] = alignment.gate(ledger, head=pinned['head'],
-                                                         inputs=walk.inputs('alignment'))
+                                                         inputs=walk.inputs('alignment'), account=walk.account)
                         outcome['status'] = outcome['gate']['outcome']
                     else:
                         # The fix route hands settled choices and required changes to authorized tasks.

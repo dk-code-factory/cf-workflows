@@ -463,7 +463,7 @@ class Ledger:
 
 # -- Gate ------------------------------------------------------------------------------------
 
-def gate(ledger, *, head, inputs, identities=None, receipts=()):
+def gate(ledger, *, head, inputs, identities=None, receipts=(), account=None):
     """Whether ordinary review may proceed at head under the current alignment inputs.
 
     Settled architectural stages are read as they are. Alignment and verification
@@ -512,7 +512,7 @@ def gate(ledger, *, head, inputs, identities=None, receipts=()):
     _, binding = ledger.binding('alignment', inputs=inputs, head=head)
     alignment = ledger.latest('alignment')
     if alignment is None or alignment['binding'] != binding:
-        value = {**base, 'outcome': 'alignment_required', 'allowance': ledger.usage('alignment'),
+        value = {**base, 'outcome': 'alignment_required', 'allowance': ledger.usage(allowance('alignment', account)),
                  'next': {'stage': 'alignment', 'decision': None}}
         claim = ledger.open_claim('alignment')
         if claim is not None and claim['binding'] == binding:
@@ -532,7 +532,7 @@ def gate(ledger, *, head, inputs, identities=None, receipts=()):
         return {**base, 'outcome': 'released', 'release': True, 'references': references}
     if result == 'uncertain':
         return {**base, 'outcome': 'alignment_uncertain', 'references': references, 'refresh': 'new_evidence',
-                'allowance': ledger.usage('alignment')}
+                'allowance': ledger.usage(allowance('alignment', account))}
     verification = current('verification')
     if verification is None:
         return pending('verification')
