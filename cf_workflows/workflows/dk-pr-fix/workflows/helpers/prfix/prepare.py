@@ -215,8 +215,11 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     if options.get("merge_method", "merge") not in ("merge", "squash"):
         raise ValueError("merge_method supports merge/squash only")
     limits = {"review_cycles": 5, "retries_per_task": 1, "ci_repairs_per_cycle": 5, "ci_reruns_per_head": 3,
-              **options.get("limits", {})}
-    bounds = {"review_cycles": (1, 10), "retries_per_task": (0, 1), "ci_repairs_per_cycle": (0, 5), "ci_reruns_per_head": (0, 3)}
+              "max_parallel_reviewers": 0, **options.get("limits", {})}
+    # max_parallel_reviewers only schedules: it caps each reviewer group's concurrency (0: no cap)
+    # and never removes, merges or reorders an occurrence.
+    bounds = {"review_cycles": (1, 10), "retries_per_task": (0, 1), "ci_repairs_per_cycle": (0, 5), "ci_reruns_per_head": (0, 3),
+              "max_parallel_reviewers": (0, 64)}
     if set(limits) != set(bounds) or any(type(limits[key]) is not int or not low <= limits[key] <= high for key, (low, high) in bounds.items()):
         raise ValueError("unsupported retained allowance")
     authorizations = {key: auth(value) for key, value in request.get("authorizations", {}).items()}
@@ -309,8 +312,9 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                     keys = [task_call(call, phase, "reviews", "review") for call in reviewer_group]
                     if any(next(t for t in tasks if t["id"] == key)["kind"] != "review" for key in keys):
                         raise ValueError("reviewer selection must use read-only review adapters")
+                    cap = limits["max_parallel_reviewers"] or len(keys)
                     groups.append({"id": "group_" + str(len(groups) + 1),
-                                   "tasks": [{"id": key} for key in keys], "concurrency": len(keys)})
+                                   "tasks": [{"id": key} for key in keys], "concurrency": min(len(keys), cap)})
                 stages.append({"kind": "reviews", "groups": groups, "review": True, "fix": mode == "fix", "phase": phase})
                 continue
             keys = [task_call(call, phase, "tasks") for call in group]

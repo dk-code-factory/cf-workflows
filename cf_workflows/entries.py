@@ -52,6 +52,23 @@ ENTRIES = {
         'operations': ('view', 'prepare', 'overlaps', 'apply_operations', 'admit', 'write', 'readback', 'resolve'),
         'domains': ('add_scope', 'set_preference', 'remove_preference'),
     },
+    # Read-only approver discovery (#29); its helper side is cf_workflows.approvers.
+    'dk-pr-approvers': {
+        'skill': 'cf-workflows:dk-pr-approvers', 'adapter': 'discover-approvers', 'saves': False,
+        'role_prompt': 'Resolve GitHub review and re-review recipients for a PR, returning a configured override or '
+                       'discovering appropriate reviewers from repository and PR evidence. Returns recipients without '
+                       'requesting reviews.\n\nPrefer appropriate existing requests and previous human reviewers for '
+                       're-review. Do not select someone solely from dismissed reviews without another supported '
+                       'reason. Do not assume the authenticated actor is the PR author or exclude them on that '
+                       'basis.\n\nWhen PR history does not establish suitable recipients, inspect changed paths and '
+                       'repository ownership rules at the target revision. If ownership does not resolve the '
+                       'selection, assess relevant recent maintainers from path-specific history or merged PR '
+                       'reviews, with a bounded targeted search. Avoid unrelated popular contributors and the entire '
+                       'contributor history.\n',
+        'baseline_prompt': 'claude/skills/dk-pr-approvers/prompts/default.md',
+        'options': {}, 'operations': ('override', 'collect', 'codeowners', 'check_selection', 'recheck_head'),
+        'domains': (),
+    },
 }
 
 # Options of both alternatives skills (their baseline config.json defaults, identical for issue and

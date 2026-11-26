@@ -222,7 +222,8 @@ class Preflight(PreflightFixture):
                                        'permissions', 'ci', 'merge_method', 'accounts', 'settings', 'resources', 'turns'})
         self.assertEqual(inputs['tasks'], admission.DEFAULTS['tasks'])
         self.assertEqual(inputs['limits'], {'review_cycles': 5, 'retries_per_task': 1,
-                                            'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3})
+                                            'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3,
+                                            'max_parallel_reviewers': 0})
         self.assertEqual(inputs['ci'], {'timeout_seconds': 1800})
         self.assertFalse(any(inputs['permissions'].values()))
         # The simplification reviewer belongs to incoming review's preset, not the fix plan.

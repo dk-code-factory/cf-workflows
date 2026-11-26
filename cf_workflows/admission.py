@@ -68,11 +68,15 @@ REPLY_PROMPT = ('Keep replies concise. When it is simply fixed, reply with "Addr
                 'reference. Keep internal workflow details private.')
 # The simplification reviewer; it never substitutes for ordinary review coverage (docs/review.md).
 SIMPLIFIER = 'simplify'
+# Every bundled simplification reviewer: the default and the dk-code-simplify option variants (#29).
+SIMPLIFIERS = (SIMPLIFIER, 'simplify-code-first', 'simplify-related-code', 'simplify-code-first-related-code')
 PROMPT_SLOTS = ('task', 'reviewer', 'finalizer', 'assessment', 'selection', 'reconciliation',
                 'reply', 'cleanup', 'commit', 'behavior_replacement', 'behavior_addition',
                 'completion', 'additional')
 LIMIT_BOUNDS = {'review_cycles': (1, 10), 'retries_per_task': (0, 1),
-                'ci_repairs_per_cycle': (0, 5), 'ci_reruns_per_head': (0, 3)}
+                'ci_repairs_per_cycle': (0, 5), 'ci_reruns_per_head': (0, 3),
+                # Scheduling only: concurrently launched reviewers per parallel group; 0 adds no cap (#29).
+                'max_parallel_reviewers': (0, 64)}
 BASE_CAPABILITIES = ('native_session', 'admitted_roles')
 SKILL_CAPABILITY = 'session_scoped_skills'
 # Engine-observed evidence of the skill invocation and terminal outcome, and of child agents with their parents.
@@ -199,6 +203,37 @@ ENTRY_ADAPTERS.update({
                                  'ASD-STE100 compliance or invent rule numbers.',
                    'checklist': _PROSE_CHECKLIST},
 })
+
+
+def _simplifier(priority, related):
+    """A dk-code-simplify option variant of the bundled simplification reviewer (docs/reviewer-skills.md)."""
+    scope = ('Stay within changed hunks, plus directly related surrounding code or call sites only where a concrete '
+             'simplification of this PR needs them, and agreed scope' if related else
+             'Stay within changed hunks and agreed scope')
+    order = ('Favor clearer resulting code, then the smallest necessary change' if priority == 'code-first' else
+             'Favor small, easily reviewed improvements, then resulting code clarity')
+    return {**BASELINE_ADAPTERS[SIMPLIFIER], 'assignment':
+            'Review only the PR changes for bounded, behavior-preserving simplifications with a concrete maintainability '
+            f'benefit. {order}; neither widens scope. {scope}; report broader opportunities as deferred observations. '
+            'Each finding states the complexity reduced, its scope and the verification it needs. Do not edit or publish.'}
+
+
+# Reviewer coordination entries (#29). The default simplification options keep the composed `simplify`
+# reviewer; each other option combination is its own bundled control text, so changing a policy
+# refreshes only that reviewer. Approver discovery is read-only and runs only inside its entry.
+ENTRY_ADAPTERS.update({
+    'simplify-code-first': _simplifier('code-first', False),
+    'simplify-related-code': _simplifier('change-first', True),
+    'simplify-code-first-related-code': _simplifier('code-first', True),
+    'discover-approvers': {'kind': 'inspection', 'writes': False, 'definition': 'leaf', 'assignment':
+        'Select GitHub review recipients for the pinned PR head only from the evidence in the assignment: '
+        'existing requests, earlier human reviews, CODEOWNERS and bounded maintainer evidence. Give each '
+        'recipient its evidence sources and a reason. Request nothing, approve nothing and change no setting.',
+        'checklist': [
+            {'id': 'assignment', 'text': 'Prefer appropriate existing requests and earlier human reviewers.'},
+            {'id': 'evidence', 'text': 'Cite the evidence of every selected recipient.'},
+            {'id': 'scope', 'text': 'Select only eligible candidates; grant no authority.'}]},
+})
 BUNDLED_ADAPTERS = {**BASELINE_ADAPTERS, **ENTRY_ADAPTERS}
 DEFAULTS = {
     'tasks': ['read-feedback', 'reconcile-decisions', 'address-feedback', {'stage': 'publication'},
@@ -206,7 +241,8 @@ DEFAULTS = {
     'finalizers': ['inspect-commits', 'sync-guidance', {'stage': 'responses'}, {'stage': 'ci'}],
     'reviewers': ['review'],
     'adapters': {},
-    'limits': {'review_cycles': 5, 'retries_per_task': 1, 'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3},
+    'limits': {'review_cycles': 5, 'retries_per_task': 1, 'ci_repairs_per_cycle': 5, 'ci_reruns_per_head': 3,
+               'max_parallel_reviewers': 0},
     'ci': {'timeout_seconds': 1800},
     'merge_method': 'merge',
     'accounts': [],

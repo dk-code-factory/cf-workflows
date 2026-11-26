@@ -50,6 +50,8 @@ UNAVAILABLE_ACTIONS = {
 }
 
 
+# Bundled adapters whose procedure is an entry's helper side, never a plain workflow task.
+ENTRY_ONLY = ('discover-approvers',)
 # Incoming review publishes only its verified findings; merge keeps its own grant and readiness.
 REVIEW_ACTIONS = {'post_findings', 'merge'}
 
@@ -215,6 +217,9 @@ def preflight(*, request, configuration, invocation, deployment, repository, tra
         # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
         return _reject(result, 'options.tasks', 'alternatives adapters run only through their staged procedure; '
                        'the installed workflow does not run alternatives stages yet')
+    if any(task['adapter'] in ENTRY_ONLY for task in snapshot['plan']['tasks']):
+        # Its result is meaningful only with the entry's evidence collection and checks (cf_workflows.approvers).
+        return _reject(result, 'options.tasks', 'discover-approvers runs only in cf-workflows:dk-pr-approvers')
     if any(snapshot['custom'].values()):
         return _reject(result, 'custom', 'custom configuration inputs are not supported by the installed '
                        'dk-pr-fix workflow yet')
