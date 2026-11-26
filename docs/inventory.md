@@ -1,6 +1,8 @@
 # Complete skill inventory
 
 Every row is a separate acceptance obligation under the `cf-workflows` namespace.
+The [acceptance matrix](qualification.md) traces each row to its deterministic
+evidence and compatibility status.
 All are **not implemented** in this contracts-only revision. The structured
 [inventory](../baselines/inventory.json) records each row's inputs, outputs,
 permissions, dependencies, completion conditions, intentional differences and
@@ -70,8 +72,9 @@ references on both hosts. It is sufficient to audit this inventory against the
 pinned entries; it is **not** a transitive install closure. Packaging must resolve
 the complete admitted closure, helpers, catalogs, schemas and licenses before
 runtime execution. A missing row, prompt-only wrapper, alias or local adapter
-cannot be relabeled as implemented native behavior. Future parity status must
-cite actual direct/composed evidence and explicit intentional differences.
+cannot be relabeled as implemented native behavior. Parity status must cite
+actual direct/composed evidence and explicit intentional differences, and the
+[acceptance checker](qualification.md#checker) enforces this for every row.
 
 The legacy alternatives compatibility entry and the manual alternatives entry
 remain distinct rows with different completion and permission boundaries.

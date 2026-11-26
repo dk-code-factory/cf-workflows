@@ -19,9 +19,14 @@ review from immutable account IDs. One
 [plugin descriptor](docs/packaging.md) declares the Codex and Claude package
 inputs, with a checked resource closure and read-only runtime prerequisite
 checks. There is no runnable plugin, built package or verified host
-compatibility yet: running the installed workflow needs Agent Workflow #129,
-#130 and the #139 discovery-isolation work, and packaging needs #131–#133 and a
-released engine. Source pins are provenance, not a certified released engine.
+compatibility yet: running the installed workflow needs a released engine with
+Agent Workflow #129, #130 and the #139 discovery-isolation work, and packaging
+needs #131–#133 in that release. Those issues are closed upstream, but no engine
+release exists yet. Source pins are provenance, not a certified released engine.
+The [acceptance matrix](docs/qualification.md) traces all 29 rows and the nine
+inherited defects to deterministic evidence. It records that no
+host/provider/engine combination is verified and that live acceptance is
+pending.
 
 - [Baselines and attribution](docs/baselines.md)
 - [All 29 skills and their delivery obligations](docs/inventory.md)
@@ -46,6 +51,7 @@ released engine. Source pins are provenance, not a certified released engine.
 - [Exact-head CI, issue-backed flakes and fork-CI approval entries](docs/ci-skills.md)
 - [Commit organization and PR splitting entries](docs/splitting.md)
 - [Upgrades, backup and restore of retained state](docs/recovery.md)
+- [Acceptance matrix, verified combinations and release evidence](docs/qualification.md)
 - [Baseline and cross-reference verification](docs/verification.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 
