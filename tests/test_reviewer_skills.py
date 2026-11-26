@@ -733,6 +733,23 @@ class InstalledReviewerShape(unittest.TestCase):
                 self.assertEqual((routed['tasks'], routed['stages'], routed['review_contract']),
                                  (plain['tasks'], plain['stages'], plain['review_contract']))
 
+    def test_every_simplifier_prepares_against_the_declared_default_adapters(self):
+        declared = workflow('workflows/code-simplify.yml')['on']['workflow_call']['inputs']
+        defaults = declared['adapters']['default']
+        self.assertEqual(defaults, {name: {**admission.BASELINE_ADAPTERS, **admission.ENTRY_ADAPTERS}[name]
+                                    for name in admission.SIMPLIFIERS})
+        from prfix.core import read_artifact
+        from prfix.prepare import prepare
+        request = {'pr': PR, 'instructions': 'Review.', 'logical_run': 'review_fixture', 'authorizations': {}}
+        for name in admission.SIMPLIFIERS:
+            with self.subTest(simplifier=name):
+                controls = {'tasks': [{'stage': 'reviews', 'reviewers': [name]}], 'finalizers': [], 'reviewers': [],
+                            'adapters': copy.deepcopy(defaults), 'settings': {}, 'resources': [], 'turns': 8,
+                            'mode': 'review', 'entry': 'dk-code-simplify'}
+                plan = read_artifact(self.root, prepare(self.root, request, controls, 'exec-1', self.transport,
+                                                        self.definitions)['plan'])
+                self.assertIn(name, [task['skill'] for task in plan['tasks'] if task['kind'] == 'review'])
+
     def test_any_other_shape_rejects_before_any_session(self):
         cases = [
             ('dk-pr-reviewers-run', {'tasks': ['read-feedback', {'stage': 'reviews'}]}, 'exactly one reviewer stage'),
@@ -981,8 +998,10 @@ class InstalledApprovers(ApproverFixture):
         found = github.maintainers('github.com/owner/repo', ['src/app.py', 'docs/a.md'])
         self.assertEqual((found['complete'], [item['login'] for item in found['items']]), (True, ['frank']))
         self.assertFalse(github.maintainers('github.com/owner/repo', ['a b.py'])['complete'])
+        reads = len(transport.routes)
         self.assertFalse(github.maintainers('github.com/owner/repo',
                                             [f'f{n}.py' for n in range(MAX_SEARCH_PATHS + 1)])['complete'])
+        self.assertEqual(len(transport.routes), reads, 'an over-bound search reads no commit history')
         self.assertEqual({method for method, _ in transport.routes}, {'GET'})
         self.assertEqual(sum(1 for _, path in transport.routes if path.endswith('/teams')), 1, 'teams read once')
 

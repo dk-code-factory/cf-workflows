@@ -377,8 +377,10 @@ class GitHubEvidence:
 
     def maintainers(self, repository, paths):
         """Authors of recent commits to each changed path; incomplete beyond its bound."""
+        if len(paths) > MAX_SEARCH_PATHS:
+            return {'items': [], 'complete': False}
         route, items, seen = self._route(repository), [], set()
-        for path in paths[:MAX_SEARCH_PATHS]:
+        for path in paths:
             encoded = quote(path, safe='/-_.~')
             if '%' in encoded:
                 return {'items': items, 'complete': False}
@@ -391,7 +393,7 @@ class GitHubEvidence:
                 if isinstance(login, str) and login.lower() not in seen:
                     seen.add(login.lower())
                     items.append({**author, 'reason': 'recent commits to ' + path})
-        return {'items': items, 'complete': len(paths) <= MAX_SEARCH_PATHS}
+        return {'items': items, 'complete': True}
 
 
 def evidence_provider(root, provider):
