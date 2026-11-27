@@ -149,14 +149,16 @@ def check_extraction(engine, commit):
 
 
 def symbol(source, name):
-    """Exact source of a top-level or dotted nested function/class definition, or None."""
+    """Exact source of a top-level or dotted nested function/class definition, decorators included, or None."""
     nodes, node = ast.parse(source).body, None
     for part in name.split('.'):
         node = next((n for n in nodes if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == part), None)
         if node is None:
             return None
         nodes = node.body
-    return ast.get_source_segment(source, node)
+    # The node's own segment starts at def/class, so decorators are compared separately.
+    return ''.join('@' + ast.get_source_segment(source, item) + '\n' for item in node.decorator_list) \
+        + ast.get_source_segment(source, node)
 
 
 def check_corrections(engine, commit, provenance):

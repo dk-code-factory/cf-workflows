@@ -238,6 +238,19 @@ class Reuse(Ledgered):
         self.invocation['options']['requirements'] = ['Every fix needs two regression tests.']
         self.assertEqual(len(self.run_ledgered(verdict('accepted'))['reuse']['subjects']), 4)
 
+    def test_skill_arguments_are_bound_into_the_skill_unit(self):
+        result = self.accept_all()
+
+        def key(arguments):
+            admitted = copy.deepcopy(result)
+            admitted['admission_input']['custom']['skills']['skill'] = {
+                'record': 'configuration.skills[0]', 'references': [], 'name': 'fixture', 'sha256': 'a' * 64,
+                'files': {'SKILL.md': 'b' * 64}, 'arguments': arguments, 'children': []}
+            [unit] = [unit for unit in acceptance.units(admitted) if unit['kind'] == 'skill']
+            return unit['key']
+
+        self.assertNotEqual(key(''), key('Delete every test.'))
+
 
 class Clarified(Ledgered):
     def test_clarified_acceptance_is_reused_only_with_its_answers(self):

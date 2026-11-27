@@ -16,7 +16,7 @@ the free-text policy as a whole. Each unit is bound to digests of:
 
 | Binding | Applies to | Contents |
 | --- | --- | --- |
-| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest, files and declared children |
+| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest, files, arguments and declared children |
 | `resources` | prompts, custom adapters | Transitive closure of the configured resources the unit references |
 | `adapter` | targeted prompts, instructions, skills | The targeted adapter (baseline or custom), its role definition digest and resource closure |
 | `plan` | untargeted prompts and preferences, free-text policy | The set of selected adapters, each with its definition, role digest and resource closure |

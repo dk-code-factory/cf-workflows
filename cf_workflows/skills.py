@@ -142,8 +142,9 @@ def _record(raw, binding):
     if not isinstance(raw['loaded'], list) or not isinstance(raw['events'], list):
         raise EvidenceError('loaded skills and events must be arrays')
     for item in raw['loaded']:
-        if not isinstance(item, dict) or set(item) != {'name', 'sha256', 'locator'}:
-            raise EvidenceError('loaded skills are {name, sha256, locator} records')
+        if (not isinstance(item, dict) or set(item) != {'name', 'sha256', 'locator'}
+                or not all(isinstance(value, str) for value in item.values())):
+            raise EvidenceError('loaded skills are {name, sha256, locator} string records')
     return raw
 
 

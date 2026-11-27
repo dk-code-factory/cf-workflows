@@ -71,6 +71,10 @@ class UpstreamCorrections(unittest.TestCase):
                     checker.check_corrections(engine, pin, provenance)
                 with self.assertRaisesRegex(ValueError, 'does not descend'):
                     checker.check_corrections(engine, fix, {**provenance, 'corrections': [{'commit': pin, 'files': [entry]}]})
+                # A decorator is part of the definition the correction fixed.
+                (root / 'guard.py').write_text('@staticmethod\ndef guard():\n    return False\n\n\ndef other():\n    pass\n')
+                with self.assertRaisesRegex(ValueError, 'guard differs from correction'):
+                    checker.check_corrections(engine, pin, provenance)
                 provenance['files'][0]['change'] = 'verbatim'
                 with self.assertRaisesRegex(ValueError, 'not adapted'):
                     checker.check_corrections(engine, pin, provenance)

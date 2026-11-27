@@ -459,6 +459,12 @@ class Evidence(Fixture):
                 self.assertCoverage(self.single, [gateway.session(invoked='other')], 'failed',
                                     'other than the admitted one')
                 self.assertCoverage(self.single, [{**session, 'kind': 'report'}], 'incomplete', 'malformed engine record')
+                # Loaded-skill values that are not strings are a malformed record, not a crash.
+                for value in (['x'], None):
+                    loaded = [{**session['loaded'][0], 'name': value},
+                              {'name': 'stray', 'sha256': '0' * 64, 'locator': 'x'}]
+                    self.assertCoverage(self.single, [{**session, 'loaded': loaded}], 'incomplete',
+                                        'malformed engine record')
 
     def test_claude_invocation_needs_its_original_successful_result(self):
         gateway = Gateway('claude', self.single)
