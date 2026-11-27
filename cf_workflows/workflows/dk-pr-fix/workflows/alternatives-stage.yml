@@ -1,0 +1,123 @@
+# Authored for cf-workflows (#27); no upstream counterpart. See ../../../../docs/alternatives.md.
+# One step of the staged alternatives procedure: the helper names the next native
+# stage session or selection gate; the session's result or the user's answer is
+# checked and recorded by the helpers before the next step.
+name: One alternatives stage or selection gate
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      task:
+        type: string
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      settled:
+        value: ${{ jobs.next.outputs.result.settled or jobs.accept.outputs.result.stop }}
+schemas:
+  alternatives-stage:
+    type: object
+    required:
+    - stage
+    - result
+    properties:
+      stage:
+        type: string
+        description: The assignment's mode (assessment, inventory, comparison, selection, interactions, alignment
+          or verification).
+      result:
+        type: string
+        description: The stage output as one JSON-encoded object, following the stage prompt.
+    additionalProperties: false
+jobs:
+  next:
+    uses: workflows/helper.yml
+    with:
+      operation: alternatives_next
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  native:
+    # One engine-managed native session per stage attempt: read-only, no skills.
+    needs: next
+    if: ${{ needs.next.outputs.result.invoke }}
+    steps:
+    - id: stage
+      uses: agent/run
+      with:
+        agent:
+          select: ${{ needs.next.outputs.result.definition }}
+          definitions:
+            leaf: agents/leaf.yaml
+            verifier: agents/verifier.yaml
+        turns: ${{ inputs.turns }}
+        prompt: ${{ needs.next.outputs.result.prompt }}
+        input: ${{ needs.next.outputs.result.task_input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: alternatives-stage
+      continue-on-error: true
+    outputs:
+      agent: ${{ steps.stage.outputs.agent }}
+      report: ${{ steps.stage.outputs.structured }}
+      status: ${{ steps.stage.status }}
+  accept:
+    needs:
+    - next
+    - native
+    if: ${{ needs.next.outputs.result.invoke and needs.native.status == 'succeeded' }}
+    uses: workflows/helper.yml
+    with:
+      operation: alternatives_accept
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+        claim: ${{ needs.next.outputs.result.claim }}
+        agent: ${{ needs.native.outputs.agent }}
+        report: ${{ needs.native.outputs.report }}
+        status: ${{ needs.native.outputs.status }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  question:
+    # One durable engine input gate per selection question; its request identity is the evidence identity.
+    needs: next
+    if: ${{ needs.next.outputs.result.ask }}
+    steps:
+    - id: answer
+      uses: input/wait
+      with:
+        prompt: ${{ needs.next.outputs.result.prompt }}
+        evidence-id: ${{ needs.next.outputs.result.evidence_id }}
+        payload: ${{ needs.next.outputs.result.payload }}
+    outputs:
+      answer: ${{ steps.answer.outputs.answer }}
+      answer_id: ${{ steps.answer.outputs.answer_id }}
+      gate_id: ${{ steps.answer.outputs.gate_id }}
+      evidence_id: ${{ steps.answer.outputs.evidence_id }}
+  answer:
+    needs:
+    - next
+    - question
+    if: ${{ needs.next.outputs.result.ask and needs.question.status == 'succeeded' }}
+    uses: workflows/helper.yml
+    with:
+      operation: alternatives_answer
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+        answer: ${{ needs.question.outputs.answer }}
+        answer_id: ${{ needs.question.outputs.answer_id }}
+        gate_id: ${{ needs.question.outputs.gate_id }}
+        evidence_id: ${{ needs.question.outputs.evidence_id }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

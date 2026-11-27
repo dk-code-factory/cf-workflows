@@ -285,6 +285,10 @@ def _fingerprint(snapshot, task, ledger=None):
     if decisions.role(task):
         # Discussion, request, guidance, settings and answers; never the diff (decisions.py).
         return decisions.binding(snapshot, task, ledger)
+    from . import alternatives
+    if alternatives.role(task):
+        # The record's settled stages at the analyzed head (alternatives.py); never a session report.
+        return alternatives.binding(ledger, snapshot, task)
     from . import splitting
     split = splitting.binding(ledger, task, snapshot)
     if split is not None:
@@ -305,6 +309,9 @@ def _fingerprint(snapshot, task, ledger=None):
         handed = decisions.reference(ledger)
         if handed is not None:
             result = digest([result, {"decisions": handed}])
+    if ledger is not None and task.get("alternatives_handoff"):
+        # A composed fix occurrence covers the alternatives handoff it was handed (alternatives.py).
+        result = digest([result, {"alternatives": alternatives.reference(ledger, task)}])
     return result
 
 
@@ -379,6 +386,9 @@ def _active(claim):
 
 def prepare_claim(root, provider, ledger, plan, inputs):
     task = _task(plan, inputs["task"])
+    from . import alternatives
+    if alternatives.role(task):
+        raise ValueError("an alternatives occurrence runs only through its staged procedure (alternatives.yml)")
     snapshot = _snapshot(root, provider, plan)
     payload = inputs.get("payload", {})
     fingerprint = digest([_fingerprint(snapshot, task, ledger), payload]) if payload else _fingerprint(snapshot, task, ledger)
@@ -458,6 +468,12 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             raise ValueError("dependent implementation is blocked by unresolved decisions; answer the open "
                              "decision gate first")
         assignment["decisions"] = handed
+    if task.get("alternatives_handoff"):
+        # The settled choices, current alignment and required changes of the composed analysis.
+        handed = alternatives.handed(root, ledger, plan, snapshot)
+        if handed is None and task["writes"]:
+            raise ValueError("dependent implementation needs the settled alternatives analysis first")
+        assignment["alternatives"] = handed
     from . import drafting
     if drafting.role(task):
         # Read-only evidence, the governing template or fallback sections and the draft contract (drafting.py).
@@ -1129,6 +1145,12 @@ def coverage(root, provider, ledger, plan, inputs):
                 record = read_artifact(root, current["assignment"]).get("prose")
                 if not entry(task) or not record or not unchanged(root, ledger, plan, task, snapshot, record):
                     raise ValueError("session-free prose coverage no longer describes the current source")
+                continue
+            if not current["agent"] and "alternatives" in wrapper and wrapper.get("report") is None:
+                # The settled procedure's helper record; its coverage binds the record's stages (alternatives.py).
+                from .alternatives import role as alternatives_role
+                if not alternatives_role(task):
+                    raise ValueError("session-free alternatives coverage belongs to another occurrence")
                 continue
             accepted = ledger.db.execute("SELECT * FROM accepted_reports WHERE reference=?", (current["report"],)).fetchone()
             if (not accepted or wrapper.get("claim") != current["id"]

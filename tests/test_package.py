@@ -77,7 +77,11 @@ class Descriptor(unittest.TestCase):
                                                 ('dk-repo-onboard', 'onboard'), ('dk-config', 'config'),
                                                 ('dk-preferences', 'preferences'),
                                                 ('dk-ci', 'ci'), ('dk-ci-approve', 'ci-approve'),
-                                                ('dk-ci-flakes', 'flakes'))])
+                                                ('dk-ci-flakes', 'flakes'),
+                                                ('dk-issue-alternatives', 'issue-alternatives'),
+                                                ('dk-pr-alternatives', 'pr-alternatives'),
+                                                ('dk-alternatives-review', 'alternatives-review'),
+                                                ('dk-pr-review-alternatives', 'pr-review-alternatives'))])
         # Plugin and engine versions are independent bindings.
         self.assertNotEqual(descriptor['version'], descriptor['engine-version'])
 
@@ -407,7 +411,9 @@ class InventoryStatus(unittest.TestCase):
                                                          'dk-pr-description', 'dk-commit-message', 'dk-issue',
                                                          'dk-commit-split', 'dk-pr-split', 'dk-repo-onboard',
                                                          'dk-config', 'dk-preferences', 'dk-ci', 'dk-ci-approve',
-                                                         'dk-ci-flakes')])
+                                                         'dk-ci-flakes', 'dk-issue-alternatives',
+                                                         'dk-pr-alternatives', 'dk-alternatives-review',
+                                                         'dk-pr-review-alternatives')])
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}

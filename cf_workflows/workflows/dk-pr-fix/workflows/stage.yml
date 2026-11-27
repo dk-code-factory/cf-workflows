@@ -47,6 +47,17 @@ jobs:
       github_token: ${{ secrets.github_token }}
     needs: tasks
     if: ${{ inputs.stage.kind == 'tasks' and inputs.stage.decisions and needs.tasks.status == 'succeeded' }}
+  alternatives:
+    # An alternatives occurrence runs its staged procedure (alternatives.yml): one native
+    # session per stage, checked and recorded by the helpers, never one generic task.
+    uses: workflows/alternatives.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ${{ inputs.stage.alternatives }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    if: ${{ inputs.stage.kind == 'alternatives' }}
   splitting:
     # A splitting entry's publication stage first builds, validates and applies its
     # local operation (splitting.yml); the barrier then lists only its exact intents.

@@ -1,21 +1,24 @@
-"""Current-alignment records and the alignment gate (#23).
+"""Current-alignment records and the alignment gate (#23, #27).
 
 Authored for cf-workflows; no upstream counterpart. See docs/alignment.md.
 
-This is the one implementation of the gate and of reading an alignment record.
-The library module ``cf_workflows/alignment.py`` loads this file and builds its
-writing ``Ledger`` on ``Records``; the installed helpers call ``gate`` from the
-``alignment_gate`` operation (app.py) before review. It uses only the standard
-library and imports nothing from this package, so the library can load it.
+This is the one implementation of the gate and of reading and writing an
+alignment record. The library module ``cf_workflows/alignment.py`` loads this
+file and re-exports it; the installed helpers call ``gate`` from the
+``alignment_gate`` operation (app.py) before review, and the alternatives
+procedure (alternatives.py) records its stages through ``Ledger``. It uses only
+the standard library and imports nothing from this package, so the library can
+load it.
 
 Settled architectural stages are read as they are. Alignment and verification
 must match the head (and, when the caller supplies them, the alignment inputs);
 otherwise they need a refresh, which needs no historical rejection receipt. No
-gate outcome is a clean review or readiness. Nothing here writes, starts a
-session or publishes.
+gate outcome is a clean review or readiness. The gate and ``Records`` never
+write; nothing here starts a session or publishes.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -116,12 +119,13 @@ class Records:
     """Read access to one alignment record. The library's writing Ledger extends it."""
 
     @classmethod
-    def open(cls, path, *, logical_run, pr_url):
-        """An existing branch record of one PR, read-only: never created, migrated or written."""
+    def open(cls, path, *, logical_run, pr_url, scope='branch'):
+        """An existing record of one PR, read-only: never created, migrated or written."""
         path = Path(path)
+        require(scope in SCOPES, 'unknown alternatives scope')
         require(not path.is_symlink() and path.is_file(), 'alignment record is missing or not a regular file')
         records = cls.__new__(cls)
-        records.path, records.scope = path, 'branch'
+        records.path, records.scope = path, scope
         records.db = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=30)
         records.db.row_factory = sqlite3.Row
         try:
@@ -130,8 +134,10 @@ class Records:
             meta = dict(records.db.execute('SELECT key, value FROM meta').fetchall())
             require({k: meta.get(k) for k in ('suite', 'kind')} == {'suite': SUITE, 'kind': KIND},
                     'not a cf-workflows alignment ledger')
-            require(meta == {'suite': SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr_url.lower()},
-                    'alignment ledger belongs to another logical run or PR')
+            expected = {'suite': SUITE, 'kind': KIND, 'logical_run': logical_run, 'pr': pr_url.lower()}
+            if scope != 'branch':
+                expected['scope'] = scope
+            require(meta == expected, 'alignment ledger belongs to another logical run or PR')
         except (AlignmentError, sqlite3.DatabaseError) as error:
             records.db.close()
             raise AlignmentError(str(error)) from error
@@ -237,6 +243,323 @@ class Records:
         dependencies = self.dependencies(stage, decision)
         return dependencies, digest({'key': key(stage, decision), 'inputs': inputs, 'dependencies': dependencies,
                                      'head': _head(head) if stage in CURRENT else None})
+
+
+# The whole-problem and branch records of one PR share one assessment (Ledger.adopt).
+SHARED = ('assessment',)
+SHARED_PREFIX = 'shared:'
+DIRECT_SKILL = 'cf-workflows:dk-pr-review-alternatives'
+ALIGNMENTS = ('aligned', 'mismatch', 'uncertain')
+DISPOSITIONS = ('confirmed', 'rejected', 'uncertain')
+
+
+def direct_request(value):
+    """A distinct direct user request for a fresh comparison, as retained provenance."""
+    require(isinstance(value, dict) and set(value) == {'id', 'source', 'instruction', 'skill', 'origin'},
+            'direct request requires exactly id, source, instruction, skill and origin', AuthorizationRequired)
+    for field in ('id', 'source', 'instruction'):
+        _text(value[field], 'direct request ' + field)
+    require(value['skill'] == DIRECT_SKILL and value['origin'] == 'user',
+            'only a direct user invocation of ' + DIRECT_SKILL + ' authorizes a fresh comparison',
+            AuthorizationRequired)
+    return value
+
+
+def _validate(stage, result):
+    require(isinstance(result, dict), stage + ' result requires an object')
+    if stage == 'inventory':
+        decisions = result.get('decisions')
+        require(isinstance(decisions, list), 'inventory requires decisions')
+        ids = [d.get('id') if isinstance(d, dict) else None for d in decisions]
+        require(all(isinstance(i, str) and _ID.fullmatch(i) for i in ids) and len(set(ids)) == len(ids),
+                'inventory decisions require unique stable IDs')
+        require(all(type(d.get('questionable')) is bool for d in decisions), 'inventory decisions require questionable')
+    elif stage == 'comparison':
+        solutions = result.get('solutions')
+        require(isinstance(solutions, list) and solutions, 'comparison requires solutions')
+        require(all(isinstance(s, dict) and isinstance(s.get('id'), str) for s in solutions),
+                'comparison solutions require IDs')
+    elif stage == 'selection':
+        require('choice' in result and (result['choice'] is None or isinstance(result['choice'], str)),
+                'selection requires a choice or null')
+    elif stage == 'interactions':
+        require(type(result.get('compatible')) is bool, 'interactions requires compatible')
+    elif stage == 'alignment':
+        require(result.get('alignment') in ALIGNMENTS, 'alignment requires aligned, mismatch or uncertain')
+        _text(result.get('reason'), 'alignment reason')
+        if result['alignment'] == 'mismatch':
+            _text(result.get('required_changes'), 'mismatch required changes')
+    elif stage == 'verification':
+        require(result.get('disposition') in DISPOSITIONS, 'verification requires confirmed, rejected or uncertain')
+        _text(result.get('reason'), 'verification reason')
+        if result['disposition'] == 'confirmed':
+            _text(result.get('required_changes'), 'confirmed required changes')
+    return result
+
+
+# -- Ledger ----------------------------------------------------------------------------------
+
+SCHEMA = """
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE attempts (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    operation TEXT NOT NULL UNIQUE,
+    binding TEXT NOT NULL,
+    head TEXT,
+    dependencies TEXT NOT NULL,
+    request TEXT,
+    state TEXT NOT NULL CHECK (state IN ('claimed', 'complete', 'superseded')),
+    session TEXT,
+    result TEXT
+);
+CREATE INDEX attempts_key ON attempts (key, state);
+CREATE TABLE requests (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE reservations (
+    name TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    limit_value INTEGER NOT NULL,
+    PRIMARY KEY (name, operation)
+);
+CREATE TABLE grants (id TEXT PRIMARY KEY, name TEXT NOT NULL, amount INTEGER NOT NULL, value TEXT NOT NULL)
+"""
+# Answers to the installed selection gates (prfix/alternatives.py): one per gate request. The
+# writer adds the table to a version 1 record that lacks it; readers never need it.
+ANSWERS = """
+CREATE TABLE IF NOT EXISTS answers (request_id TEXT PRIMARY KEY, gate_id TEXT NOT NULL,
+                                    answer_id TEXT NOT NULL UNIQUE, value TEXT NOT NULL)
+"""
+
+
+def dumps(value):
+    return canonical(value).decode('utf-8')
+
+
+class Ledger(Records):
+    """Retained architectural analysis, current alignment and allowances for one logical run and PR.
+
+    The writing side of a record: the alternatives procedure (prfix/alternatives.py) records
+    every stage through it. Reads and stage dependencies come from Records."""
+
+    def __init__(self, path, *, logical_run, pr=None, subject=None, scope='branch'):
+        """A PR's record binds its URL. Whole-problem analysis without a PR binds its repository
+        subject instead and never invents a PR identity."""
+        require(scope in SCOPES and (pr is None) != (subject is None) and (pr is not None or scope != 'branch'),
+                'alignment ledger requires a PR, or a subject for whole-problem analysis')
+        self.path, self.scope, self.pr = Path(path), scope, pr
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        require(not self.path.is_symlink(), 'alignment ledger must not be a symlink')
+        self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
+        self.db.row_factory = sqlite3.Row
+        os.chmod(self.path, 0o600)
+        expected = {'suite': SUITE, 'kind': KIND, 'logical_run': logical_run}
+        expected.update({'pr': pr['url'].lower()} if pr is not None else {'subject': _text(subject, 'subject')})
+        if scope != 'branch':
+            expected['scope'] = scope
+        try:
+            with self.transaction():
+                version = self.db.execute('PRAGMA user_version').fetchone()[0]
+                tables = self.db.execute("SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchone()[0]
+                if version == 0 and tables == 0:
+                    for statement in SCHEMA.split(';'):
+                        self.db.execute(statement)
+                    self.db.executemany('INSERT INTO meta VALUES (?, ?)', sorted(expected.items()))
+                    self.db.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
+                require(version in (0, SCHEMA_VERSION), f'unsupported alignment ledger version {version}')
+                meta = dict(self.db.execute('SELECT key, value FROM meta').fetchall())
+                require({k: meta.get(k) for k in ('suite', 'kind')} == {k: expected[k] for k in ('suite', 'kind')},
+                        'not a cf-workflows alignment ledger')
+                require(meta == expected, 'alignment ledger belongs to another logical run or PR')
+                self.db.execute(ANSWERS)
+        except (AlignmentError, sqlite3.DatabaseError) as error:
+            self.db.close()
+            raise AlignmentError(str(error)) from error
+
+    def transaction(self):
+        db = self.db
+
+        class Transaction:
+            def __enter__(self):
+                db.execute('BEGIN IMMEDIATE')
+
+            def __exit__(self, kind, value, trace):
+                db.execute('COMMIT' if kind is None else 'ROLLBACK')
+        return Transaction()
+
+    # -- Attempts -------------------------------------------------------------------------
+
+    def prepare(self, stage, decision=None, *, inputs, head, operation, request=None, limit=None, account=None):
+        """Decide one stage's next action: reuse, resume or run.
+
+        reuse: an accepted result with the same binding; no session or allowance.
+        resume: an interrupted claim with the same binding; continue its original
+        operation, which already holds its reservation.
+        run: a new attempt under this operation, reserving one unit of its allowance.
+        A settled architectural stage whose binding changed raises
+        AuthorizationRequired unless a distinct direct user request covers it.
+        account keeps a separate count of the stage's allowance (for example per logical run).
+        """
+        stage_key = key(stage, decision)
+        _text(operation, 'engine operation')
+        _head(head)
+        name = allowance(stage, account)
+        ceiling = _base(name) if limit is None else limit
+        require(type(ceiling) is int and ceiling >= 0, 'allowance limit requires a nonnegative integer')
+        if request is not None:
+            direct_request(request)
+        with self.transaction():
+            dependencies, binding = self.binding(stage, decision, inputs=inputs, head=head)
+            replay = self.db.execute('SELECT * FROM attempts WHERE operation = ?', (operation,)).fetchone()
+            if replay is not None:
+                require(replay['state'] != 'superseded', 'engine operation was superseded by a later attempt')
+                require(replay['key'] == stage_key and replay['binding'] == binding,
+                        'engine operation identity conflict')
+                return self._action('resume' if replay['state'] == 'claimed' else 'reuse', self._record(replay))
+            claim = self.open_claim(stage_key)
+            if claim is not None and claim['binding'] == binding:
+                return self._action('resume', claim)
+            latest = self.latest(stage_key)
+            if latest is not None and latest['binding'] == binding:
+                return self._action('reuse', latest)
+            if latest is not None and stage in SETTLED and self._settled(stage, latest):
+                require(request is not None, f'{stage_key} is settled; changed inputs, guidance or head do not '
+                        f'authorize repeating it without a direct user request for {DIRECT_SKILL}',
+                        AuthorizationRequired)
+                # Any earlier attempt of this stage under the request consumed it, not only the latest.
+                # A superseded or abandoned attempt did not settle the request's work.
+                consumed = self.db.execute("SELECT 1 FROM attempts WHERE key = ? AND request = ? "
+                                           "AND state = 'complete'", (stage_key, request['id'])).fetchone()
+                require(consumed is None,
+                        f'{stage_key} already ran under direct request {request["id"]}; '
+                        'a distinct direct user request is required', AuthorizationRequired)
+            if request is not None:
+                old = self.db.execute('SELECT value FROM requests WHERE id = ?', (request['id'],)).fetchone()
+                require(old is None or old['value'] == dumps(request), 'direct request identity conflict')
+                self.db.execute('INSERT OR IGNORE INTO requests VALUES (?, ?)', (request['id'], dumps(request)))
+            self._reserve(name, operation, ceiling)
+            if claim is not None:
+                # Retained as history: its reservation stays consumed and a late result stays private.
+                self.db.execute("UPDATE attempts SET state = 'superseded' WHERE seq = ?", (claim['seq'],))
+            self.db.execute('INSERT INTO attempts (key, stage, operation, binding, head, dependencies, request, state) '
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, 'claimed')",
+                            (stage_key, stage, operation, binding, head if stage in CURRENT else None,
+                             dumps(dependencies), request['id'] if request else None))
+            created = self.db.execute('SELECT * FROM attempts WHERE operation = ?', (operation,)).fetchone()
+            return self._action('run', self._record(created), superseded=claim['operation'] if claim else None)
+
+    def _action(self, action, record, superseded=None):
+        value = {'action': action, 'key': record['key'], 'operation': record['operation'],
+                 'binding': record['binding'], 'reference': record['reference'],
+                 'dependencies': record['dependencies']}
+        if superseded:
+            value['superseded'] = superseded
+        if action == 'reuse':
+            value['result'] = record['result']
+        return value
+
+    def _reserve(self, name, operation, ceiling):
+        first = self.db.execute('SELECT limit_value FROM reservations WHERE name = ? ORDER BY rowid LIMIT 1',
+                                (name,)).fetchone()
+        # The first reservation fixes the ceiling; a later run can only narrow it.
+        ceiling = min(ceiling, first[0]) if first else ceiling
+        used = self.db.execute('SELECT count(*) FROM reservations WHERE name = ?', (name,)).fetchone()[0]
+        granted = self.db.execute('SELECT COALESCE(SUM(amount), 0) FROM grants WHERE name = ?', (name,)).fetchone()[0]
+        require(used < ceiling + granted, 'retained allowance exhausted: ' + name, AllowanceExhausted)
+        self.db.execute('INSERT INTO reservations VALUES (?, ?, ?)', (name, operation, ceiling))
+
+    def abandon(self, operation):
+        """Close a claim whose native result was rejected. Its reservation stays consumed, and the
+        next prepare starts a new attempt instead of resuming the rejected one."""
+        with self.transaction():
+            row = self.db.execute('SELECT * FROM attempts WHERE operation = ?', (operation,)).fetchone()
+            require(row is not None, 'unknown engine operation')
+            if row['state'] == 'claimed':
+                self.db.execute("UPDATE attempts SET state = 'superseded' WHERE seq = ?", (row['seq'],))
+            return self._record(self.db.execute('SELECT * FROM attempts WHERE seq = ?', (row['seq'],)).fetchone())
+
+    def grant(self, request_id, name, amount, authorization):
+        """An explicit continuation adds capacity to one allowance; replay adds nothing."""
+        _base(name)
+        require(type(amount) is int and 1 <= amount <= 10, 'continuation amount out of bounds')
+        _text(request_id, 'continuation request')
+        _text(authorization, 'continuation authorization')
+        value = dumps({'name': name, 'amount': amount, 'authorization': authorization})
+        with self.transaction():
+            old = self.db.execute('SELECT value FROM grants WHERE id = ?', (request_id,)).fetchone()
+            require(old is None or old['value'] == value, 'continuation request identity conflict')
+            self.db.execute('INSERT OR IGNORE INTO grants VALUES (?, ?, ?, ?)', (request_id, name, amount, value))
+
+    def adopt(self, stage, *, inputs, head, origin):
+        """Record another scope's settled result of a shared stage of the same PR as this record's own.
+
+        Only the assessment is shared. It needs no session and reserves no allowance. Its
+        reference names the origin (`<scope>:<operation>`), so the result is traceable. A
+        record that already has its own result or an open claim keeps it.
+        """
+        require(stage in SHARED, f'{stage} is not shared between alternatives scopes')
+        require(isinstance(origin, dict) and origin.get('scope') in SCOPES and origin['scope'] != self.scope,
+                'a shared result comes from the other alternatives scope')
+        require(self.pr is not None, 'only records of a PR share results')
+        _text(origin.get('operation'), 'origin operation')
+        require(not origin['operation'].startswith(SHARED_PREFIX), 'a shared result is adopted only from its origin')
+        _text(origin.get('session'), 'origin session')
+        _validate(stage, origin.get('result'))
+        operation = f"{SHARED_PREFIX}{origin['scope']}:{origin['operation']}"
+        with self.transaction():
+            require(self.latest(key(stage)) is None and self.open_claim(key(stage)) is None,
+                    f'{stage} already has a result or claim in this record')
+            dependencies, binding = self.binding(stage, inputs=inputs, head=head)
+            self.db.execute('INSERT INTO attempts (key, stage, operation, binding, head, dependencies, request, state, '
+                            "session, result) VALUES (?, ?, ?, ?, NULL, ?, NULL, 'complete', ?, ?)",
+                            (key(stage), stage, operation, binding, dumps(dependencies), origin['session'],
+                             dumps(origin['result'])))
+            return self._record(self.db.execute('SELECT * FROM attempts WHERE operation = ?',
+                                                (operation,)).fetchone())
+
+    def answers(self, request_id):
+        """The recorded answer to one installed selection gate request, as [{status, answer}]."""
+        row = self.db.execute('SELECT * FROM answers WHERE request_id = ?', (request_id,)).fetchone()
+        return [] if row is None else [{'status': 'answered', 'gate_id': row['gate_id'], 'answer': {
+            'answer_id': row['answer_id'], 'value': json.loads(row['value'])}}]
+
+    def answer(self, request_id, *, gate_id, answer_id, value):
+        """Record the answer to an installed selection gate once; replaying the same delivery is a no-op."""
+        for label, item in (('gate request', request_id), ('gate', gate_id), ('answer', answer_id)):
+            _text(item, label)
+        encoded = dumps(value)
+        with self.transaction():
+            old = self.db.execute('SELECT * FROM answers WHERE request_id = ? OR answer_id = ?',
+                                  (request_id, answer_id)).fetchall()
+            if old:
+                require(len(old) == 1 and (old[0]['request_id'], old[0]['gate_id'], old[0]['answer_id'],
+                                           old[0]['value']) == (request_id, gate_id, answer_id, encoded),
+                        'the gate request or answer already holds another answer')
+                return False
+            self.db.execute('INSERT INTO answers VALUES (?, ?, ?, ?)', (request_id, gate_id, answer_id, encoded))
+            return True
+
+    def finish(self, operation, result, *, session):
+        """Accept one attempt's native result. A superseded attempt's result is retained, never current."""
+        _text(session, 'native session')
+        with self.transaction():
+            row = self.db.execute('SELECT * FROM attempts WHERE operation = ?', (operation,)).fetchone()
+            require(row is not None, 'unknown engine operation')
+            _validate(row['stage'], result)
+            encoded = dumps(result)
+            if row['result'] is not None:
+                require(row['result'] == encoded and row['session'] == session, 'attempt already holds another result')
+                return self._record(row)
+            if row['stage'] == 'verification':
+                alignment = self.db.execute('SELECT session FROM attempts WHERE key = ? AND operation = ?',
+                                            ('alignment', json.loads(row['dependencies'])['alignment'].split('@', 1)[1])
+                                            ).fetchone()
+                require(alignment is not None and alignment['session'] != session,
+                        'mismatch verification requires an independent native session')
+            state = 'complete' if row['state'] == 'claimed' else row['state']
+            self.db.execute('UPDATE attempts SET state = ?, session = ?, result = ? WHERE seq = ?',
+                            (state, session, encoded, row['seq']))
+            return self._record(self.db.execute('SELECT * FROM attempts WHERE seq = ?', (row['seq'],)).fetchone())
 
 
 # -- Gate ------------------------------------------------------------------------------------

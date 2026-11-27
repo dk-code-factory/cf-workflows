@@ -107,6 +107,12 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
         handler = {"decisions_gate": decisions.gate, "decisions_answer": decisions.answer,
                    "decisions_status": decisions.status}[operation]
         return handler(root, provider, ledger, plan, inputs)
+    if operation in {"alternatives_next", "alternatives_accept", "alternatives_answer", "alternatives_status"}:
+        # The staged alternatives procedure, one native stage or gate at a time (workflows/alternatives.yml).
+        from prfix import alternatives
+        handler = {"alternatives_next": alternatives.next_step, "alternatives_accept": alternatives.accept,
+                   "alternatives_answer": alternatives.answer, "alternatives_status": alternatives.status}[operation]
+        return handler(root, provider, ledger, plan, inputs)
     if operation in {"split_build", "split_validate", "split_apply"}:
         # The splitting entries' local operation, gated by per-commit validation (workflows/splitting.yml).
         from prfix import splitting

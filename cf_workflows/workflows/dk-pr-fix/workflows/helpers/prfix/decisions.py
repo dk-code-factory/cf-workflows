@@ -241,15 +241,18 @@ def fingerprint(source):
     return digest({key: source[key] for key in ('id', 'kind', 'authority', 'author', 'sha256')})
 
 
-def collect(plan, discussion, *, heading, answers=(), baseline=None):
+def collect(plan, discussion, *, heading, answers=(), baseline=None, alternatives=()):
     """Sources with durable identities, helper-assigned authority and discussion order.
 
     discussion is the PR discussion with this run's own exact effects removed
     (``publication.original_discussion``): title, body, comments, reviews,
     inline comments. baseline is the {identity: fingerprint} discussion present
     at the run's first reconciliation: the request comes after it and before any
-    later or since-edited source. Recorded answers come last. The current
-    decision section of the PR body is a record, never a source.
+    later or since-edited source. Advised and selected alternatives of the PR
+    (alternatives.decision_sources: advisory authority) follow, and recorded
+    answers come last, so only a later user source resolves a contradiction with
+    an alternative. The current decision section of the PR body is a record,
+    never a source.
     """
     pr = plan['pr']
     host = pr['host']
@@ -285,7 +288,7 @@ def collect(plan, discussion, *, heading, answers=(), baseline=None):
     later = [item for item in items if baseline is not None and baseline.get(item['id']) != fingerprint(item)]
     sources = earlier + [{'id': 'instruction:request', 'kind': 'instruction', 'public': False, 'url': None,
                           'text': plan['instructions'], 'author': None, 'authority': 'user',
-                          'created_at': None}] + later
+                          'created_at': None}] + later + [dict(item) for item in alternatives]
     for answer in answers:
         value = answer['value']
         sources.append({'id': 'answer:' + answer['answer_id'], 'kind': 'answer', 'public': False, 'url': None,
@@ -495,8 +498,21 @@ def binding(snapshot, task, ledger=None, plan=None):
     selected['definition'] = task.get('definition_digest') or snapshot.get('definition_digests', {}).get(
         task.get('definition'))
     answers = _answered(ledger, plan or {'logical_run': ledger.logical_run, 'pr': snapshot['pr']}) if ledger else []
-    return digest({'snapshot': selected, 'task': {key: value for key, value in task.items() if key != 'required'},
-                   'answers': [[item['answer_id'], item['evidence_id'], item['value']] for item in answers]})
+    value = {'snapshot': selected, 'task': {key: value for key, value in task.items() if key != 'required'},
+             'answers': [[item['answer_id'], item['evidence_id'], item['value']] for item in answers]}
+    advised = _alternatives(ledger.root, snapshot['pr']) if ledger else []
+    if advised:
+        # A new or refreshed choice of the PR's alternatives analysis reconciles again (decision_sources).
+        value['alternatives'] = [fingerprint({**item, 'sha256': hashlib.sha256(item['text'].encode()).hexdigest()})
+                                 for item in advised]
+    return digest(value)
+
+
+def _alternatives(root, pr):
+    """The PR's advised and selected alternatives as advisory sources; none before any analysis."""
+    from . import alternatives
+    directory = state_directory(root, missing_ok=True)
+    return alternatives.decision_sources(alternatives.selections(directory, pr)) if directory is not None else []
 
 
 def reference(ledger):
@@ -575,12 +591,14 @@ def context(root, provider, ledger, plan, task):
     try:
         answers = record.answers()
         heading = values['section_heading']
-        sources, _ = collect(plan, discussion, heading=heading, answers=answers)
+        advised = _alternatives(root, plan['pr'])
+        sources, _ = collect(plan, discussion, heading=heading, answers=answers, alternatives=advised)
         baseline = record.baseline({item['id']: fingerprint(item) for item in sources
-                                    if item['kind'] not in ('instruction', 'answer')})
+                                    if item['kind'] not in ('instruction', 'answer', 'alternatives')})
     finally:
         record.close()
-    sources, published = collect(plan, discussion, heading=heading, answers=answers, baseline=baseline)
+    sources, published = collect(plan, discussion, heading=heading, answers=answers, baseline=baseline,
+                                 alternatives=advised)
     governing = _governing(task, values, plan)
     bound = {item['id']: fingerprint(item) for item in sources}
     latest = _latest(root, ledger, plan)
