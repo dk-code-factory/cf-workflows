@@ -101,15 +101,16 @@ class InstalledClosure(unittest.TestCase):
         # asd-ste100.yml (docs/prose.md), decisions.yml (docs/decisions.md), reviewers-run.yml,
         # code-simplify.yml and approvers.yml (docs/reviewer-skills.md), and description.yml,
         # commit-message.yml and issue.yml (docs/drafting.md), commit-split.yml and pr-split.yml
-        # (docs/splitting.md), and onboard.yml, config.yml and preferences.yml
-        # (docs/configuration-skills.md).
+        # (docs/splitting.md), onboard.yml, config.yml and preferences.yml
+        # (docs/configuration-skills.md), and ci.yml, ci-approve.yml and flakes.yml (docs/ci-skills.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
         self.assertEqual(entries, ['main.yml', 'review.yml', 'iter.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
                                    'code-simplify.yml', 'approvers.yml', 'description.yml',
                                    'commit-message.yml', 'issue.yml', 'commit-split.yml', 'pr-split.yml',
-                                   'onboard.yml', 'config.yml', 'preferences.yml'])
+                                   'onboard.yml', 'config.yml', 'preferences.yml', 'ci.yml', 'ci-approve.yml',
+                                   'flakes.yml'])
         # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
         reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:

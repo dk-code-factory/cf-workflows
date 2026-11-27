@@ -183,8 +183,12 @@ responses, entry presets and the installed preflight.
 dk-ci deadlines and the pending-only extension across direct, composed and
 resumed observations, issue-backed flake matches and mismatches per exact
 attempt, dk-ci-approve fork approvals with denied, uncertain and lost effects,
-and dk-ci-flakes discovery. They use the real ledger and fail-closed fake
-GitHub and engine transports, and count reads, writes and sessions.
+and dk-ci-flakes discovery, plus the installed entries' routing and the
+installed flake helpers. `tests/test_ci_recovery.py` drives the installed CI
+failure diagnosis and reruns: handoffs, same-session corrections, the
+`ci_rerun` listing, stale diagnoses, lost responses, the per-head allowance and
+a user retry. They use the real ledger and fail-closed fake GitHub and engine
+transports, and count reads, writes and sessions.
 [Splitting entry](splitting.md#verification) tests (`tests/test_splitting.py`)
 drive dk-commit-split and dk-pr-split directly and from dk-pr-fix plans on
 disposable histories with mixed authors, a moved target, unrelated dirty files

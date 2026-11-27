@@ -20,17 +20,25 @@ The result waives nothing. CI acceptance (prfix/ci.py) verifies the exact failed
 attempt again on every observation, and creating issues, rerunning workflows or
 changing exceptions still needs its own authorization.
 
+The entry is also installed (workflows/flakes.yml, `installed_preflight()`):
+there the helpers (helpers/prfix/flakes.py, whose evidence and report checks
+are a verbatim copy of the ones below) collect the evidence for the PR's
+repository and check the report, and the engine runs the report session as an
+`agent/run` step.
+
 `saved()` pages the observations CI observation saved in the shared cross-PR
 registry (prfix/registry.py), optionally of one exact earlier context, with no
 GitHub read and no session. It is saved evidence, never fresh verification.
 """
 import copy
 from datetime import datetime, timezone
+import hashlib
 import json
+from pathlib import Path
 import re
 from urllib.parse import quote
 
-from . import admission, configuration, entries, semantic
+from . import admission, configuration, dk_pr_fix, entries, semantic
 from .admission import AdmissionError, digest, fields, require, text
 
 NAME = 'dk-ci-flakes'
@@ -315,3 +323,52 @@ def saved(registry, repository, *, context=None, offset=0, limit=20):
     page = registry.page(repository.lower(), offset, limit, context)
     return {'status': 'complete', 'saved': True, 'verified': False, 'authority': 'none', 'waives': False,
             'repository': repository.lower(), 'context': copy.deepcopy(context), **page}
+
+
+WORKFLOW = 'workflows/flakes.yml'
+
+
+def installed_preflight(*, request, deployment, repository, transport, options=None, targets=None, invocation=None,
+                        roots=None, home=None, install=dk_pr_fix.INSTALL):
+    """Admit one run of the installed flakes workflow and return its declared inputs; writes nothing.
+
+    The admission is inspect()'s. The installed run targets the PR's repository,
+    so a request without a PR rejects. Custom prompts reject, since the installed
+    session does not consume semantically admitted text yet.
+    """
+    try:
+        checked = check_targets(targets)
+        require(invocation is None or isinstance(invocation, dict) and not invocation.get('prompts'),
+                'invocation.prompts', 'the installed flake report session takes no custom prompts yet')
+    except AdmissionError as error:
+        return {'preflight': 'rejected', 'structural': 'rejected', 'semantic': None,
+                'error': {'path': error.path, 'message': error.message}}
+    admitted = entries.preflight(NAME, request=request, deployment=deployment, repository=repository,
+                                 transport=transport, invocation=invocation, options=options, roots=roots,
+                                 install=install)
+    if admitted['preflight'] != 'admitted':
+        return admitted
+    snapshot = admitted['snapshot']
+    pr = snapshot['request']['pr']
+    if pr is None:
+        return {**admitted, 'preflight': 'rejected',
+                'error': {'path': 'request.pr', 'message': 'the installed entry scans a pull request\'s repository; '
+                          'run a repository scan through inspect()'}}
+    home = Path(home) if home is not None else dk_pr_fix.state_home()
+    namespace = dk_pr_fix.state_namespace(home, pr['repository'])
+    for other, name in ((repository, 'repository'), (install, 'installation')):
+        if not dk_pr_fix._disjoint(namespace, other):
+            return {**admitted, 'preflight': 'rejected',
+                    'error': {'path': 'state', 'message': 'state namespace must be disjoint from the ' + name}}
+    staged = {'pr': pr['url'], 'instructions': snapshot['request']['original_instructions'],
+              'logical_run': snapshot['request']['logical_run']}
+    reference = 'requests/' + hashlib.sha256(admission.canonical(staged)).hexdigest() + '.json'
+    return {**admitted, 'workflow': entries.ENTRIES[NAME]['skill'],
+            'installation': {'root': str(Path(install).resolve()), 'entry': WORKFLOW,
+                             'closure_digest': dk_pr_fix.verify_installation(install)},
+            'inputs': {'request': reference,
+                       'options': {key: value['value'] for key, value in admitted['entry']['options'].items()},
+                       'targets': [] if checked is None else checked,
+                       'turns': snapshot['options']['turns']['value']},
+            'state': {'namespace': str(namespace), 'mount': dk_pr_fix.STATE_MOUNT, 'request': reference,
+                      'request_document': staged}}

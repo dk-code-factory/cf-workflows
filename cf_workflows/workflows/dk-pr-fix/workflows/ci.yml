@@ -1,0 +1,93 @@
+# Authored for cf-workflows (#35); no upstream counterpart. See docs/ci-skills.md.
+# Exact-head CI observation: one CI stage of the shared workflow in fix mode with no task,
+# finalizer or reviewer and no repair allowance, so ci-pass.yml only observes (ci-poll.yml)
+# within the PR's retained window. prepare rejects any authorization, enabled permission,
+# repair allowance or other stage, so this entry never repairs, reruns or publishes.
+name: cf-workflows:dk-ci
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - stage: ci
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default: {}
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 0
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default: {}
+      ci:
+        # The entry's baseline options (cf_workflows.dk_ci); preflight passes the effective values.
+        type: object
+        default:
+          timeout_seconds: 1800
+          poll_interval_seconds: 30
+          classification_timeout_seconds: 60
+          no_checks_grace_seconds: 60
+          pending_extension_seconds: 1800
+          max_pending_extensions: 1
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.observe.outputs.complete }}
+      ready:
+        value: ${{ jobs.observe.outputs.ready }}
+      provisional:
+        value: ${{ jobs.observe.outputs.provisional }}
+jobs:
+  observe:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: fix
+      entry: dk-ci
+    secrets:
+      github_token: ${{ secrets.github_token }}

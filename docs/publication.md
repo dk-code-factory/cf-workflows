@@ -73,6 +73,19 @@ review through the `fork_ci` callback and the attempt's gate, jobs and
 deployments. Its receipt is the same attempt executing jobs, and its effect key
 is the run and attempt. See [fork workflow approval](ci-skills.md#fork-workflow-approval).
 
+`ci_rerun` reruns only the failed jobs of one exact failed attempt at the
+intent's head; its receipt is the next attempt of that run, and an uncertain
+rerun is reconciled, never resent. A rerun of a maintained PR's diagnosed
+unrelated retryable failure comes only from the `ci_rerun` listing and cites
+the current accepted diagnosis (see
+[failure diagnosis and reruns](ci-skills.md#failure-diagnosis-and-reruns)).
+Before dispatch it reserves the retained per-head allowance
+(`ci-reruns:<head>`, `limits.ci_reruns_per_head`) once per exact attempt. A
+`user_retry` payload field, which must equal the retained `rerun_ci`
+authorization, is a user's explicit retry: it reserves its own one-shot slot
+for one exact attempt per run and request identity and leaves the automatic
+allowance as it is.
+
 Replies to feedback sources and thread resolutions come from the selected
 [response stage](responses.md) through the `responses` listing. Incoming
 review's verified findings come only from the `findings` listing, as one

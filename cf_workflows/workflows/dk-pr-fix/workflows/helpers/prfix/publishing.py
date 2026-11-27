@@ -108,10 +108,12 @@ def publication_list(root, provider, ledger, plan, inputs):
     from . import app
     snapshot = app._snapshot(root, provider, plan)
     selector = inputs.get("kind", "ordinary")
-    if selector not in {"ordinary", "merge", "responses", "all", "findings", "fork_ci"}:
+    if selector not in {"ordinary", "merge", "responses", "all", "findings", "fork_ci", "ci_rerun"}:
         raise PublicationError("unsupported publication selector")
     if selector == "fork_ci" and plan.get("mode") != "review":
         raise PublicationError("fork workflow approval belongs to incoming review; dk-pr-fix never approves it")
+    if selector == "ci_rerun" and plan.get("mode") != "fix":
+        raise PublicationError("CI recovery belongs to the maintained PR; incoming review never reruns CI")
     # Incoming review publishes only its verified findings (and a separately
     # authorized merge or fork approval); native report operations never become its writes.
     if (plan.get("mode") == "review") != (selector == "findings") and selector not in ("merge", "fork_ci"):
@@ -123,6 +125,10 @@ def publication_list(root, provider, ledger, plan, inputs):
                 "blockers": ["publication is withheld while analysis is provisional"]}
     if selector == "fork_ci":
         return _fork_listing(root, provider, ledger, plan)
+    if selector == "ci_rerun":
+        # Reruns of diagnosed unrelated retryable failures (ci_retry.py, ci-pass.yml recovery).
+        from . import ci_retry
+        return ci_retry.listing(root, provider, ledger, plan, snapshot, _publication(root, provider, ledger, plan))
     if selector == "findings":
         from . import findings
         listed = findings.listing(root, provider, ledger, plan, _publication(root, provider, ledger, plan),
@@ -247,6 +253,9 @@ def publication_prepare(root, provider, ledger, plan, inputs):
         raise PublicationError("publication preparation needs an exact accepted proposal")
     if proposal.get("kind") == "approve_fork_ci":
         return _prepare_fork_ci(root, provider, ledger, plan, proposal)
+    from . import ci_retry
+    if ci_retry.automatic(proposal):
+        return _prepare_ci_rerun(root, provider, ledger, plan, proposal)
     # Never accept arbitrary workflow inputs merely because they name an
     # accepted source. Reconstruct the source report's exact original proposal,
     # including the deterministic missing-sources/ID normalization above.
@@ -672,6 +681,25 @@ def _prepare_fork_ci(root, provider, ledger, plan, proposal):
     current = fork_ci_proposals(root, provider, ledger, plan, {})
     if not any(item == proposal for item in current["items"]):
         raise PublicationError("not a current eligible fork approval: " + "; ".join(current["blockers"] or ["run changed"]))
+    prepared = publisher.prepare(proposal)
+    return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
+
+
+def _prepare_ci_rerun(root, provider, ledger, plan, proposal):
+    """An automatic rerun only as the current diagnosis lists it; a dispatched one is only reconciled."""
+    from . import app, ci_retry
+    publisher = _publication(root, provider, ledger, plan)
+    if _retained_original(root, provider, ledger, plan, proposal):
+        saved = publisher._attempts(publisher._load(proposal["id"])["id"])[-1]
+        if saved["state"] in {"applied", "pending"}:
+            if ci_retry._retained(saved) != proposal:
+                raise PublicationError("proposal differs from the retained original operation")
+            return {**{key: saved[key] for key in ("id", "fingerprint", "intent")}, "invoke": False}
+    if plan.get("mode") != "fix":
+        raise PublicationError("CI recovery belongs to the maintained PR; incoming review never reruns CI")
+    current = ci_retry.proposals(root, provider, ledger, plan, app._snapshot(root, provider, plan))
+    if not any(item == proposal for item in current["items"]):
+        raise PublicationError("not a current diagnosed rerun: " + "; ".join(current["blockers"] or ["evidence changed"]))
     prepared = publisher.prepare(proposal)
     return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
 

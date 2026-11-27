@@ -52,6 +52,11 @@ The adapter procedures:
   (`capture.py`). A merge cannot be combined with other actions in one call,
   except a separately authorized fork workflow approval through the
   [standalone-to-merge bridge](ci-skills.md#standalone-to-merge-bridge).
+- **CI reruns** (`rerun_ci`) are the user's explicit retries: a proposal may
+  carry `user_retry`, equal to the retained `rerun_ci` authorization, which
+  binds one exact attempt per run and request identity and never consumes the
+  automatic per-head allowance
+  ([failure diagnosis and reruns](ci-skills.md#failure-diagnosis-and-reruns)).
 - **Review posting** is [finding publication](review.md#finding-publication)
   (`findings.py`): verified findings inline only on the changed line they
   name, every other substantive finding in the body, summary suppression, and
@@ -84,10 +89,12 @@ An authorization without the enabled permission rejects, as in dk-pr-fix. A
 permission enabled by configuration but not authorized stays false.
 
 The installed helpers repeat this routing inside the package, so a direct run
-of `publish.yml` or `review-post.yml` that skips host preflight still rejects
-before any session or effect. `prfix/prepare.py` holds `ENTRY_ACTIONS` (each
-action's entry and preset), `ENTRY_OWNERS` (fork-CI approval and issue writes)
-and `ENTRY_PRESETS` (each preset's mode, stage kinds and leading adapter).
+of `publish.yml`, `review-post.yml` or `ci-approve.yml` that skips host preflight
+still rejects before any session or effect. `prfix/prepare.py` holds
+`ENTRY_ACTIONS` (each action's entry and preset, including dk-ci-approve's
+`approve_fork_ci`), `ENTRY_OWNERS` (issue writes), `ENTRY_BRIDGES` (the merge
+preset's separate `approve_fork_ci` grant) and `ENTRY_PRESETS` (each preset's
+mode, stage kinds and leading adapter).
 These checks run inside the package:
 
 - **`entry_preset`.** The `admit` job of `publish.yml` runs it on the staged

@@ -1,5 +1,8 @@
 # Adapted from Agent Workflow examples/pr-fix (MIT); see ../LICENSE and ../../../../baselines/dk-pr-fix-closure.json.
-# Observe CI, then perform at most one evidenced repair and publication.
+# Observe CI, then perform at most one evidenced repair and publication. With recovery
+# (an explicit rerun_ci grant and permission; ci_retry.py), a failed observation is first
+# diagnosed by a read-only session and its unrelated retryable runs are rerun through the
+# publisher; the repair runs only when nothing was rerun, and the next pass observes again.
 name: Observe exact-head CI and perform at most one evidenced repair
 'on':
   workflow_call:
@@ -13,6 +16,9 @@ name: Observe exact-head CI and perform at most one evidenced repair
       repair:
         type: boolean
         required: true
+      recovery:
+        type: boolean
+        default: false
       bound:
         type: number
         default: 1
@@ -38,6 +44,27 @@ jobs:
     repeat:
       max-attempts: 100
       until: ${{ iteration.outputs.settled }}
+  diagnose:
+    uses: workflows/task.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ci_diagnosis
+      cycle: ${{ inputs.cycle }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: poll
+    if: ${{ needs.poll.outputs.failed and inputs.recovery }}
+  recovery:
+    uses: workflows/publication-barrier.yml
+    with:
+      plan: ${{ inputs.plan }}
+      selector: ci_rerun
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: diagnose
+    if: ${{ needs.diagnose.status == 'succeeded' and needs.diagnose.outputs.complete }}
   repair:
     uses: workflows/task.yml
     with:
@@ -47,8 +74,10 @@ jobs:
       turns: ${{ inputs.turns }}
     secrets:
       github_token: ${{ secrets.github_token }}
-    needs: poll
-    if: ${{ needs.poll.outputs.failed and inputs.repair }}
+    needs:
+    - poll
+    - recovery
+    if: ${{ needs.poll.outputs.failed and inputs.repair and needs.recovery.outputs.rerun != true }}
   publish:
     uses: workflows/publication-barrier.yml
     with:

@@ -296,6 +296,10 @@ def _fingerprint(snapshot, task, ledger=None):
         verification = [dict(row) for row in ledger.db.execute(
             "SELECT reference,report FROM accepted_reports WHERE kind='verification' ORDER BY rowid")] if task["kind"] == "fix" else []
         result = digest([result, originals, verification])
+    from . import ci_retry
+    if ledger is not None and ci_retry.role(task):
+        # A diagnosis covers the exact failed observation it was handed; a newer one needs a fresh one.
+        result = digest([result, {"ci": ci_retry.binding(ledger)}])
     if ledger is not None and task["kind"] in decisions.DEPENDENT:
         # A dependent occurrence covers the reconciliation it was handed; a refreshed one runs it again.
         handed = decisions.reference(ledger)
@@ -461,6 +465,20 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             assignment["drafting"] = drafting.context(root, provider, plan, task, snapshot)
         except drafting.Blocked as error:
             raise ValueError("drafting evidence unavailable: " + str(error)) from None
+    from . import ci_retry
+    if ci_retry.role(task):
+        # Every failed run attempt of the current head's failed observation, its failed jobs
+        # and their bounded failed-step logs (ci_retry.py).
+        require_current(snapshot, "CI diagnosis")
+        try:
+            assignment["ci_diagnosis"] = ci_retry.context(root, provider, ledger, plan, snapshot)
+        except ci_retry.Undiagnosable as error:
+            # Nothing diagnosable (only non-Actions checks, moved attempts, oversized inventories
+            # or evidence): the optional occurrence settles as failed without a session, so
+            # ci-pass.yml skips recovery and the failure reaches ci_repair as without the grant.
+            return _ci_diagnosis_blocked(root, ledger, plan, task, snapshot, key, fingerprint, str(error))
+        except ci_retry.Blocked as error:
+            raise ValueError(str(error)) from None
     from . import splitting
     if splitting.role(task):
         # Read-only commit and scope evidence and the result contract (splitting.py).
@@ -545,6 +563,19 @@ def _prose_settled(root, ledger, plan, task, snapshot, key, fingerprint, record)
                                                     reference, coverage))
     return {"claim": key, "invoke": False, "complete": True,
             "definition": task["definition"], "prompt": "", "task_input": {}, "report": reference}
+
+
+def _ci_diagnosis_blocked(root, ledger, plan, task, snapshot, key, fingerprint, reason):
+    """Settle an undiagnosable CI failure as a failed optional occurrence, with its reason and no session."""
+    assignment = artifact(root, {"format": FORMAT, "claim": key, "task": task, "snapshot": snapshot,
+                                 "instructions": plan["instructions"], "ci_diagnosis_blocked": reason[:2000]})
+    with ledger.transaction():
+        if ledger.db.execute("SELECT 1 FROM claims WHERE id=?", (key,)).fetchone():
+            raise ValueError("unfinished logical claim: resume its originating engine execution")
+        ledger.db.execute("INSERT INTO claims(id,task,fingerprint,state,assignment) VALUES(?,?,?,?,?)",
+                          (key, task["id"], fingerprint, "optional_failed", assignment))
+    return {"claim": key, "invoke": False, "complete": False,
+            "definition": task["definition"], "prompt": "", "task_input": {}, "report": ""}
 
 
 def _claim(ledger, key):
@@ -750,7 +781,7 @@ def _reject_report(root, provider, ledger, plan, claim, assignment, report, agen
 
 
 def accept(root, provider, ledger, plan, inputs):
-    from . import decisions, drafting, splitting
+    from . import ci_retry, decisions, drafting, splitting
     from .feedback import FeedbackError
     from .responses import check_feedback, retain_feedback, role as feedback_role
     validated = decided = None
@@ -810,6 +841,12 @@ def accept(root, provider, ledger, plan, inputs):
                 splitting.check(root, plan, report, assignment)
             except splitting.Blocked as error:
                 raise ReportContractError("splitting: " + str(error)) from error
+        elif ci_retry.role(task) and complete:
+            # Exactly the handed-off runs and jobs, with retryable verdicts backed by their own logs.
+            try:
+                ci_retry.check(report, assignment)
+            except ci_retry.Blocked as error:
+                raise ReportContractError("CI diagnosis: " + str(error)) from error
         elif decisions.role(task) and complete:
             # Sourced decisions, user-only resolution and refresh through changed sources only.
             try:

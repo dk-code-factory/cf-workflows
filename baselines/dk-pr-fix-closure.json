@@ -520,6 +520,38 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/preferences.py",
       "reason": "Per-task handoff of accepted scoped preferences in the installed dk-pr-fix helpers (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci_retry.py",
+      "reason": "CI failure diagnosis and bounded automatic reruns (#35), installed so helper containers hand off, check and list them; no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-ci/SKILL.md",
+      "reason": "Exact-head CI skill entry point (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/ci.yml",
+      "reason": "dk-ci observation preset over main.yml in fix mode (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-ci-approve/SKILL.md",
+      "reason": "Fork workflow approval skill entry point (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/ci-approve.yml",
+      "reason": "dk-ci-approve preset over main.yml in review mode (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-ci-flakes/SKILL.md",
+      "reason": "Flaky-test discovery skill entry point (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/flakes.yml",
+      "reason": "dk-ci-flakes evidence, one report session and its check (#35); no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/flakes.py",
+      "reason": "Installed dk-ci-flakes evidence collection and report check (#35), a verbatim copy of the library checks; no upstream counterpart (docs/ci-skills.md)."
     }
   ],
   "corrections": [

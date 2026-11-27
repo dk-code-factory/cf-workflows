@@ -26,7 +26,7 @@ dk-pr-fix or dk-pr-review preflight. No skill is loaded.
 - dk-pr-review-post (review-post.yml running main.yml in review mode):
   verified findings inline or in the body, and a separately authorized
   approval of a clean review.
-- dk-ci-approve (review.yml, review mode, #35): one exact fork workflow
+- dk-ci-approve (ci-approve.yml running main.yml in review mode, #35): one exact fork workflow
   approval per eligible run attempt of the reviewed head, after complete
   current incoming review (main.yml fork_ci job, publishing.fork_ci). Finding
   publication, PR approval and merge authority never imply it.
@@ -34,7 +34,7 @@ dk-pr-fix or dk-pr-review preflight. No skill is loaded.
 Every public action has one declared capability below. Undeclared actions, and
 actions owned by another entry or issue, reject before any effect. A configured
 permission never supplies a missing authorization. The installed helpers repeat
-the routing of dk-pr-publish and dk-pr-review-post inside the package
+the routing of dk-pr-publish, dk-pr-review-post and dk-ci-approve inside the package
 (prfix/prepare.py ENTRY_ACTIONS, the entry_preset operation and prepare's
 `entry` control), so a direct run of their installed workflow rejects the same
 actions before any session or effect.
@@ -53,12 +53,13 @@ REVIEW = copy.deepcopy(dk_pr_review.DEFAULTS)
 # path takes dk-pr-review's selections under the review_ input names.
 PUBLISH = 'workflows/publish.yml'
 REVIEW_POST = 'workflows/review-post.yml'
+CI_APPROVE = 'workflows/ci-approve.yml'
 MERGE_INPUTS = {'tasks': 'review_tasks', 'reviewers': 'review_reviewers', 'adapters': 'review_adapters'}
 PRESETS = {
     'changes': {'mode': 'fix', 'workflow': PUBLISH, 'options': CHANGES},
     'merge': {'mode': 'review', 'workflow': PUBLISH, 'options': REVIEW},
     'review-post': {'mode': 'review', 'workflow': REVIEW_POST, 'options': REVIEW},
-    'fork-ci': {'mode': 'review', 'workflow': dk_pr_review.ENTRY, 'options': REVIEW},
+    'fork-ci': {'mode': 'review', 'workflow': CI_APPROVE, 'options': REVIEW},
 }
 # Every public action: its entry and preset, the publication kinds it dispatches and its workflow input.
 CAPABILITIES = {

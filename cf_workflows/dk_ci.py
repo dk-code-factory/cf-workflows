@@ -2,7 +2,10 @@
 
 The entry adds no orchestration. Its preset is one `{stage: ci}` task stage of
 the installed dk-pr-fix workflow (main.yml, fix mode) with no finalizers or
-reviewers and a zero repair allowance, so it observes only: ci-poll.yml calls
+reviewers and a zero repair allowance. Its installed entry workflow is
+workflows/ci.yml, whose `entry: dk-ci` makes the installed `prepare` reject any
+authorization, enabled permission, repair allowance or other stage. It
+observes only: ci-poll.yml calls
 the installed `ci` helper operation (prfix/ci.py) until checks settle, and no
 repair session exists. It polls at the configured interval, bounds each failed
 attempt's classification and reports `no_checks` once an absent-check grace
@@ -36,6 +39,8 @@ ENTRY = {
     'operations': ('ci', 'coverage', 'completion'),
 }
 PRESET = {'tasks': [{'stage': 'ci'}], 'finalizers': [], 'reviewers': []}
+# The installed entry workflow (plugin.yaml); it runs main.yml with `entry: dk-ci`.
+WORKFLOW = 'workflows/ci.yml'
 BOUNDS = {'timeout_seconds': (1, 86400), 'pending_extension_seconds': (0, 86400), 'max_pending_extensions': (0, 1),
           **admission.CI_WINDOWS}
 
@@ -103,7 +108,7 @@ def preflight(*, request, deployment, repository, transport, configuration=None,
                           'limits': limits or {**admission.DEFAULTS['limits'], 'ci_repairs_per_cycle': 0}}}
     result = dk_pr_fix.preflight(request=request, configuration=configuration, invocation=merged,
                                  deployment=deployment, repository=repository, transport=transport, roots=roots,
-                                 home=home, install=install, workflow=ENTRY['skill'], entry=dk_pr_fix.ENTRY,
+                                 home=home, install=install, workflow=ENTRY['skill'], entry=WORKFLOW,
                                  custom=False)
     result['entry'] = {'name': NAME, 'skill': ENTRY['skill'], 'preset': 'observe', 'mode': 'fix',
                        'options': entry_options}

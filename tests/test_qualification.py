@@ -168,7 +168,7 @@ class RowsCannotBeStoodInFor(unittest.TestCase):
         for change, message in cases:
             with self.subTest(change=change):
                 matrix = copy.deepcopy(MATRIX)
-                row(matrix, 'dk-ci-flakes')['status'].update(change)
+                row(matrix, 'dk-pr-alternatives')['status'].update(change)
                 self.rejects(matrix, message)
         listed = copy.deepcopy(MATRIX)
         row(listed, 'dk-pr-fix')['status']['installed_workflow'] = False

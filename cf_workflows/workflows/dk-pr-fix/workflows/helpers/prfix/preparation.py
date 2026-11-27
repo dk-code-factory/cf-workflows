@@ -112,6 +112,18 @@ def handle(operation, request, root, provider):
             raise ValueError("approver check requires collected evidence and the session result")
         from .approvers import check_operation, evidence_provider
         output = check_operation(root, evidence_provider(root, provider), inputs)
+    elif operation == "flakes_collect":
+        # cf-workflows:dk-ci-flakes (flakes.yml): read-only evidence; it waives, saves and writes nothing.
+        if set(inputs) != {"snapshot", "options", "targets"}:
+            raise ValueError("flake collection requires snapshot, options and targets")
+        from .flakes import collect_operation, evidence_provider
+        request = validate_request(read_artifact(root, inputs["snapshot"]))
+        output = collect_operation(root, evidence_provider(root, provider), request, inputs)
+    elif operation == "flakes_check":
+        if set(inputs) != {"collected", "session"}:
+            raise ValueError("flake check requires collected evidence and the session result")
+        from .flakes import check_operation
+        output = check_operation(root, inputs)
     else:
         raise ValueError("unknown preparation operation")
     result = {"output": output, "evidence": {"preparation": ident, "input": fingerprint}}

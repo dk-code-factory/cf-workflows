@@ -1,0 +1,150 @@
+# Authored for cf-workflows (#35); no upstream counterpart. See docs/ci-skills.md.
+# dk-ci-flakes: bounded flaky-test evidence for one PR's repository, never a waiver. A
+# retained helper collects read-only evidence (failed runs of the lookback window, the
+# failed jobs of each exact attempt and their failed-step logs, and open issues with
+# explicit dk-flaky declarations); one engine-managed session on the admitted leaf role
+# (no skills) writes the report; a second helper holds it to that evidence. Nothing here
+# waives a failure, saves an observation, creates an issue or reruns a workflow.
+name: cf-workflows:dk-ci-flakes
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      options:
+        # The entry's options (cf_workflows.entries): lookback_days, max_runs and max_issues.
+        type: object
+        default:
+          lookback_days: 30
+          max_runs: 100
+          max_issues: 500
+      targets:
+        # [] scans every failed test; otherwise exact {workflow, job, test, signature} contexts.
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.check.outputs.result.complete }}
+      result:
+        value: ${{ jobs.check.outputs.result }}
+schemas:
+  flakes-report:
+    type: object
+    required:
+    - summary
+    - tests
+    - gaps
+    properties:
+      summary:
+        type: string
+      tests:
+        type: array
+        items:
+          type: object
+          required:
+          - workflow
+          - job
+          - test
+          - status
+          - observations
+          - issue
+          - note
+          properties:
+            workflow:
+              type: string
+            job:
+              type: string
+            test:
+              type: string
+            status:
+              type: string
+              enum:
+              - linked
+              - candidate
+            observations:
+              type: array
+              items:
+                type: string
+            issue:
+              type:
+              - string
+              - 'null'
+            note:
+              type:
+              - string
+              - 'null'
+          additionalProperties: false
+      gaps:
+        type: array
+        items:
+          type: string
+    additionalProperties: false
+jobs:
+  request:
+    uses: workflows/helper.yml
+    with:
+      operation: snapshot_request
+      payload:
+        request: ${{ inputs.request }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+  collect:
+    uses: workflows/helper.yml
+    with:
+      operation: flakes_collect
+      payload:
+        snapshot: ${{ needs.request.outputs.result.snapshot }}
+        options: ${{ inputs.options }}
+        targets: ${{ inputs.targets }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs:
+    - request
+  report:
+    needs: collect
+    if: ${{ needs.collect.outputs.result.session }}
+    steps:
+    - id: task
+      uses: agent/run
+      with:
+        agent:
+          select: leaf
+          definitions:
+            leaf: agents/leaf.yaml
+        turns: ${{ inputs.turns }}
+        prompt: ${{ needs.collect.outputs.result.prompt }}
+        input: ${{ needs.collect.outputs.result.task_input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: flakes-report
+      continue-on-error: true
+    outputs:
+      agent: ${{ steps.task.outputs.agent }}
+      report: ${{ steps.task.outputs.structured }}
+      status: ${{ steps.task.status }}
+  check:
+    needs:
+    - collect
+    - report
+    if: ${{ needs.collect.status == 'succeeded' and needs.report.status != 'needs_attention' and needs.report.status
+      != 'canceled' }}
+    uses: workflows/helper.yml
+    with:
+      operation: flakes_check
+      payload:
+        collected: ${{ needs.collect.outputs.result }}
+        session:
+          status: ${{ needs.report.outputs.status }}
+          agent: ${{ needs.report.outputs.agent }}
+          output: ${{ needs.report.outputs.report }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

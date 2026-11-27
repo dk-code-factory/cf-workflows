@@ -582,7 +582,9 @@ class Publication:
         }
         if kind in exact:
             expected = exact[kind]
-            if not (set(payload) == expected or kind == "split_pr" and set(payload) == expected | {"head_repo"}):
+            # A user's explicit retry of specified failures (#35) names its own authorization.
+            optional = {"split_pr": {"head_repo"}, "ci_rerun": {"user_retry"}}.get(kind, set())
+            if not (set(payload) == expected or optional and set(payload) == expected | optional):
                 raise PublicationError(f"{kind} requires exactly {sorted(expected)}")
         if kind == "edit_pr" and (not payload or not set(payload) <= {"title", "body"}):
             raise PublicationError("PR edits accept title/body only")
@@ -623,6 +625,11 @@ class Publication:
         if kind in ("ci_rerun", "approve_fork_ci"):
             _positive(payload["run_id"], "Actions run ID")
             _positive(payload["attempt"], "Actions attempt")
+        if kind == "ci_rerun" and "user_retry" in payload:
+            try:
+                auth(payload["user_retry"])
+            except ValueError as error:
+                raise PublicationError("user_retry needs the exact request_id, instruction and source") from error
         if kind == "merge" and payload["merge_method"] not in ("merge", "squash"):
             raise PublicationError("merge receipt supports merge/squash with exact target parents")
         if kind == "split_push":
@@ -774,6 +781,8 @@ class Publication:
         elif kind == "approve_fork_ci":
             self._not_own(ev)
             intent["before"]["run"] = self._fork_run(intent)
+        elif kind == "ci_rerun" and "user_retry" in payload:
+            self._check_user_retry(intent, authority)
         elif kind == "split_pr":
             pushed = self._load(payload["push_operation"])
             if pushed["state"] != "applied" or pushed["intent"]["kind"] != "split_push" or not self.validate(pushed["id"], pushed["receipt"]):
@@ -964,6 +973,47 @@ class Publication:
             raise PublicationError("approval evidence belongs to another head or target")
         _strings(evidence.get("evidence"), "approval review evidence")
 
+    @staticmethod
+    def _user_retry(intent):
+        """The one-shot slot of an explicit user retry: one exact attempt per run and request identity."""
+        payload = intent["payload"]
+        return (f"ci-user-retry:{payload['user_retry']['request_id']}:{payload['run_id']}",
+                f"{intent['head']}:{payload['attempt']}")
+
+    def _check_user_retry(self, intent, authority):
+        if intent["payload"]["user_retry"] != authority:
+            raise PublicationError("user_retry must be the retained explicit rerun_ci authorization")
+        name, key = self._user_retry(intent)
+        bound = self.ledger.db.execute("SELECT operation FROM reservations WHERE name=? AND operation<>? LIMIT 1",
+                                       (name, key)).fetchone()
+        if bound:
+            raise PublicationError("this user retry request already binds another exact attempt of the run")
+
+    def _reserve_rerun(self, intent):
+        """Reserve the rerun's allowance once per exact attempt, before dispatch.
+
+        An automatic rerun uses the retained per-head allowance; resuming or freshly
+        preparing the same exact attempt never consumes another slot. An explicit user
+        retry uses its own one-shot slot and leaves the automatic allowance untouched.
+        """
+        payload = intent["payload"]
+        if "user_retry" in payload:
+            self._check_user_retry(intent, intent["authorization"])
+            name, key = self._user_retry(intent)
+            try:
+                self.ledger.reserve(name, key, 1)
+            except ValueError as error:
+                raise PublicationError("this user retry request already binds another exact attempt of the run") from error
+            return
+        limit = self.plan.get("options", {}).get("limits", {}).get("ci_reruns_per_head", 3)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 3:
+            raise PublicationError("invalid retained per-head CI rerun allowance")
+        try:
+            self.ledger.reserve("ci-reruns:" + intent["head"], f"run:{payload['run_id']}:{payload['attempt']}", limit)
+        except ValueError as error:
+            raise PublicationError("retained per-head CI rerun allowance exhausted or changed; a bounded explicit "
+                                   "user retry is required") from error
+
     def _fork_run(self, intent):
         """The exact attempt still waits for fork approval of this PR head, with no jobs or deployment gate."""
         payload = intent["payload"]
@@ -1106,13 +1156,7 @@ class Publication:
             self._settle(saved, observed["result"])
             return observed["result"]
         if intent["kind"] == "ci_rerun":
-            limit = self.plan.get("options", {}).get("limits", {}).get("ci_reruns_per_head", 3)
-            if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 3:
-                raise PublicationError("invalid retained per-head CI rerun allowance")
-            try:
-                self.ledger.reserve("ci-reruns:" + intent["head"], saved["id"], limit)
-            except ValueError as error:
-                raise PublicationError("retained per-head CI rerun allowance exhausted or changed") from error
+            self._reserve_rerun(intent)
         with self.ledger.transaction():
             holder = self.ledger.db.execute("SELECT intent FROM publication_lock WHERE singleton=1").fetchone()
             # Every pending intent blocks dispatch, even one that does not hold
