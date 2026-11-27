@@ -127,7 +127,8 @@ def state_directory(root, create=False, missing_ok=False):
             return None
         if not create:
             raise ValueError("application state has not been prepared")
-        if any(path.iterdir()):
+        # A concurrent or interrupted claim of this namespace leaves only its marker or staging files.
+        if any(entry.name != STATE_MARKER and not entry.name.startswith(".staged-") for entry in path.iterdir()):
             raise ValueError("refusing a nonempty state directory without this suite's marker")
         atomic_json(marker, {"format": FORMAT})
     if marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 1024:

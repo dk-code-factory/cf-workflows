@@ -52,6 +52,12 @@ class CoreTests(unittest.TestCase):
                 core.state_directory(self.root, create=True)
         self.assertEqual(list(self.state.iterdir()), [])
 
+    def test_interrupted_marker_staging_does_not_block_claiming_the_namespace(self):
+        # code-scan #9: the marker is staged as .staged-* inside the directory being claimed.
+        (self.state / ".staged-interrupted").write_bytes(b"")
+        self.assertEqual(core.state_directory(self.root, create=True), self.state.resolve())
+        self.assertTrue((self.state / core.STATE_MARKER).is_file())
+
     def test_state_namespace_is_mounted_absolute_and_outside_the_checkout(self):
         inside = self.root / "state"
         inside.mkdir()
