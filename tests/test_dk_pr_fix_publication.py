@@ -247,6 +247,44 @@ class HttpKinds(Fixture):
                     self.assertEqual(publisher.execute(prepared["id"], self.audience(prepared)), receipt)
                     self.assertEqual(len(provider.writes), setup + 1)
 
+    def settled(self, publisher, provider, ledger, proposal):
+        prepared = publisher.prepare(proposal)
+        receipt = publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual(self.state(ledger, prepared["id"]), "applied")
+        self.assertIsNone(self.lock(ledger))
+        self.assertTrue(publisher.validate(prepared["id"], receipt))
+        self.assertEqual(publisher.execute(prepared["id"], self.audience(prepared)), receipt)
+        self.assertEqual(len(provider.writes), 1)
+        return receipt
+
+    def test_cleared_pr_body_reported_as_null_is_observed(self):
+        # code-scan #17: GitHub reports an emptied PR body as null.
+        publisher, provider, ledger = self.world()
+        original = provider.request
+
+        def request(method, path, payload=None):
+            result = original(method, path, payload)
+            if method == "PATCH":
+                provider.ev["metadata"]["body"] = None
+            return result
+        provider.request = request
+        self.assertEqual(self.settled(publisher, provider, ledger, self.proposal("edit_pr", {"body": ""}))["result"],
+                         {"body": ""})
+
+    def test_review_request_is_observed_under_the_canonical_login_case(self):
+        # code-scan #18: GitHub returns the canonical case of a case-insensitive login or slug.
+        publisher, provider, ledger = self.world()
+        original = provider.request
+
+        def request(method, path, payload=None):
+            result = original(method, path, payload)
+            if method == "POST" and path.endswith("requested_reviewers"):
+                provider.requested = {"users": [{"login": "alice"}], "teams": [{"slug": "core-team"}]}
+            return result
+        provider.request = request
+        self.settled(publisher, provider, ledger,
+                     self.proposal("request_review", {"reviewers": ["Alice"], "team_reviewers": ["Core-Team"]}))
+
     def test_restart_keeps_original_intent_and_audience_without_replay(self):
         publisher, provider, ledger = self.world()
         prepared = publisher.prepare(self.proposal("submit_review", copy.deepcopy(REVIEW)))

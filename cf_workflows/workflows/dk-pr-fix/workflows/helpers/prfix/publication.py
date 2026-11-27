@@ -371,6 +371,11 @@ def reply_identity(item):
             "in_reply_to_id": item.get("in_reply_to_id")}
 
 
+def _pr_field(key, value):
+    """Comparable form of an edited PR field: GitHub reports a cleared body as null."""
+    return (value or "") if key == "body" else value
+
+
 def original_discussion(ledger, plan, discussion):
     """Remove only exact, reconciled effects created by this logical run."""
     result = copy.deepcopy(discussion)
@@ -389,7 +394,8 @@ def original_discussion(ledger, plan, discussion):
                     and observed.get("user", {}).get("id") == intent["actor_id"]):
                 # Reactions and updated_at on our own reply do not make it someone else's.
                 result[key] = [item for item in result[key] if reply_identity(item) != reply_identity(observed)]
-        elif kind == "edit_pr" and observed == payload and all(result.get(key) == value for key, value in payload.items()):
+        elif kind == "edit_pr" and observed == payload and all(
+                _pr_field(key, result.get(key)) == value for key, value in payload.items()):
             result.update(intent["before"])
         elif kind == "resolve_thread" and isinstance(observed, dict):
             before = intent["before"].get("thread")
@@ -1103,7 +1109,8 @@ class Publication:
         elif kind == "edit_pr":
             # Never overwrite a field someone else changed after preparation.
             meta = ev["metadata"]
-            if any(meta.get(key) not in (value, intent["payload"][key]) for key, value in intent["before"].items()):
+            if any(_pr_field(key, meta.get(key)) not in (_pr_field(key, value), intent["payload"][key])
+                   for key, value in intent["before"].items()):
                 raise Drift("PR field changed after preparation")
         elif kind == "split_pr":
             pushed = self._load(intent["payload"]["push_operation"])
@@ -1348,8 +1355,8 @@ class Publication:
             found = current == payload["new_head"]
             result = {"head": current, "branch": payload.get("branch", intent["branch"])}
         elif kind == "edit_pr":
-            found = all(meta.get(k) == v for k, v in payload.items())
-            result = {k: meta.get(k) for k in payload}
+            result = {k: _pr_field(k, meta.get(k)) for k in payload}
+            found = result == payload
         elif kind in ("reply", "reply_inline"):
             wanted = intent["before"].get("satisfied_comment_id")
             known = self._known(saved)
@@ -1369,9 +1376,10 @@ class Publication:
             result = thread
         elif kind == "request_review":
             result = self._request("GET", self.pr_path + "/requested_reviewers")
-            actual = {"reviewers": {v.get("login") for v in result.get("users", [])},
-                      "team_reviewers": {v.get("slug") for v in result.get("teams", [])}}
-            found = all(set(values) <= actual[key] for key, values in payload.items())
+            # GitHub matches logins and slugs case-insensitively and reports their canonical case.
+            actual = {key: {v[name].lower() for v in result.get(field, []) if isinstance(v.get(name), str)}
+                      for key, field, name in (("reviewers", "users", "login"), ("team_reviewers", "teams", "slug"))}
+            found = all({v.lower() for v in values} <= actual[key] for key, values in payload.items())
             # Missing requests may have been satisfied, withdrawn or dismissed.
         elif kind == "ci_rerun":
             result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")

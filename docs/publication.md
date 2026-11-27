@@ -180,7 +180,9 @@ observes the exact effect: the comment with the acknowledged ID, the branch at
 the exact head, the review with its exact inline comments, the merge commit
 with the exact parents, and so on. An unchanged branch, a missing comment or
 reviewer, a timeout or a generic error keeps the intent `pending`. Executing a
-`pending` intent again only reconciles; it never sends the write again.
+`pending` intent again only reconciles; it never sends the write again. A PR
+body that GitHub reports as null matches an empty edited body, and requested
+reviewer logins and team slugs match without regard to case.
 
 A reply receipt stays valid after the reply itself changes. Validation compares
 the reply's ID, body, author and parent, not reactions or `updated_at`. The
