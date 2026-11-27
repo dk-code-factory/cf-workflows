@@ -16,6 +16,8 @@ import re
 import tempfile
 import unittest
 
+import yaml
+
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture
 from prfix import app, findings, publishing
@@ -23,7 +25,7 @@ from prfix.capture import HTTPFailure
 from prfix.core import Ledger, read_artifact
 from prfix.prepare import CHECKLIST, _definition, prepare
 from prfix.publication import PENDING_REVIEW_ERROR, Drift, PendingReview, PublicationError
-from test_dk_pr_review import AGENTS, PR_URL, Transport, adapters, git
+from test_dk_pr_review import AGENTS, PR_URL, Transport, adapters, fix_preflight, git
 
 GRANT = {"request_id": "post-1", "instruction": "Review this PR and post the verified findings.", "source": "chat:1"}
 MERGE = {"request_id": "merge-1", "instruction": "Merge it once the review is clean.", "source": "chat:2"}
@@ -656,6 +658,72 @@ class RerunsAndRecovery(Fixture):
         self.assertFalse(publishing.merge_proposal(self.root, self.github, ledger, reconciled, {})["invoke"])
         self.assertEqual(self.listed(reconciled, ledger)["items"], [])
         self.assertEqual(self.writes(), 1)
+
+
+def workflow(path):
+    return yaml.safe_load((fix_preflight.INSTALL / "workflows" / path).read_text())
+
+
+def helper_call(job):
+    """The retained helper operation and payload of a helper.yml job."""
+    assert job["uses"] == "workflows/helper.yml", job
+    return job["with"]["operation"], job["with"]["payload"]
+
+
+class InstalledRoute(unittest.TestCase):
+    """The installed graph that Fixture.barrier stands in for, read from the YAML only.
+
+    The fixtures call the helpers directly, so this pins that the installed
+    workflow routes finding publication through the same helper operations,
+    selector, gating and order. No engine parses or runs it here.
+    """
+
+    def test_review_entry_reaches_the_findings_job_only_through_its_permission(self):
+        review = workflow("review.yml")
+        self.assertIs(review["on"]["workflow_call"]["inputs"]["permissions"]["default"]["post_findings"], False)
+        (job,) = review["jobs"].values()
+        self.assertEqual((job["uses"], job["with"]["mode"], job["with"]["permissions"]),
+                         ("workflows/main.yml", "review", "${{ inputs.permissions }}"))
+        jobs = workflow("main.yml")["jobs"]
+        listing = {name: job["with"]["selector"] for name, job in jobs.items()
+                   if job.get("uses") == "workflows/publication-barrier.yml" and "selector" in job.get("with", {})}
+        self.assertEqual([name for name, selector in listing.items() if selector == "findings"], ["findings"])
+        findings_job = jobs["findings"]
+        self.assertEqual(findings_job["with"]["plan"], "${{ needs.prepare.outputs.result.plan }}")
+        self.assertEqual(set(findings_job["needs"]), {"prepare", "cycles"})
+        # prepare reports findings_authorized only for review mode with the permission and its grant
+        # (Fixture.prepare asserts that); the job runs after the cycles, whatever their outcome.
+        self.assertEqual(findings_job["if"], "${{ needs.prepare.outputs.result.findings_authorized and "
+                                             "needs.cycles.status != 'canceled' }}")
+        self.assertEqual(helper_call(jobs["prepare"])[0], "prepare")
+
+    def test_barrier_lists_with_the_selector_and_publishes_each_item_once_in_order(self):
+        barrier = workflow("publication-barrier.yml")
+        self.assertEqual(barrier["on"]["workflow_call"]["inputs"]["selector"]["default"], "ordinary")
+        jobs = barrier["jobs"]
+        self.assertEqual(helper_call(jobs["list"]), ("publication_list",
+                                                     {"plan": "${{ inputs.plan }}", "kind": "${{ inputs.selector }}"}))
+        publish = jobs["publish"]
+        self.assertEqual((publish["uses"], publish["needs"]), ("workflows/publication.yml", "list"))
+        self.assertEqual(publish["for-each"], {"items": "${{ needs.list.outputs.result.items }}",
+                                               "key": "${{ item.id }}", "concurrency": 1})
+        self.assertEqual(publish["with"]["proposal"], "${{ item }}")
+
+    def test_each_item_prepares_then_dispatches_or_only_reconciles(self):
+        jobs = workflow("publication.yml")["jobs"]
+        self.assertEqual(helper_call(jobs["prepare"]),
+                         ("publication_prepare", {"plan": "${{ inputs.plan }}", "proposal": "${{ inputs.proposal }}"}))
+        # invoke: false (a pending or applied submission) skips the audience session and the write.
+        self.assertEqual(jobs["audience"]["if"], "${{ needs.prepare.outputs.result.invoke }}")
+        self.assertEqual(jobs["audience"]["with"]["task"], "publication_audience")
+        self.assertIn("needs.prepare.outputs.result.invoke", jobs["publish"]["if"])
+        self.assertEqual([step["argv"][-1] for step in jobs["publish"]["steps"]],
+                         ["publication_execute", "publication_record"])
+        for step in jobs["publish"]["steps"]:
+            self.assertEqual((step["protocol"], step["effect"]), ("action-v1", "external_mutation"))
+        # Recovery always follows: it settles a lost response read-only and never resends.
+        self.assertEqual(helper_call(jobs["receipt"])[0], "publication_recover")
+        self.assertEqual(set(jobs["receipt"]["needs"]), {"prepare", "publish"})
 
 
 if __name__ == "__main__":
