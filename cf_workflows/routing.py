@@ -46,7 +46,7 @@ def _explicit(value):
         return None
     _require(isinstance(value, dict) and set(value) == {'route', 'request_id', 'instruction', 'source'},
              'an explicit route needs exactly route, request_id, instruction and source')
-    _require(value['route'] in ROUTES, 'an explicit route is fix or review')
+    _require(isinstance(value['route'], str) and value['route'] in ROUTES, 'an explicit route is fix or review')
     _require(all(isinstance(value[key], str) and value[key].strip() for key in ('request_id', 'instruction', 'source')),
              'an explicit route needs its exact request identity')
     return value
@@ -99,6 +99,7 @@ def _route(request, configured, transport, explicit, analysis_only):
     _require(isinstance(request, dict) and type(analysis_only) is bool, 'malformed routing request')
     original = admission.resolve_request(request)
     pr = original['pr']
+    _require(pr is not None, 'routing needs a PR target, not a repository')
     host = pr['repository'].split('/')[0]
     configured = check_accounts(list(configured) if isinstance(configured, (list, tuple)) else configured)
     explicit = _explicit(explicit)
