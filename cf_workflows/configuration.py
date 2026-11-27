@@ -24,6 +24,7 @@ import copy
 import fnmatch
 import hashlib
 import os
+import stat
 from pathlib import Path, PurePosixPath
 
 from . import admission, dk_pr_fix, entries, semantic, writes
@@ -114,8 +115,13 @@ def discover(repository):
                     continue
                 entry['resolved'] = target.relative_to(root).as_posix()
                 path = target
-            data = path.read_bytes()
-            if len(data) > admission.MAX_FILE:
+            # Non-blocking and bounded: a FIFO or device named like a source never stalls discovery.
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NONBLOCK), 'rb') as stream:
+                regular = stat.S_ISREG(os.fstat(stream.fileno()).st_mode)
+                data = stream.read(admission.MAX_FILE + 1) if regular else b''
+            if not regular:
+                entry.update(status='unreadable', reason='not a regular file')
+            elif len(data) > admission.MAX_FILE:
                 entry.update(status='unreadable', reason='exceeds the size bound')
             else:
                 entry.update(sha256=hashlib.sha256(data).hexdigest(), lines=len(data.decode('utf-8').splitlines()))
@@ -270,7 +276,7 @@ def run_session(transport, task):
         raise Blocked('session.observation.operations', 'must be an array')
     for number, operation in enumerate(observed['operations']):
         if (not isinstance(operation, dict) or set(operation) != {'kind', 'target'} or operation['kind'] != 'read'
-                or operation['target'] not in task['readable']):
+                or not isinstance(operation['target'], str) or operation['target'] not in task['readable']):
             raise Blocked(f'session.observation.operations[{number}]',
                           'the session may only read the files of its assignment')
     return reference, observed['session_id'], session['output']
@@ -424,7 +430,8 @@ def explain(*, request, store, deployment, repository, transport, invocation=Non
         reference, _, output = run_session(transport, task)
         fields(output, 'explanation', ('explanation', 'citations'))
         text(output['explanation'], 'explanation.explanation')
-        require(isinstance(output['citations'], list) and set(output['citations']) <= set(current['paths']),
+        require(isinstance(output['citations'], list) and all(isinstance(item, str) for item in output['citations'])
+                and set(output['citations']) <= set(current['paths']),
                 'explanation.citations', 'cite configuration paths that exist')
     except (AdmissionError, Blocked) as error:
         return {'status': 'blocked', 'error': _failure(error)}
