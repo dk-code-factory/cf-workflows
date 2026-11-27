@@ -556,7 +556,8 @@ class Approvers(ApproverFixture):
         for chosen in ({'reviewers': [('mallory', ['requested'])]}, {'reviewers': [('carol', ['.github/CODEOWNERS:2'])]},
                        {'reviewers': [('author', ['review:3'])]}, {'reviewers': [('alice', ['review:0'])]},
                        {'reviewers': [('alice', ['requested']), ('Alice', ['requested'])]},
-                       {'team_reviewers': [('writers', ['.github/CODEOWNERS:4'])]}):
+                       {'team_reviewers': [('writers', ['.github/CODEOWNERS:4'])]},
+                       {'reviewers': [('alice', [{'source': 'requested'}])]}, {'reviewers': [('alice', [['requested']])]}):
             with self.subTest(chosen=chosen):
                 self.engine = Engine()
                 result = self.select(self.github(), sessions=[self.choose(**chosen)])
@@ -564,6 +565,19 @@ class Approvers(ApproverFixture):
                 self.assertTrue(result['blockers'])
                 with self.assertRaises(ValueError):
                     approvers.request_payload(result, pr=PR, head=self.head)
+
+    def test_changed_paths_are_read_unquoted_for_codeowners(self):
+        # git quotes non-ASCII paths unless -z; the quoted form matches no CODEOWNERS rule.
+        git(self.repo, 'switch', '-q', 'change')
+        self.write('docs/café.md', 'Bonjour.\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Docs')
+        self.head = self.pull['head']['sha'] = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'switch', '-q', 'main')
+        self.permissions['erin'] = 'write'
+        result = self.select(self.github(), sessions=[self.choose(reviewers=[('erin', ['.github/CODEOWNERS:4'])])])
+        self.assertEqual((result['complete'], result['reviewers']), (True, ['erin']), result.get('blockers'))
+        self.assertEqual(result['evidence']['paths'], ['docs/café.md', 'src/app.py'])
 
     def test_unresolved_ownership_uses_a_bounded_maintainer_search(self):
         self.pull['requested_reviewers'] = []
