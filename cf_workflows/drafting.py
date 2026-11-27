@@ -649,6 +649,14 @@ def _check_sections(names, cited, where, kept=()):
             raise Blocked(where, f'"{label}" claims reproduction without cited reproduction evidence')
 
 
+def _settled(section):
+    """Section lines without their trailing blank lines, which only the end of the body decides."""
+    lines = list(section or [])
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines if section is not None else None
+
+
 def _check_text(body, evidence, where, *, public):
     plain = _strip_code(body)
     for number in _REF.findall(plain):
@@ -796,7 +804,7 @@ def check_result(name, output, evidence, governing):
         if evidence['decisions']:
             # dk-pr-decisions owns the bounded section; a description keeps it verbatim and never adds one.
             _, section, _ = decisions.split_section(body, evidence['decisions']['heading'])
-            require(section == evidence['decisions']['section'], 'body',
+            require(_settled(section) == _settled(evidence['decisions']['section']), 'body',
                     'the current Decisions section is kept verbatim; dk-pr-decisions changes it')
         final = {'title': title, 'body': body}
         if name == 'dk-issue':

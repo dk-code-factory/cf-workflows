@@ -91,7 +91,8 @@ only when all of these hold:
   When several templates exist, the draft names the one it follows.
 - Every phrase that the request quotes appears verbatim.
 - A disabled `update_title` or `update_body` field is not drafted, and the
-  current value is kept. The current Decisions section is kept verbatim, and a
+  current value is kept. The current Decisions section is kept verbatim (up to
+  trailing blank lines, which only the end of the body decides), and a
   description never adds one: `dk-pr-decisions` owns it.
 - A commit message accounts for every changed path as included or excluded
   with a reason, and it names no other path. It applies the length fallbacks
@@ -272,7 +273,8 @@ checks. Nothing starts an engine, provider or host or runs the YAML graph.
 - **Installed scope.** The installed entries draft for one pull request the
   actor maintains. A repository target, invocation prompts, caller-verified
   facts, linked issues and commit-policy text run only through the library
-  procedure.
+  procedure; an installed description treats the issues that a closing keyword
+  of the current body names as linked, so a draft may keep that keyword.
 - dk-commit-message drafts only. The baseline's "commit only when requested"
   is [`splitting.commit`](splitting.md#commit-on-request) (#34). It commits a
   draft only while `current_report` shows the draft is still current.

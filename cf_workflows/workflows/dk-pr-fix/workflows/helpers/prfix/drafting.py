@@ -280,6 +280,14 @@ def _check_sections(names, cited, where, kept=()):
             raise Blocked(where, f'"{label}" claims reproduction without cited reproduction evidence')
 
 
+def _settled(section):
+    """Section lines without their trailing blank lines, which only the end of the body decides."""
+    lines = list(section or [])
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines if section is not None else None
+
+
 def _check_text(body, evidence, where, *, public):
     plain = _strip_code(body)
     for number in _REF.findall(plain):
@@ -427,7 +435,7 @@ def check_result(name, output, evidence, governing):
         if evidence['decisions']:
             # dk-pr-decisions owns the bounded section; a description keeps it verbatim and never adds one.
             _, section, _ = decisions.split_section(body, evidence['decisions']['heading'])
-            require(section == evidence['decisions']['section'], 'body',
+            require(_settled(section) == _settled(evidence['decisions']['section']), 'body',
                     'the current Decisions section is kept verbatim; dk-pr-decisions changes it')
         final = {'title': title, 'body': body}
         if name == 'dk-issue':
@@ -601,6 +609,8 @@ def context(root, provider, plan, task, snapshot):
         sources.append(_source('commits', 'commits', '\n\n'.join(item['message'] for item in commits), public=True,
                                url=pr['url'] + '/commits'))
         current = {'title': meta.get('title') or '', 'body': meta.get('body') or ''}
+        # Issues the published body already closes stay linked; a draft may keep their closing keywords.
+        evidence['linked'].update(int(number) for number in _CLOSING.findall(_strip_code(current['body'])))
         sources.append(_source('pr:title', 'pr', current['title'], public=True, url=pr['url']))
         sources.append(_source('pr:body', 'pr', current['body'], public=True, url=pr['url']))
         heading = decisions.options(plan)['section_heading']
