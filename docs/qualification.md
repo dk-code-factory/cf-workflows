@@ -96,7 +96,7 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |
 | `cf-workflows:dk-ci-approve` | boundary | pending | #35 | listed | 3 / 2 / 5 |
 | `cf-workflows:dk-ci` | shared_workflow | pending | #35 | listed | 7 / 5 / 11 |
-| `cf-workflows:dk-ci-flakes` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-ci-flakes` | boundary | pending | #35 | listed | 5 / 2 / 4 |
 | `cf-workflows:dk-commit-message` | shared_workflow | pending | #32 | listed | 4 / 2 / 2 |
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | listed | 5 / 2 / 5 |
 
@@ -104,19 +104,21 @@ native execution and live acceptance are `pending` and every parity status is
 `dk-pr-publish`, `dk-pr-review-post`, `dk-plain-english`, `dk-asd-ste100`,
 `dk-pr-decisions`, the three reviewer entries, `dk-pr-description`,
 `dk-commit-message`, `dk-issue`, `dk-commit-split`, `dk-pr-split`,
-`dk-repo-onboard`, `dk-config` and `dk-preferences` are the rows in the plugin
-descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
+`dk-repo-onboard`, `dk-config`, `dk-preferences` and the three CI entries are
+the rows in the plugin descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
 `dk-pr-review` workflow ([routing](review.md#installed-entry)). The two prose
 entries are presets over the installed workflow
 ([prose cleanup](prose.md)), `dk-pr-decisions` presets reconciliation and
 publication ([decisions](decisions.md#installed-workflow)), the three drafting
 entries preset one drafting occurrence ([drafting](drafting.md#installed-workflow)),
 the two splitting entries preset one assessment and its local operation
-([splitting](splitting.md#installed-workflow)), and the three configuration
+([splitting](splitting.md#installed-workflow)), the three configuration
 entries are presets over `configure.yml`, which runs only their native session
-for the host-side procedure ([configuration](configuration-skills.md#installed-workflow)).
+for the host-side procedure ([configuration](configuration-skills.md#installed-workflow)),
+and `dk-ci` and `dk-ci-approve` preset observation and fork approval while
+`dk-ci-flakes` runs its own evidence, report and check ([CI entries](ci-skills.md#installed-entries)).
 Listing a row claims no runtime support: none of them has run through a released
-engine. The other 7 are library procedures or presets over the shared workflow.
+engine. The other 4 are library procedures or presets over the shared workflow.
 The installed workflow refuses those presets until each one runs as an
 engine-managed session.
 

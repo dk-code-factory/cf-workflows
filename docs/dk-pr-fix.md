@@ -219,7 +219,10 @@ same. The default logical run is derived from the PR, so it is.
 adapter name (legacy aliases resolve to the same name), its instructions and its
 options. Repeated identical selections are told apart by their ordinal. Reordering
 or inserting other selections keeps every ID, and so keeps its claims and
-results. `finding_verification`, `finding_fix` and `ci_repair` keep their fixed IDs.
+results. `finding_verification`, `finding_fix`, `ci_repair` and `ci_diagnosis` keep their fixed IDs.
+`ci_diagnosis` exists only in a fix-mode plan with a CI stage, an explicit
+`rerun_ci` grant and the enabled permission
+([failure diagnosis and reruns](ci-skills.md#failure-diagnosis-and-reruns)).
 Claims are the occurrence records: each holds its assignment, rounds, failures
 and accepted report, and none is ever deleted.
 
@@ -229,7 +232,8 @@ and local trees, diff, discussion, request and `AGENTS.md` instructions, shared
 settings, the task's own resources, role definition, helper implementation and
 admitted execution (workflow, roles and policy). History-scoped tasks (commit
 inspection) also bind the commit history. Head-sensitive tasks also bind the
-heads. CI controls bind only `ci_repair`. Task and finalizer selections, limits,
+heads. CI controls bind only `ci_repair` and `ci_diagnosis`; `ci_diagnosis` also
+binds the latest CI observation, so a newer one needs a fresh diagnosis. Task and finalizer selections, limits,
 the merge method and whether an occurrence is required bind nothing. The limit
 `max_parallel_reviewers` (0–64; 0 adds no cap) only caps each reviewer group's
 concurrency, so changing it reuses every result. So a

@@ -19,8 +19,8 @@ import unittest
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 from prfix import app, ci, ci_retry, publishing
-from prfix.core import Ledger, canonical, read_artifact
-from prfix.publication import Drift, PublicationError, UncertainEffect
+from prfix.core import canonical
+from prfix.publication import Drift, PublicationError
 from test_dk_pr_review import AGENTS
 from test_publication_skills import AUDIENCE, GitHub as PublicationGitHub, Helpers, grant
 
@@ -383,7 +383,7 @@ class Recovery(Helpers):
         self.user_retry(plan, ledger, authority, 2)
         self.assertEqual((self.github.runs[31]['run_attempt'], self.github.calls['rerun']), (3, 2))
         names = sorted(row[0] for row in ledger.db.execute('SELECT name FROM reservations'))
-        self.assertEqual(names, ['ci-reruns:' + self.commit, f'ci-user-retry:rerun:31'])
+        self.assertEqual(names, ['ci-reruns:' + self.commit, 'ci-user-retry:rerun:31'])
         # The same request identity never binds another attempt of the run.
         self.rerun_again(plan, ledger, attempt=3)
         with self.assertRaisesRegex(PublicationError, 'already binds another exact attempt'):
@@ -411,8 +411,7 @@ class Recovery(Helpers):
         # Incoming review never diagnoses or reruns CI.
         _, review = self.plan([{'stage': 'reviews'}], ['review'], {}, {}, 'review', 'review_recovery')
         with self.assertRaisesRegex(PublicationError, 'incoming review never reruns CI'):
-            publishing.publication_list(self.root, self.github, Ledger(self.root, review['logical_run'],
-                                        review['pr']['url']), review, {'kind': 'ci_rerun'})
+            publishing.publication_list(self.root, self.github, self.ledger(review), review, {'kind': 'ci_rerun'})
         self.assertEqual((self.writes(), self.native['diagnosis']), (0, 0))
 
     def test_a_successful_observation_needs_no_diagnosis(self):

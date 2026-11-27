@@ -10,18 +10,20 @@ no orchestration, no second journal and no other effect owner. Every CI write
 
 ## Presets
 
-| Entry | Preset | Workflow and mode | Logical run | Writes |
+| Entry | Preset | Installed workflow and mode | Logical run | Writes |
 | --- | --- | --- | --- | --- |
-| `dk-ci` ([`dk_ci.py`](../cf_workflows/dk_ci.py)) | `{stage: ci}` only, no finalizers or reviewers, zero repair allowance | `main.yml`, fix | The PR's default run, shared with dk-pr-fix | None |
-| `dk-ci-flakes` ([`ci_flakes.py`](../cf_workflows/ci_flakes.py)) | One `inspect-flakes` task on the `leaf` role (`entries.preset`) | Entry procedure | None (read-only, nothing retained) | None |
-| `dk-ci-approve` ([`dk_pr_publish.py`](../cf_workflows/dk_pr_publish.py)) | dk-pr-review's reviewers and verifier, then the `fork_ci` job | `review.yml`, review | The PR's incoming-review run | `approve_fork_ci` |
+| `dk-ci` ([`dk_ci.py`](../cf_workflows/dk_ci.py)) | `{stage: ci}` only, no finalizers or reviewers, zero repair allowance | `ci.yml` over `main.yml`, fix | The PR's default run, shared with dk-pr-fix | None |
+| `dk-ci-flakes` ([`ci_flakes.py`](../cf_workflows/ci_flakes.py)) | One `inspect-flakes` task on the `leaf` role (`entries.preset`) | `flakes.yml` (entry procedure) | None (read-only, nothing retained) | None |
+| `dk-ci-approve` ([`dk_pr_publish.py`](../cf_workflows/dk_pr_publish.py)) | dk-pr-review's reviewers and verifier, then the `fork_ci` job | `ci-approve.yml` over `main.yml`, review | The PR's incoming-review run | `approve_fork_ci` |
 
 - **dk-ci** observes only. `ci-poll.yml` calls the installed `ci` helper
   operation ([`prfix/ci.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci.py))
   until checks settle. With no repair allowance, `prepare` adds no
   `ci_repair` session, so a direct observation needs no writer identity.
-  Reruns publish through dk-pr-publish (`rerun_ci`); dk-ci takes no
-  authorization.
+  Reruns publish through dk-pr-publish (`rerun_ci`), and automatic reruns of
+  diagnosed unrelated failures run in a dk-pr-fix plan that holds that grant
+  ([failure diagnosis and reruns](#failure-diagnosis-and-reruns)); dk-ci takes
+  no authorization.
 - **dk-ci-flakes** collects bounded evidence, runs one read-only report
   session and checks it (`collect`, `check_report`). Like
   `discover-approvers`, the `inspect-flakes` adapter runs only in its entry.
@@ -150,6 +152,62 @@ carries each one only when configured:
 Like the observation window, neither window restarts on resume, a new ledger
 connection or a larger configured value.
 
+## Failure diagnosis and reruns
+
+A maintained PR (fix mode) whose plan selects the CI stage and holds an
+explicit `rerun_ci` grant with the enabled `rerun_ci` permission gets one more
+fixed occurrence, `ci_diagnosis`
+([`prfix/ci_retry.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci_retry.py)).
+It is the native failure-diagnosis role: a read-only session on the admitted
+`leaf` role, with the baseline `failure-diagnosis` role prompt
+(`scripts/check_baselines.py` checks its bytes against the pin) and no skill.
+`prepare` marks the plan's CI stage with `recovery`. Without the grant or the
+permission, and in review mode, no diagnosis exists and nothing is rerun.
+
+In `ci-pass.yml`, a failed observation goes through three steps:
+
+1. **`diagnose`** (`task.yml`, task `ci_diagnosis`). The claim hands off
+   every failed Actions run attempt of the current head's latest failed
+   observation: the run, the attempt's complete job inventory (so failed jobs
+   that no displayed check names are included) and each failed job's bounded
+   failed-step logs. A run that is no longer that failed attempt or whose
+   inventory is incomplete is listed as blocked; a failed check that is not an
+   Actions job is listed as unsupported; missing logs are a gap. The handoff
+   carries a `capture` fingerprint. Acceptance requires
+   `deliverables.diagnosis` to give every handed-off run and failed job exactly
+   one verdict: `unrelated`, `caused_by_pr` or `ambiguous`, with a reason and a
+   comparison with the PR's changes. Only an unrelated failure may be
+   retryable, and only with excerpts that occur verbatim in that job's own
+   logs, so a job without logs is never retryable. The session proposes no
+   operation. A violation is a same-session report-contract correction.
+2. **`recovery`** (`publication-barrier.yml`, selector `ci_rerun`). The
+   listing turns the current accepted diagnosis into one `ci_rerun` per run
+   whose every failed job is unrelated and retryable. A PR-caused or
+   ambiguous job keeps its whole run failed; an independent eligible run still
+   proceeds. Each proposal cites the diagnosis report. The diagnosis's
+   fingerprint binds the latest observation, so a newer observation, head or
+   input makes a prepared rerun stale and blocks it before dispatch. Unsettled
+   reruns are listed first, for read-only reconciliation only. A run whose
+   exact attempt would exceed the head's allowance is listed as a blocker.
+3. **`repair`** runs only when the listing proposed no rerun. After a rerun,
+   the next pass observes again: the rerun proves only that a retry occurred,
+   never that CI passed.
+
+Each rerun publishes through the shared journal with its own audience review.
+Dispatch rechecks that the exact attempt is still the completed failed one
+and reserves the retained per-head allowance (`ci-reruns:<head>`,
+`limits.ci_reruns_per_head`, default 3) once per exact attempt, so resuming or
+freshly preparing the same attempt consumes nothing more, and a new ledger
+connection or run never replenishes it.
+
+**User retries.** A user's explicit request to retry specified failures goes
+through dk-pr-publish's `rerun_ci` changes preset. Its `ci_rerun` proposal may
+carry `user_retry`, which must equal the retained `rerun_ci` authorization. It
+needs no diagnosis and does not consume or reset the automatic allowance, so it
+can follow automatic exhaustion. Instead it reserves one slot per run and
+request identity (`ci-user-retry:<request_id>:<run>`), bound to the exact head
+and attempt; the same identity never retries another attempt of that run.
+
 ## Fork workflow approval
 
 `approve_fork_ci` is a supported publication kind under the
@@ -214,6 +272,32 @@ no other action. In `main.yml`:
 
 A merge without the bridge grant also waits for CI before its readiness, but
 approves nothing.
+
+## Installed entries
+
+All three entries are listed in the plugin descriptor. Each `SKILL.md` states
+that the plugin version is not runnable.
+
+- **dk-ci** (`workflows/ci.yml`) runs `main.yml` in fix mode with
+  `entry: dk-ci` and the observation preset as its defaults. The installed
+  `prepare` rejects any authorization, enabled permission, repair allowance,
+  task or other stage before observing. Preflight names the entry workflow as
+  `installation.entry`.
+- **dk-ci-approve** (`workflows/ci-approve.yml`) runs `main.yml` in review mode
+  with `entry: dk-ci-approve` and dk-pr-review's preset. The installed
+  `entry_preset` and `prepare` accept only `approve_fork_ci` (`ENTRY_ACTIONS`,
+  preset `fork-ci`) and reject another entry's action and another stage shape
+  or mode. `ENTRY_BRIDGES` lets dk-pr-publish's merge preset carry the separate
+  `approve_fork_ci` grant inside the package too.
+- **dk-ci-flakes** (`workflows/flakes.yml`) is its own entry procedure. The
+  retained `flakes_collect` helper
+  ([`prfix/flakes.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/flakes.py))
+  collects the evidence of the PR's repository; one `agent/run` session on the
+  `leaf` role writes the report; `flakes_check` holds it to the evidence. Its
+  evidence and report checks are a verbatim copy of `ci_flakes.py`'s, and a
+  test keeps them identical. `ci_flakes.installed_preflight()` admits a run
+  and returns its inputs. Repository-only scans, custom prompts and
+  `ci_flakes.saved()` stay library procedures.
 
 ## Flaky-test discovery
 
@@ -314,17 +398,46 @@ writes and native sessions are counted. It covers:
   gaps. A session that links, unlinks, invents or drops a context is rejected.
   Failed reads block.
 
+`tests/test_ci_recovery.py` drives the installed failure diagnosis and reruns
+in-process, the way `ci-pass.yml` calls them, with a disposable repository, the
+real ledger and a fail-closed fake GitHub that answers only capture, checks,
+run and job reads, attempt inventories, failed-step logs, an empty flake search
+and `rerun-failed-jobs`. It covers:
+
+- **Diagnosis.** A handoff with every failed job of each exact attempt,
+  including one no check names; unreadable runs, expired logs and non-Actions
+  checks staying failed; and same-session corrections for an excerpt that is
+  not in the logs, a retryable job without logs, a retryable PR-caused
+  failure, an omitted job or run, an extra attempt, a changed capture and
+  proposed operations.
+- **Reruns.** One rerun per eligible run, reconciled and never resent; a PR-caused
+  run left for repair; a newer observation making a prepared rerun stale with
+  no write; a forged proposal refused; lost responses before and after the
+  effect.
+- **Allowances and authority.** The per-head allowance exhausted in this and a
+  new ledger connection; a user retry beside it, bound to one exact attempt
+  per request identity; no diagnosis without the grant, the permission or fix
+  mode; and the `ci-pass.yml` graph.
+
+`tests/test_ci_skills.py` also covers each installed entry's declared inputs
+and routing, the merge bridge inside the package, and the installed flake
+helpers (verbatim checks, linked and candidate contexts, a report held to the
+evidence, failed reads and a retained collection answered without a second
+read).
+
 ## What remains
 
 - **Runtime.** The installed graph and its sessions need Agent Workflow #129
   and #130. Both are closed on upstream main but in no release yet (newest
-  v0.2.1). No local controller or launcher stands in
-  for them. Plugin `SKILL.md` and descriptor rows wait for that runtime, so all
-  three inventory rows stay `not_implemented`.
-- **Baseline features without an equivalent yet.**
-  - The native failure-diagnosis role, and automatic reruns of unrelated
-    retryable failures under a `user_retry` grant. Reruns publish through
-    dk-pr-publish with the per-head allowance.
-- **Live evidence.** GitHub's search, run-listing and fork-approval behavior is
-  exercised only against fakes. Live provider adherence and GitHub
-  conformance need separate authorization.
+  v0.2.1). No local controller or launcher stands in for them. The three
+  entries are listed in the plugin descriptor, but no released engine has run
+  them, so all three inventory rows stay `not_implemented`. `agent-workflow
+  validate` and `plugin check` from unreleased source accept the workflows;
+  that checks structure only.
+- **Deliberate difference.** Direct dk-ci observes only. The baseline dk-ci
+  recovers unrelated failures itself; here the diagnosis and automatic reruns
+  run in a dk-pr-fix plan with an explicit `rerun_ci` grant, and a user retry
+  goes through dk-pr-publish.
+- **Live evidence.** GitHub's search, run-listing, rerun and fork-approval
+  behavior is exercised only against fakes. Live provider adherence (including
+  the diagnosis session) and GitHub conformance need separate authorization.

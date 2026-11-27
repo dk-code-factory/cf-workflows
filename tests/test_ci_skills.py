@@ -9,6 +9,7 @@ fallback. GitHub reads, writes, native and audience sessions are counted.
 Nothing here starts an engine, provider or host, and nothing certifies GitHub
 behavior or provider adherence.
 """
+import ast
 from collections import Counter
 import copy
 import hashlib
@@ -255,8 +256,6 @@ class Entries(PreflightFixture):
                                    for t in preset['tasks'])
                 self.assertRegex(body, rf'\n      tasks:\n        type: array\n        default:\n{re.escape(tasks)}\n')
         self.assertIn('          ci_repairs_per_cycle: 0\n', (fix_preflight.INSTALL / 'workflows/ci.yml').read_text())
-        # dk-ci-flakes stays a library entry procedure; it is not listed.
-        self.assertNotIn('name: dk-ci-flakes', descriptor)
 
     def test_main_graph_runs_fork_approval_then_waits_for_ci_before_merge(self):
         body = (fix_preflight.INSTALL / 'workflows/main.yml').read_text()
@@ -1469,6 +1468,155 @@ class FlakeDiscovery(unittest.TestCase):
         result = self.inspect(targets=[{'workflow': WORKFLOW, 'job': 'Test', 'test': 'TestFlaky'}])
         self.assertEqual(result['status'], 'rejected')
         self.assertEqual((self.github.calls, self.transport.calls), (Counter(), Counter()))
+
+
+class InstalledFlakes(FlakeDiscovery):
+    """helpers/prfix/flakes.py through the action-v1 entry point, the way workflows/flakes.yml calls it."""
+
+    NAMES = ('PAGE', 'MAX_PAGES', 'NAMED_FAILURE', 'TIMESTAMP', 'DECLARATION', 'CONTEXT', 'MAX_CONTEXTS', 'Incomplete',
+             'check_targets', '_page', '_failed_tests', 'declarations', 'collect', 'check_report')
+    PR = 'https://github.com/owner/repo/pull/17'
+
+    def setUp(self):
+        super().setUp()
+        git_fixture.isolate(self)
+        self.reference = git_fixture.stage_request(self, {'pr': self.PR, 'instructions': 'Scan CI for flaky tests.'})
+        self.keys = Counter()
+
+    @staticmethod
+    def definitions(path):
+        source = Path(path).read_text()
+        result = {}
+        for node in ast.parse(source).body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                result[node.name] = ast.get_source_segment(source, node)
+            elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                result[node.targets[0].id] = ast.get_source_segment(source, node)
+        return result
+
+    def call(self, operation, payload, key=None, phase='execute'):
+        import action
+        if key is None:
+            self.keys[operation] += 1
+            key = f'{operation}:{self.keys[operation]}'
+        request = {'protocol': 'action-v1', 'phase': phase, 'input': {'operation': operation, 'payload': payload},
+                   'context': {'operation_key': key, 'execution_fingerprint': 'exec-1'}}
+        return action.handle('invoke', request, self.repo, self.github)
+
+    def run_workflow(self, session=None, options=None, targets=()):
+        """The flakes.yml jobs in order; session(task_input) stands in for the agent/run step."""
+        snapshot = self.call('snapshot_request', {'request': self.reference})['result']['output']
+        collected = self.call('flakes_collect', {'snapshot': snapshot['snapshot'], 'options': options or {},
+                                                 'targets': list(targets)})['result']['output']
+        ran = {'status': 'skipped', 'agent': None, 'output': None}
+        if collected['session']:
+            self.assertIsNotNone(session, 'a session was expected')
+            self.native = getattr(self, 'native', 0) + 1
+            ran = {'status': 'succeeded', 'agent': 'agent_' + '1' * 32, 'output': session(collected['task_input'])}
+        result = self.call('flakes_check', {'collected': collected, 'session': ran})['result']['output']
+        return collected, result
+
+    @staticmethod
+    def written(**overrides):
+        def write(task_input):
+            tests = [{**{key: item[key] for key in ('workflow', 'job', 'test', 'status')},
+                      'observations': item['observations'][:1],
+                      'issue': item['links'][0]['issue'] if item['links'] else None, 'note': None}
+                     for item in task_input['tests']]
+            body = {'summary': 'Flaky-test evidence from the bounded scan.', 'tests': tests, 'gaps': []}
+            for key, change in overrides.items():
+                body[key] = change(body[key])
+            return body
+        return write
+
+    def test_installed_checks_are_the_library_checks_verbatim(self):
+        from prfix import flakes as installed
+        copied, original = self.definitions(installed.__file__), self.definitions(ci_flakes.__file__)
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                self.assertEqual(copied[name], original[name])
+        entry, adapter = entries.ENTRIES['dk-ci-flakes'], admission.ENTRY_ADAPTERS['inspect-flakes']
+        self.assertEqual((installed.ROLE_PROMPT, installed.ASSIGNMENT, installed.CHECKLIST, installed.OPTIONS),
+                         (entry['role_prompt'], adapter['assignment'], adapter['checklist'], entry['options']))
+        self.assertEqual(installed.RULES, entry['rules'])
+
+    def test_installed_workflow_links_only_verified_contexts_and_checks_the_report(self):
+        collected, result = self.run_workflow(self.written())
+        self.assertEqual((result['status'], result['covered'], result['waives'], result['authority']),
+                         ('complete', True, False, 'none'), result.get('blockers'))
+        tests = {item['test']: item for item in result['tests']}
+        self.assertEqual((tests['TestFlaky']['status'], tests['TestFlaky']['issue']),
+                         ('linked', 'https://github.com/owner/repo/issues/8'))
+        self.assertEqual((tests['TestBroken']['status'], tests['TestBroken']['issue']), ('candidate', None))
+        self.assertTrue(collected['prompt'].startswith(entries.ENTRIES['dk-ci-flakes']['role_prompt']))
+        self.assertEqual(self.github.calls, Counter(request=4, runs=1, jobs=2, logs=3, issues=1))
+        # A lost response is answered from the retained result, never read again.
+        snapshot = self.call('snapshot_request', {'request': self.reference})['result']['output']
+        again = self.call('flakes_collect', {'snapshot': snapshot['snapshot'], 'options': {}, 'targets': []},
+                          key='flakes_collect:1', phase='reconcile')['result']['output']
+        self.assertEqual((again, self.github.calls['request']), (collected, 4))
+        self.assertEqual(self.native, 1)
+
+    def test_installed_report_cannot_link_drop_or_invent_evidence(self):
+        cases = {
+            'links a candidate': lambda tests: [dict(t, status='linked', issue='https://github.com/owner/repo/issues/8')
+                                                for t in tests],
+            'drops a context': lambda tests: tests[:1],
+            'invents a test': lambda tests: tests + [dict(tests[0], test='TestInvented')],
+        }
+        for label, change in cases.items():
+            with self.subTest(label=label):
+                _, result = self.run_workflow(self.written(tests=change))
+                self.assertEqual((result['status'], result['tests']), ('incomplete', []))
+                self.assertTrue(result['blockers'])
+
+    def test_installed_failed_reads_block_and_quiet_history_runs_no_session(self):
+        self.github.broken.add('listing')
+        collected, result = self.run_workflow()
+        self.assertEqual((collected['session'], collected['evidence']), (False, None))
+        self.assertEqual((result['status'], result['blockers']), ('incomplete', ['evidence read failed: ConnectionError']))
+        self.github = FlakeGitHub()
+        collected, result = self.run_workflow()
+        self.assertFalse(collected['session'])
+        self.assertEqual((result['status'], result['tests'], result['covered']), ('complete', [], True))
+        # The check refuses a session that ran without an observed context.
+        with self.assertRaisesRegex(ValueError, 'no session runs'):
+            self.call('flakes_check', {'collected': collected, 'session': {'status': 'succeeded', 'agent': 'x',
+                                                                           'output': {}}})
+        for options, message in (({'window': 3}, 'unsupported option'), ({'max_runs': 0}, 'unsupported value')):
+            with self.subTest(options=options):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.run_workflow(options=options)
+
+    def test_installed_preflight_declares_its_inputs_and_needs_a_pull_request(self):
+        home = Path(self.repo).parent / 'home'
+        self.transport = EngineTransport(self.engine, sessions=())
+        arguments = {'deployment': self.deployment, 'repository': self.repo, 'transport': self.transport,
+                     'home': home}
+        result = ci_flakes.installed_preflight(request={'pr': self.PR, 'instructions': 'Scan CI.'},
+                                               options={'max_runs': 7}, **arguments)
+        self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+        self.assertEqual(result['installation']['entry'], 'workflows/flakes.yml')
+        self.assertEqual(result['inputs']['options'], {'lookback_days': 30, 'max_runs': 7, 'max_issues': 500})
+        self.assertEqual((result['inputs']['targets'], set(result['inputs'])),
+                         ([], {'request', 'options', 'targets', 'turns'}))
+        descriptor = (fix_preflight.INSTALL / 'plugin.yaml').read_text()
+        self.assertIn('  - name: dk-ci-flakes\n    path: skills/dk-ci-flakes/SKILL.md\n    workflow: workflows/flakes.yml\n',
+                      descriptor)
+        body = (fix_preflight.INSTALL / 'workflows/flakes.yml').read_text()
+        for key in result['inputs']:
+            self.assertRegex(body, rf'\n      {key}:\n')
+        for operation in ('snapshot_request', 'flakes_collect', 'flakes_check'):
+            self.assertIn(f'operation: {operation}\n', body)
+        self.assertIn('select: leaf\n', body)
+        self.assertFalse(home.exists(), 'preflight writes nothing')
+        for request, path in (({'repository': 'github.com/owner/repo', 'instructions': 'Scan.'}, 'request.pr'),
+                              ({'pr': self.PR, 'instructions': 'Scan.', 'authorizations': {'create_issue': grant('i')}},
+                               'request.authorizations')):
+            with self.subTest(path=path):
+                rejected = ci_flakes.installed_preflight(request=request, **arguments)
+                self.assertEqual((rejected['preflight'], rejected['error']['path']), ('rejected', path))
+        self.assertEqual(self.github.calls, Counter())
 
 
 if __name__ == '__main__':

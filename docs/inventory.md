@@ -42,9 +42,9 @@ sessions through a released engine.
 The three reviewer rows (#29, [reviewer skills](reviewer-skills.md)) are
 listed in the plugin descriptor with their own installed workflows
 (`reviewers-run.yml`, `code-simplify.yml`, `approvers.yml`). The three CI rows
-(#35, [CI entries](ci-skills.md)) are presets over the installed `dk-pr-fix`
-workflow with deterministic direct and composed fixtures. All six stay
-`not_implemented` for the same reason.
+(#35, [CI entries](ci-skills.md#installed-entries)) are listed with their own
+installed workflows (`ci.yml` and `ci-approve.yml` over `dk-pr-fix`, and
+`flakes.yml`). All six stay `not_implemented` for the same reason.
 
 The three drafting rows (#32, [drafting entries](drafting.md#installed-workflow))
 are listed in the plugin descriptor with their own installed entry workflows,

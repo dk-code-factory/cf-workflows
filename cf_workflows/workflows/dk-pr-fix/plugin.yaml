@@ -79,6 +79,9 @@ skills:
   - name: dk-ci-approve
     path: skills/dk-ci-approve/SKILL.md
     workflow: workflows/ci-approve.yml
+  - name: dk-ci-flakes
+    path: skills/dk-ci-flakes/SKILL.md
+    workflow: workflows/flakes.yml
 resources:
   - LICENSE
   - agents.yml

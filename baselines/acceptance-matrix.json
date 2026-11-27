@@ -981,30 +981,37 @@
         35
       ],
       "behavior": [
-        "cf_workflows/ci_flakes.py"
+        "cf_workflows/ci_flakes.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/flakes.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/flakes.py"
       ],
       "documentation": "docs/ci-skills.md",
       "composition": "boundary",
       "direct": [
         "test_ci_skills.FlakeDiscovery.test_linked_and_candidate_contexts_come_only_from_verified_evidence",
         "test_ci_skills.FlakeDiscovery.test_limits_targets_and_gaps_are_reported_never_coverage",
-        "test_ci_skills.Observation.test_saved_observations_are_inspected_without_github_reads"
+        "test_ci_skills.Observation.test_saved_observations_are_inspected_without_github_reads",
+        "test_ci_skills.InstalledFlakes.test_installed_workflow_links_only_verified_contexts_and_checks_the_report",
+        "test_ci_skills.InstalledFlakes.test_installed_preflight_declares_its_inputs_and_needs_a_pull_request"
       ],
       "composed": [
-        "test_ci_skills.Entries.test_flake_entry_options_and_adapter_stay_in_their_entry"
+        "test_ci_skills.Entries.test_flake_entry_options_and_adapter_stay_in_their_entry",
+        "test_ci_skills.InstalledFlakes.test_installed_checks_are_the_library_checks_verbatim"
       ],
       "recovery": [
         "test_ci_skills.FlakeDiscovery.test_failed_reads_block_and_quiet_history_needs_no_session",
-        "test_ci_skills.FlakeDiscovery.test_the_entry_has_no_authority"
+        "test_ci_skills.FlakeDiscovery.test_the_entry_has_no_authority",
+        "test_ci_skills.InstalledFlakes.test_installed_report_cannot_link_drop_or_invent_evidence",
+        "test_ci_skills.InstalledFlakes.test_installed_failed_reads_block_and_quiet_history_runs_no_session"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as workflows/flakes.yml for a pull request's repository, but it has never run through a released engine; repository-only scans, custom prompts and saved-observation inspection run only through the library procedure. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-message",
