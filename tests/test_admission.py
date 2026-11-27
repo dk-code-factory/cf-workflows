@@ -481,6 +481,10 @@ class ReviewRegressions(Fixture):
                          ['policy.md', 'c.md'])
         self.assertEqual(admission.link_targets('Note[^1].\n\n[^1]: See the hidden notes.\n'), [])
         self.assertEqual(admission.link_targets('[x](a(b).md "t") [y](<z w.md>)'), ['a(b).md', 'z w.md'])
+        # A backtick line with a backtick in its info string is a span, and a closer takes no info string.
+        self.assertEqual(admission.link_targets('```code``` see [x](x.md)\n[y](y.md)\n'), ['x.md', 'y.md'])
+        self.assertEqual(admission.link_targets('```\n[a](a.md)\n```python\n```\n[b](b.md)\n'), ['b.md'])
+        self.assertEqual(admission.link_targets('~~~\n[a](a.md)\n~~~ \n[b](b.md)\n'), ['b.md'])
         # Indented code is scanned too: a link there can only reject, never drop out of the closure.
         self.write(self.repo, 'AGENTS.md', 'Intro.\n\n    [indented](missing.md)\n')
         self.assertRejected(self.admit(), 'missing resource missing.md')
