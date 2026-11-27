@@ -54,7 +54,9 @@ issue authorizations in every plan except the `dk-issue` entry.
   external diffs and lazy fetches disabled. Evidence is HEAD, the staged and
   unstaged patches, untracked paths, the configured Git identity, recent human
   commits, a commit template inside the checkout and verified commit-policy
-  text from commit cleanup. Unresolved conflicts or no changes block.
+  text from commit cleanup. Unresolved conflicts or no changes block. The
+  binding also covers the whole patches and the untracked files' content, so a
+  change past the text bounds or inside an untracked file makes the draft stale.
 - **Issue.** Evidence is the exact ask, verified facts and, for an update, the
   current issue. Labels and assignees are verified against the repository
   listings. Requested ones take precedence over the configured defaults. A
