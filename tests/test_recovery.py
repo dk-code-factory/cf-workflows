@@ -5,6 +5,8 @@ fakes: GitHub transports, scripted native sessions, and a fake engine maintenanc
 adapter whose database backup and recovery bundle are snapshots of the fixture
 engine's durable state (claims, gates, sessions) and of the admitted helpers it
 retains. Two fake host adapters (Codex and Claude) record native dispatches.
+The CLI-bound engine adapter runs against a fake of the agent-workflow maintenance
+CLI; one opt-in case builds the real CLI from the pinned unreleased commit.
 Unconfigured operations fail without a live fallback. Counts are fixture proxies;
 no case measures or claims live cost, and none certifies an engine, provider or host.
 """
@@ -17,6 +19,7 @@ from pathlib import Path
 import pickle
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -690,6 +693,41 @@ class PluginReplacement(HelperFixture):
             self.assertTrue(Path(module).is_relative_to(retained), module)
         self.assertEqual(host.sessions['native'], 2)
 
+    def test_cli_bound_engine_reports_original_helpers_retained_in_bundle_assets(self):
+        plan, host, lost = self.unfinished()
+        engine = CliEngineFixture.engine_setup(self)
+        # The engine bundle retains the original helpers as a container job's asset tree.
+        engine_bundle(self.bundle_source, [installed_helpers()], versioned=True)
+        install = self.replaced()
+        destination = self.root.parent / 'backup'
+        recovery.backup(self.home, destination, engine=engine, install=install)
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
+        report = recovery.restore(destination, self.home, engine=engine, install=install)
+        run = NAMESPACE.split('/')[1] + '/' + plan['logical_run']
+        self.assertEqual(report['runs'][run]['assets'], {plan['execution_fingerprint']: 'retained'})
+        self.assertEqual(report['runs'][run]['claims'], [lost['claim']])
+        self.assertEqual(report['blocked'], [])
+        # The restored tree holds the original helpers, which still resume the original plan.
+        [tree] = report['engine']['assets']
+        retained = self.workspace / recovery.ENGINE_STATE / 'assets' / tree / 'files' / 'helpers'
+        step = [{'name': 'reader', 'operation': 'claim',
+                 'input': {'plan': 'artifacts/' + core.digest(plan) + '.json', 'cycle': 1, 'publication': '',
+                           'task': self.task(plan, 'read-feedback')['id']}}]
+        resumed = self.driver(retained, plan, step)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr.decode()[-4000:])
+        self.assertFalse(json.loads(resumed.stdout)['results']['reader']['result']['output']['invoke'])
+        self.assertEqual(host.sessions['native'], 2)
+        # A bundle that retains only the replacement's helpers leaves the same run blocked.
+        engine_bundle(self.bundle_source, [installed_helpers(install)], versioned=True)
+        other = self.root.parent / 'replacement backup'
+        recovery.backup(self.home, other, engine=engine, install=install)
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
+        report = recovery.restore(other, self.home, engine=engine, install=install)
+        self.assertEqual(report['runs'][run]['assets'], {plan['execution_fingerprint']: 'missing'})
+        self.assertEqual(report['blocked'], [run])
+
     def test_missing_original_assets_block_recovery_instead_of_using_replacements(self):
         plan, host, lost = self.unfinished()
         engine = EngineAdapter(host, helpers=dk_pr_fix.INSTALL / 'workflows' / 'helpers', retain=False)
@@ -702,6 +740,409 @@ class PluginReplacement(HelperFixture):
         # The evidence is still restored; only resumption is blocked.
         with core.Ledger(self.root, plan['logical_run'], plan['pr']['url'], read_only=True) as ledger:
             self.assertEqual(ledger.db.execute('SELECT count(*) FROM claims').fetchone()[0], 2)
+
+
+# -- The engine adapter bound to the agent-workflow CLI --------------------------------------------
+
+ORIGIN = 'a' * 32
+FAKE_CLI = '''
+import json, os, signal, sys
+from pathlib import Path
+argv = sys.argv[1:]
+verb, args = argv[0], argv[1:]
+with open(os.environ['FAKE_LOG'], 'a') as log:
+    log.write(json.dumps(argv) + '\\n')
+if args[:1] == ['--workspace']:
+    args = args[2:]
+def emit(value):
+    print(json.dumps(value))
+    sys.exit(0)
+if verb == 'version':
+    emit({'version': '0.2.2', 'commit': 'development'})
+if verb == 'backup':
+    Path(args[0]).write_bytes(b'fixture engine database')
+    emit({'database': args[0], 'scope': 'database-only'})
+if verb == 'bundle':
+    Path(args[0]).write_bytes(Path(os.environ['FAKE_BUNDLE']).read_bytes())
+    emit({'bundle': args[0], 'scope': 'engine-owned recovery data; native credential stores excluded'})
+if verb == 'restore':
+    if Path(os.environ['FAKE_FAIL']).exists():
+        sys.exit('restore: fixture failure')
+    emit({'restored': args[0], 'retained_database': '',
+          'recovery': 'restored runnable work requires explicit uncertain-retry acknowledgement'})
+if verb == 'stop':
+    os.kill(int(Path(os.environ['FAKE_OWNER']).read_text()), signal.SIGTERM)
+    emit({'stopping': True})
+if verb == 'resume':
+    if '--retry-uncertain' not in args:
+        sys.exit('controller: restored effects require explicit retry_uncertain acknowledgement')
+    emit({'id': args[-1], 'status': 'queued'})
+sys.exit('unconfigured fake operation: ' + verb)
+'''
+HOLD_LOCK = '''
+import fcntl, sys, time
+handle = open(sys.argv[1], 'a')
+fcntl.flock(handle, fcntl.LOCK_EX)
+print('held', flush=True)
+time.sleep(60)
+'''
+
+
+def materialized(name):
+    """The engine's materialized mode of a retained file: 0555 when executable (here: a .sh), else 0444."""
+    return 0o555 if name.endswith('.sh') else 0o444
+
+
+def asset_tree(files, versioned):
+    """bundle.json of a retained asset tree in the engine's helper-bundle or versioned asset-bundle format.
+
+    A historical helper bundle records the materialized mode; a versioned one the
+    original source mode (0755 or 0644 here), which the engine materializes.
+    """
+    entries = [{'path': path, 'mode': materialized(path), 'size': len(data),
+                'sha256': hashlib.sha256(data).hexdigest()} for path, data in sorted(files.items())]
+    ident = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
+    if versioned:
+        entries = [{**entry, 'kind': 'file', 'mode': entry['mode'] | 0o200} for entry in entries]
+        return ident, {'version': 1, 'origin_run_id': ORIGIN, 'id': ident, 'entries': entries}
+    return ident, {'origin_run_id': ORIGIN, 'id': ident, 'files': entries}
+
+
+def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=None, owner=True):
+    """A synthetic recovery bundle in the layout `agent-workflow bundle` writes (pkg/workflows/bundle.go at 8758775).
+
+    It is built here, not exported by the engine. trees are {path: bytes}
+    retained asset trees, with every directory entry and the materialized modes
+    the engine exports (0700 above files/, 0555 directories and 0444/0555 files
+    in it); extra are (name, bytes or None for a directory, or ('link', target))
+    entries added as they are; tamper rewrites one retained file's bytes, and
+    mode its mode, after its manifest is written; owner=False leaves out owner.json.
+    """
+    import io
+    import tarfile
+    added = set()
+
+    def add(archive, name, data=None, link=None, mode=None):
+        if name in added and data is None and link is None:
+            return
+        added.add(name)
+        info = tarfile.TarInfo(name)
+        if link is not None:
+            info.type, info.linkname = tarfile.SYMTYPE, link
+            archive.addfile(info)
+        elif data is None:
+            info.type, info.mode = tarfile.DIRTYPE, 0o755 if mode is None else mode
+            archive.addfile(info)
+        else:
+            info.size, info.mode = len(data), 0o444 if mode is None else mode
+            archive.addfile(info, io.BytesIO(data))
+    with tarfile.open(path, 'w:gz') as archive:
+        add(archive, 'manifest.json', json.dumps({'format': 1, 'scope': 'engine-owned recovery state'}).encode())
+        add(archive, 'state.db', b'fixture engine database')
+        add(archive, 'invocations')
+        add(archive, 'invocations/' + 'b' * 32 + '/complete.json', b'{}')
+        for files in trees:
+            ident, manifest = asset_tree(files, versioned)
+            base = f'assets/{ORIGIN}/{ident}/'
+            for directory in ('assets', f'assets/{ORIGIN}', base[:-1]):
+                add(archive, directory, mode=0o700)
+            add(archive, base + 'bundle.json', json.dumps(manifest).encode(), mode=0o444)
+            add(archive, base + 'files', mode=0o555)
+            for name, data in sorted(files.items()):
+                parts = name.split('/')
+                for depth in range(1, len(parts)):
+                    add(archive, base + 'files/' + '/'.join(parts[:depth]), mode=0o555)
+                first = name == sorted(files)[0]
+                add(archive, base + 'files/' + name, tamper if tamper is not None and first else data,
+                    mode=mode if mode is not None and first else materialized(name))
+            if owner:
+                add(archive, base + 'owner.json', json.dumps({'origin_run_id': ORIGIN, 'stage_id': 'c' * 32}).encode(),
+                    mode=0o600)
+        for name, data in extra:
+            if isinstance(data, tuple):
+                add(archive, name, link=data[1])
+            else:
+                add(archive, name, data)
+    return path
+
+
+def remove_tree(path):
+    """Remove a restored engine state, whose retained asset trees are read-only as the engine keeps them."""
+    # Opens every directory first instead of rmtree(onexc=...), which needs Python 3.12; the host minimum is 3.11.
+    for root, directories, _ in os.walk(path):
+        os.chmod(root, 0o700)
+        for name in directories:
+            if not os.path.islink(os.path.join(root, name)):
+                os.chmod(os.path.join(root, name), 0o700)
+    shutil.rmtree(path)
+
+
+def tree_modes(root):
+    """{relative path: permission bits} of every entry under root."""
+    return {path.relative_to(root).as_posix(): stat.S_IMODE(path.lstat().st_mode) for path in root.rglob('*')}
+
+
+def installed_helpers(install=dk_pr_fix.INSTALL):
+    """The installation's helpers and agents as a container job's retained files place them."""
+    workflows = Path(install) / 'workflows'
+    return {Path(prefix, name).as_posix(): data for prefix in ('helpers', 'agents')
+            for name, data in helper_files(workflows / prefix).items()
+            if '__pycache__' not in name and not name.endswith('.pyc')}
+
+
+class CliEngineFixture:
+    def engine_setup(self):
+        temp = tempfile.TemporaryDirectory(prefix='cfw engine ')
+        self.addCleanup(temp.cleanup)
+        self.engine_base = Path(temp.name)
+        self.workspace = self.engine_base / 'engine workspace'
+        (self.workspace / recovery.ENGINE_STATE).mkdir(parents=True)
+        self.cli = self.engine_base / 'bin' / 'agent-workflow'
+        self.cli.parent.mkdir()
+        self.cli.write_text(f'#!{sys.executable} -I\n' + FAKE_CLI)
+        self.cli.chmod(0o755)
+        self.log = self.engine_base / 'calls.jsonl'
+        self.bundle_source = self.engine_base / 'prepared bundle'
+        self.environment = {'PATH': os.environ['PATH'], 'FAKE_LOG': str(self.log),
+                            'FAKE_BUNDLE': str(self.bundle_source), 'FAKE_FAIL': str(self.engine_base / 'fail'),
+                            'FAKE_OWNER': str(self.engine_base / 'owner')}
+        return recovery.Engine(self.cli, self.workspace, environment=self.environment, timeout=60)
+
+    def calls(self):
+        return [json.loads(line)[0] for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+
+class EngineBinding(CliEngineFixture, unittest.TestCase):
+    """recovery.Engine against a fail-closed fake of the agent-workflow 8758775 maintenance CLI."""
+
+    def setUp(self):
+        git_fixture.isolate(self)
+        self.engine = self.engine_setup()
+        self.home = self.engine_base / 'xdg state'
+        namespace(self.home)
+
+    def test_retained_asset_trees_map_to_admitted_helper_digests(self):
+        helpers = installed_helpers()
+        current = recovery.installation()['helpers']
+        agents_only = {name: data for name, data in helpers.items() if name.startswith('agents/')}
+        for versioned in (False, True):
+            bundle = engine_bundle(self.engine_base / f'bundle {versioned}', [helpers, agents_only], versioned)
+            self.assertEqual(len(recovery.bundle_assets(bundle)), 2)
+            self.assertEqual(self.engine.retained(bundle), {current})
+        changed = {**helpers, 'helpers/prfix/ci.py': helpers['helpers/prfix/ci.py'] + b'\n# later\n'}
+        bundle = engine_bundle(self.engine_base / 'changed', [changed])
+        self.assertNotIn(current, self.engine.retained(bundle))
+        self.assertEqual(self.engine.retained(engine_bundle(self.engine_base / 'empty')), set())
+        self.assertEqual(self.calls(), [])
+
+    def test_tampered_or_foreign_bundle_entries_reject_before_any_change(self):
+        helpers = {'helpers/action.py': b'print(1)\n', 'helpers/prfix/core.py': b'x = 1\n'}
+        relative = engine_bundle(self.engine_base / 'relative link', extra=[
+            ('workspaces/w', None), ('workspaces/w/tree', None), ('workspaces/w/current', ('link', 'tree'))])
+        self.assertEqual(recovery.bundle_assets(relative), {})  # A link inside its workspaces tree is kept.
+        cases = {
+            'differ from their manifest': engine_bundle(self.engine_base / 'tampered', [helpers], tamper=b'evil'),
+            'differ from their manifest ': engine_bundle(
+                self.engine_base / 'unlisted', [helpers],
+                extra=[(f'assets/{ORIGIN}/{asset_tree(helpers, False)[0]}/files/helpers/extra.py', b'x')]),
+            'no bundle.json': engine_bundle(self.engine_base / 'orphan',
+                                            extra=[(f'assets/{ORIGIN}/{"d" * 64}/files/helpers/a.py', b'x')]),
+            'outside a retained tree': engine_bundle(self.engine_base / 'stray', extra=[('assets/loose.py', b'x')]),
+            'not an engine recovery bundle entry': engine_bundle(self.engine_base / 'foreign',
+                                                                 extra=[('secrets/token', b'x')]),
+            'not an engine recovery bundle entry ': engine_bundle(self.engine_base / 'escape',
+                                                                  extra=[('invocations/../../escape', b'x')]),
+            'not a file or directory': engine_bundle(self.engine_base / 'link',
+                                                     extra=[('providers/auth', ('link', '/etc/passwd'))]),
+            'leaves its workspaces tree': engine_bundle(self.engine_base / 'workspace link',
+                                                        extra=[('workspaces/w/escape', ('link', '../../assets'))]),
+            'duplicate engine bundle entry': engine_bundle(self.engine_base / 'duplicate',
+                                                           extra=[('state.db', b'another database')]),
+            'differ from their manifest  ': engine_bundle(self.engine_base / 'writable', [helpers], mode=0o644),
+            'no owner.json': engine_bundle(self.engine_base / 'ownerless', [helpers], versioned=True, owner=False),
+        }
+        database = self.engine_base / 'database'
+        database.write_bytes(b'fixture engine database')
+        for message, bundle in cases.items():
+            with self.subTest(message):
+                with self.assertRaisesRegex(recovery.RecoveryError, message.strip()):
+                    self.engine.restore(database, bundle)
+                self.assertEqual(list((self.workspace / recovery.ENGINE_STATE).iterdir()), [])
+        self.assertEqual(self.calls(), [])
+
+    def test_backup_needs_the_execution_owner_released_and_stop_waits_for_it(self):
+        lock = self.workspace / recovery.ENGINE_STATE / 'owner.lock'
+        owner = subprocess.Popen([sys.executable, '-I', '-c', HOLD_LOCK, str(lock)], stdout=subprocess.PIPE)
+        self.addCleanup(owner.wait)
+        self.addCleanup(owner.kill)
+        self.assertEqual(owner.stdout.readline(), b'held\n')
+        (self.engine_base / 'owner').write_text(str(owner.pid))
+        self.assertEqual(self.engine.status(), {'controller': 'running', 'version': '0.2.2'})
+        destination = self.engine_base / 'backup'
+        with self.assertRaisesRegex(recovery.RecoveryError, 'stop the engine controller'):
+            recovery.backup(self.home, destination, engine=self.engine)
+        self.assertFalse(destination.exists())
+        with self.assertRaisesRegex(recovery.RecoveryError, 'stop the engine controller'):
+            self.engine.restore(self.engine_base / 'database', self.engine_base / 'bundle')
+        self.assertEqual(self.engine.stop(), {'stopping': True})
+        self.assertEqual(self.engine.status()['controller'], 'stopped')
+        self.assertEqual(self.engine.stop(), {'stopped': True})  # Already stopped: nothing is sent.
+        self.assertEqual(self.calls(), ['version', 'version', 'stop', 'version'])
+
+    def test_backup_restore_and_resume_go_through_the_cli_and_never_merge(self):
+        helpers = {**installed_helpers(), 'bin/run.sh': b'#!/bin/sh\n'}
+        engine_bundle(self.bundle_source, [helpers], versioned=True)
+        destination = self.engine_base / 'backup'
+        manifest = recovery.backup(self.home, destination, engine=self.engine)
+        self.assertEqual(manifest['engine']['version'], '0.2.2')
+        self.assertEqual(manifest['engine']['bundle'], hashlib.sha256(self.bundle_source.read_bytes()).hexdigest())
+        # Total loss of the suite state and of the engine's own state, then restore.
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
+        report = recovery.restore(destination, self.home, engine=self.engine)
+        [tree] = recovery.bundle_assets(self.bundle_source)
+        self.assertEqual(report['engine'], {
+            'restored': str(destination / 'engine' / 'database'), 'retained_database': '', 'assets': [tree],
+            'recovery': 'restored runnable work requires explicit uncertain-retry acknowledgement'})
+        restored = self.workspace / recovery.ENGINE_STATE / 'assets' / tree / 'files'
+        self.assertEqual({name: (restored / name).read_bytes() for name in helpers}, helpers)
+        # Exact permissions, as the engine verifies them on resume, on use and on the next bundle.
+        modes = tree_modes(restored)
+        self.assertEqual({name: modes.pop(name) for name in helpers}, {name: materialized(name) for name in helpers})
+        self.assertEqual(set(modes.values()), {0o555})  # Every directory under files/.
+        self.assertEqual(stat.S_IMODE(restored.stat().st_mode), 0o555)
+        self.assertEqual(stat.S_IMODE(restored.parent.stat().st_mode), 0o700)
+        self.assertFalse((self.workspace / recovery.ENGINE_STATE / 'state.db').exists())  # Only through the CLI.
+        self.assertEqual(self.calls(), ['version', 'backup', 'bundle', 'restore'])
+        # Restoring again over the restored engine state refuses before calling the CLI.
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        with self.assertRaisesRegex(recovery.RecoveryError, 'restore never merges'):
+            recovery.restore(destination, self.home, engine=self.engine)
+        self.assertFalse((self.home / recovery.SUITE_DIR).exists())
+        self.assertEqual(self.calls().count('restore'), 1)
+        # Restored runnable work resumes only with the uncertain-retry acknowledgement.
+        with self.assertRaisesRegex(recovery.RecoveryError, 'retry_uncertain acknowledgement'):
+            self.engine.resume('e' * 32)
+        self.assertEqual(self.engine.resume('e' * 32, retry_uncertain=True), {'id': 'e' * 32, 'status': 'queued'})
+
+    def test_failed_engine_restore_removes_the_extracted_trees_so_a_retry_can_run(self):
+        engine_bundle(self.bundle_source, [installed_helpers()], extra=[
+            ('workspaces', None), ('workspaces/w', None), ('workspaces/w/current', ('link', 'tree'))])
+        database = self.engine_base / 'database'
+        database.write_bytes(b'fixture engine database')
+        state = self.workspace / recovery.ENGINE_STATE
+        (state / 'owner.lock').touch()  # Engine state outside the bundle paths stays.
+        (self.engine_base / 'fail').touch()
+        with self.assertRaisesRegex(recovery.RecoveryError, 'restore: fixture failure'):
+            self.engine.restore(database, self.bundle_source)
+        self.assertEqual(sorted(path.name for path in state.iterdir()), ['owner.lock'])
+        (self.engine_base / 'fail').unlink()
+        report = self.engine.restore(database, self.bundle_source)
+        self.assertEqual(report['assets'], sorted(recovery.bundle_assets(self.bundle_source)))
+        self.assertEqual(os.readlink(state / 'workspaces' / 'w' / 'current'), 'tree')
+        self.assertEqual(self.calls(), ['restore', 'restore'])
+
+    def test_unconfigured_cli_operations_fail(self):
+        with self.assertRaisesRegex(recovery.RecoveryError, 'unconfigured fake operation: cancel'):
+            self.engine.command('cancel', 'e' * 32)
+
+
+FIXTURE_WORKFLOW = '''name: cf-workflows recovery fixture
+"on":
+  workflow_call:
+    inputs:
+      log: {type: string, required: true}
+jobs:
+  dispatch:
+    steps:
+      - id: once
+        argv: [sh, -c, 'echo dispatched >> "$1"', fixture, "${{ inputs.log }}"]
+  decide:
+    needs: [dispatch]
+    steps:
+      - id: question
+        uses: input/wait
+        with:
+          prompt: Continue after the restore?
+          evidence-id: recovery-fixture-v1
+      - argv: [sh, -c, 'echo answered >> "$1"', fixture, "${{ inputs.log }}"]
+'''
+
+
+@unittest.skipUnless(os.environ.get('CF_AGENT_WORKFLOW'),
+                     'set CF_AGENT_WORKFLOW to a local agent-workflow clone with the pinned toolchain commit')
+class EngineIntegration(unittest.TestCase):
+    """backup -> loss -> restore -> resume on an engine built from the pinned unreleased commit.
+
+    The fixture run has one host command step and one external-input gate; no
+    provider, container or network is used. It establishes no released engine.
+    """
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('check_package_build', ROOT / 'scripts/check_package_build.py')
+        build_check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build_check)
+        temp = tempfile.TemporaryDirectory(prefix='cfw engine integration ')
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.cli = build_check.build_cli(Path(os.environ['CF_AGENT_WORKFLOW']), self.base)
+        self.workspace = self.base / 'engine workspace'
+        (self.workspace / 'workflows').mkdir(parents=True)
+        (self.workspace / 'workflows' / 'main.yml').write_text(FIXTURE_WORKFLOW)
+        (self.workspace / 'agents.yml').write_text(
+            'agents:\n  unused:\n    provider: codex-cli\n    execution: {mode: local}\n')
+        self.environment = {'PATH': os.environ['PATH'], 'HOME': str(self.base), 'LANG': 'C.UTF-8'}
+        self.engine = recovery.Engine(self.cli, self.workspace, environment=self.environment, timeout=120)
+        self.addCleanup(self.engine.stop)
+        self.dispatches = self.base / 'dispatches.log'
+        self.home = self.base / 'xdg state'
+        namespace(self.home)
+
+    def until(self, run, status):
+        import time
+        deadline = time.monotonic() + 60
+        while (current := self.engine.command('status', run))['status'] != status:
+            self.assertLess(time.monotonic(), deadline, current['status'])
+            time.sleep(0.1)
+        return current
+
+    def test_restored_waiting_run_resumes_once_after_acknowledgement_without_duplicate_dispatch(self):
+        started = subprocess.run([str(self.cli), 'run', '--foreground', '--workspace', str(self.workspace),
+                                  '--input', f'log={self.dispatches}', 'workflows/main.yml'],
+                                 capture_output=True, env=self.environment, cwd=self.workspace, timeout=120)
+        self.assertEqual(started.returncode, 2, started.stderr.decode())  # Waiting for external input.
+        run = json.loads(started.stdout)['id']
+        self.assertEqual(self.dispatches.read_text(), 'dispatched\n')
+        destination = self.base / 'backup'
+        manifest = recovery.backup(self.home, destination, engine=self.engine)
+        self.assertEqual(manifest['engine']['version'], '0.2.2')
+        # Total loss of the suite state and of the engine's own state, then restore.
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
+        report = recovery.restore(destination, self.home, engine=self.engine)
+        self.assertEqual(report['engine']['recovery'],
+                         'restored runnable work requires explicit uncertain-retry acknowledgement')
+        quarantined = self.engine.command('status', run)
+        self.assertEqual((quarantined['status'], quarantined['failure_class']),
+                         ('needs_attention', 'restore_uncertainty'))
+        # The restarted controller refuses restored work without the acknowledgement.
+        with self.assertRaisesRegex(recovery.RecoveryError, 'retry_uncertain acknowledgement'):
+            self.engine.resume(run)
+        self.engine.resume(run, retry_uncertain=True)
+        self.until(run, 'waiting')
+        [gate] = self.engine.command('inputs', run)
+        answer = self.base / 'answer.json'
+        answer.write_text('true')
+        self.engine.command('answer', '--gate', gate['gate_id'], '--evidence-id', gate['evidence_id'],
+                            '--answer-id', 'restored-delivery', '--answer-file', answer, run)
+        finished = self.until(run, 'succeeded')
+        self.assertEqual({job: value['status'] for job, value in finished['jobs'].items()},
+                         {'dispatch': 'succeeded', 'decide': 'succeeded'})
+        # The completed step was not dispatched again; the answered step ran once.
+        self.assertEqual(self.dispatches.read_text(), 'dispatched\nanswered\n')
+        self.engine.stop()
+        self.assertEqual(self.engine.status()['controller'], 'stopped')
 
 
 # -- Upgrades -----------------------------------------------------------------------------------------
