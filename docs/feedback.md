@@ -106,7 +106,16 @@ creates or changes the record; with no record yet, `Unrecorded` stands in.
 
 ## Not established here
 
-- Producing assessments in native sessions: the responder still needs Agent
-  Workflow #129 and #130 to run.
-- Real GitHub conformance. The tests use a fake transport whose only operation is
-  `capture()`.
+- Producing assessments in native sessions. Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) are
+  merged on its `main`, but no release contains them.
+- Keeping this record under the installed workflow. The record lives in the
+  [state namespace](dk-pr-fix.md#state-namespace), which helper containers
+  expect at `/cf-workflows-state`. The engine mounts no persistent
+  plugin-private directory into helper containers ([Agent Workflow
+  #149](https://github.com/dk-code-factory/agent-workflow/issues/149)), and its
+  `/state` is new for every container, so it cannot hold the record across steps
+  or runs.
+- Real GitHub conformance. The tests use a fake transport whose only operation
+  is `capture()`.

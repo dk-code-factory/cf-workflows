@@ -147,8 +147,18 @@ captures and writes and fails every unmodeled route. The tests cover:
 
 ## Not established here
 
-- The YAML graph, responder sessions and audience sessions need Agent Workflow
-  #129 and #130. The fixtures drive only the helpers. The fix push in the #255
-  case is simulated: exact-intent push has its own fixtures.
+- The YAML graph, responder sessions and audience sessions need a released
+  engine with Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130), which
+  are merged on its `main` but unreleased. The stage's claim, listing,
+  publication and settle helpers run in containers and need the state namespace
+  mounted ([Agent Workflow
+  #149](https://github.com/dk-code-factory/agent-workflow/issues/149)), and
+  `plugin test` rejects container helper jobs ([Agent Workflow
+  #150](https://github.com/dk-code-factory/agent-workflow/issues/150)), so the
+  stage has no installed fixture run either. The fixtures drive only the
+  helpers. The fix push in the #255 case is simulated: exact-intent push has its
+  own fixtures.
 - Real GitHub conformance needs separate authorization. One example is whether
   inline replies to a thread reply report the thread root as `in_reply_to_id`.
