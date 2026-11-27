@@ -110,7 +110,8 @@
         "test_dk_pr_review_findings.BodyAndInline.test_mixed_findings_keep_honest_anchors_and_never_duplicate",
         "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing",
         "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_239_later_head_recovers_without_a_rejection_receipt",
-        "test_dk_pr_fix_alternatives.Boundary.test_new_requirements_refresh_only_current_alignment_in_composed_review"
+        "test_dk_pr_fix_alternatives.Boundary.test_new_requirements_refresh_only_current_alignment_in_composed_review",
+        "test_dk_pr_review_findings.InstalledRoute.test_review_entry_reaches_the_findings_job_only_through_its_permission"
       ],
       "recovery": [
         "test_dk_pr_review_findings.RerunsAndRecovery.test_lost_response_after_the_effect_settles_by_reconciliation",
@@ -128,7 +129,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization. A code-review-ad pass profile is admitted only as inline custom reviewer adapters; one that pins the package files as adapter resources rejects because the installed workflow mounts no configured resource."
+      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization. A code-review-ad pass profile is admitted only as inline custom reviewer adapters; one that pins the package files as adapter resources rejects because the installed workflow mounts no configured resource. Finding publication (#25) also needs Agent Workflow #149: its helpers keep the ledger, and so the reservations that stop a rerun from posting again, in a state namespace that the engine does not mount into container helpers; Agent Workflow #150 is needed before plugin test can run its container jobs; GitHub conformance of its payloads needs separately authorized live evidence."
     },
     {
       "skill": "dk-repo-onboard",
