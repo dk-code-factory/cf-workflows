@@ -1039,6 +1039,21 @@ def _commit(root, ledger, claim_id, task, report, snapshot):
     parent = git(root, "rev-parse", "HEAD").decode().strip()
     if parent != snapshot["local_head"]:
         raise ValueError("agent changed Git history outside controlled commit")
+    try:
+        committed = _stage_commit(root, ledger, claim_id, manifest, names, message, parent)
+    except BaseException:
+        # The index was empty before staging; leave it so, or every retry is refused above.
+        git(root, "reset", "-q", "--mixed", check=False)
+        raise
+    git(root, "update-ref", "HEAD", committed, parent)
+    git(root, "reset", "--mixed", committed)
+    with ledger.transaction():
+        ledger.db.execute("UPDATE local_commits SET state='completed' WHERE id=?", (claim_id,))
+
+
+def _stage_commit(root, ledger, claim_id, manifest, names, message, parent):
+    """Stage exactly the manifest, verify the staged tree, create the commit and retain its intent."""
+    import hashlib
     git(root, "--literal-pathspecs", "add", "--", *names)
     staged = set(git(root, "diff", "--cached", "--name-only", "--no-renames", "-z").decode().split("\0")) - {""}
     if staged != set(names):
@@ -1063,10 +1078,7 @@ def _commit(root, ledger, claim_id, task, report, snapshot):
     with ledger.transaction():
         ledger.db.execute("INSERT INTO local_commits VALUES(?,?,?,?,?,?)",
                           (claim_id, parent, committed, tree, message, "intent"))
-    git(root, "update-ref", "HEAD", committed, parent)
-    git(root, "reset", "--mixed", committed)
-    with ledger.transaction():
-        ledger.db.execute("UPDATE local_commits SET state='completed' WHERE id=?", (claim_id,))
+    return committed
 
 
 def task_status(root, provider, ledger, plan, inputs):

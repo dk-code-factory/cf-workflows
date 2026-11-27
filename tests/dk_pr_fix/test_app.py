@@ -648,6 +648,10 @@ class AppTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "staged blob bytes"):
             self.accept(claim, report, agent=FIXER)
         self.assertEqual(git(self.root, "rev-parse", "HEAD"), parent)
+        # code-scan #13: the failed attempt unstages, so a replay is not refused as a preexisting index.
+        self.assertEqual(git(self.root, "diff", "--cached", "--name-only"), "")
+        with self.assertRaisesRegex(ValueError, "staged blob bytes"):
+            self.accept(claim, report, agent=FIXER)
 
     def test_controlled_commit_rejects_unaccounted_or_forged_changed_bytes(self):
         claim = self.claim("finding_fix")
