@@ -38,6 +38,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 
 from cf_workflows import admission, dk_pr_fix
 
@@ -291,7 +292,10 @@ def audit(suite):
         for entry in names + sorted(files):
             path = Path(directory) / entry
             relative = path.relative_to(suite).as_posix()
-            mode = os.lstat(path).st_mode
+            try:
+                mode = os.lstat(path).st_mode
+            except FileNotFoundError:
+                continue  # Removed since the listing, such as a writer's sidecar or staging file.
             if stat.S_ISLNK(mode):
                 raise RecoveryError('retained state must not contain links: ' + relative)
             if stat.S_ISDIR(mode):
@@ -684,6 +688,9 @@ def backup(home, destination, *, engine=None, configuration=None, install=dk_pr_
                                             'sha256': _sha256(state / relative)}
         # Checkpoints before the immutable artifacts they reference, which are written first.
         files = audit(suite)['files'] if suite.exists() else {}
+        if _allow_upgrade:
+            # The pre-upgrade backup is the state before this upgrade: never its in-progress journal.
+            files = {relative: name for relative, name in files.items() if name != 'journal'}
         order = ('marker', 'journal', 'preparation', 'request', 'artifact')
         for relative in sorted(files, key=lambda item: (order.index(files[item]), item)):
             source, target = suite / relative, state / relative
@@ -694,7 +701,9 @@ def backup(home, destination, *, engine=None, configuration=None, install=dk_pr_
             manifest['files'][relative] = {'file': files[relative], 'sha256': _sha256(target)}
         for relative, name in audit(suite)['files'].items() if suite.exists() else ():
             if name == 'artifact' and relative not in manifest['files']:
+                (state / relative).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 shutil.copyfile(suite / relative, state / relative)
+                os.chmod(state / relative, 0o600)
                 check_file(state / relative, name, relative)
                 manifest['files'][relative] = {'file': name, 'sha256': _sha256(state / relative)}
         if configuration is not None:
@@ -821,8 +830,8 @@ def assets(state, install, retained):
 def restore(source, home, *, engine=None, configuration=None, install=dk_pr_fix.INSTALL):
     """Restore a verified backup into an empty suite state home; never merges or imports.
 
-    The engine's database and bundle go back through engine.restore(database,
-    bundle) first. A logical run with unfinished original work can resume only with
+    The suite state is staged first; then the engine's database and bundle go
+    back through engine.restore(database, bundle). A logical run with unfinished original work can resume only with
     its original admitted helpers, installed or retained by the engine; otherwise
     it is reported blocked rather than run with replacement resources.
     """
@@ -855,14 +864,16 @@ def restore(source, home, *, engine=None, configuration=None, install=dk_pr_fix.
         report['runs'][namespace + '/' + run] = entry
         if entry['claims'] and 'missing' in executions.values():
             report['blocked'].append(namespace + '/' + run)
-    if manifest['engine'] is not None:
-        report['engine'] = engine.restore(database, bundle)
-    if manifest['configuration'] is not None and not Path(configuration).exists():
-        _atomic(Path(configuration), saved.read_bytes())
     suite.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     staging = Path(tempfile.mkdtemp(prefix='.cf-workflows-restore-', dir=suite.parent))
     try:
+        # The suite state is staged before the engine or configuration changes, so a failed copy
+        # leaves nothing restored and a retry starts again.
         shutil.copytree(source / 'state', staging / SUITE_DIR)
+        if manifest['engine'] is not None:
+            report['engine'] = engine.restore(database, bundle)
+        if manifest['configuration'] is not None and not Path(configuration).exists():
+            _atomic(Path(configuration), saved.read_bytes())
         if os.path.lexists(suite):
             suite.rmdir()
         os.rename(staging / SUITE_DIR, suite)
@@ -924,7 +935,8 @@ def upgrade(home, *, install=dk_pr_fix.INSTALL, configuration=None):
         if configuration is not None and Path(configuration).exists():
             _check_configuration(Path(configuration).read_bytes())
         previous = journal['to'] if journal else None
-        ident = admission.digest([previous, target, versions])[:16]
+        # Unique per upgrade: a repeated release transition never reuses an older backup.
+        ident = admission.digest([previous, target, versions, time.time_ns(), os.urandom(8).hex()])[:16]
         journal = {'format': UPGRADE_FORMAT, 'from': previous, 'to': target, 'status': 'prepared',
                    'backup': UPGRADES + '/' + ident, 'stores': versions}
         _atomic(path, admission.canonical(journal))
