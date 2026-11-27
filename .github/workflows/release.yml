@@ -1,0 +1,49 @@
+name: Release
+
+# Push a tag `v<plugin version>` (the version in plugin.yaml and
+# baselines/sources.json) to release. A prerelease version publishes a
+# source-only development snapshot; a final version is refused until the
+# package check reports `releasable: true`. See docs/release.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish GitHub release
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Gate the tag and assemble assets
+        id: gate
+        run: |
+          python3 -B scripts/release_gate.py --tag "$GITHUB_REF_NAME" --out dist | tee dist-summary.json
+          echo "prerelease=$(python3 -c 'import json; print(str(json.load(open("dist-summary.json"))["prerelease"]).lower())')" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.gate.outputs.prerelease }}
+        run: |
+          flags=(--verify-tag --title "cf-workflows $GITHUB_REF_NAME" --notes-file dist/release-notes.md)
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease --latest=false); fi
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" \
+            dist/*.tar.gz dist/*-package-check.json dist/SHA256SUMS

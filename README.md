@@ -55,6 +55,7 @@ pending.
 - [Upgrades, backup and restore of retained state](docs/recovery.md)
 - [Acceptance matrix, verified combinations and release evidence](docs/qualification.md)
 - [Baseline and cross-reference verification](docs/verification.md)
+- [CI and releases](docs/release.md)
 - [Implementation epic and ordered dependencies](https://github.com/dk-code-factory/cf-workflows/issues/10)
 
 The suite keeps its own release identity and fresh configuration/state namespace.

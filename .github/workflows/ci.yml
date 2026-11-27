@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  unit:
+    name: Unit tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the acceptance matrix checks merge provenance against this history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Git identity for disposable test repositories
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+      - name: Package check
+        run: python3 -B -m cf_workflows.package
+      - name: Acceptance matrix
+        run: python3 -B scripts/check_acceptance.py
+      - name: Unit tests
+        run: python3 -B -m unittest discover -s tests -v
+
+  acceptance:
+    name: Acceptance matrix (per-row tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Git identity for disposable test repositories
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+      - name: Run every referenced test on its own
+        run: python3 -B scripts/check_acceptance.py --run
+
+  baselines:
+    name: Baselines against pinned upstream sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Clone pinned upstream sources
+        run: |
+          git clone --quiet https://github.com/dk-code-factory/dk-workflows.git "$RUNNER_TEMP/dk-workflows"
+          git clone --quiet https://github.com/dk-code-factory/agent-workflow.git "$RUNNER_TEMP/agent-workflow"
+      - name: Verify baselines
+        run: >-
+          python3 -B scripts/check_baselines.py
+          --dk-workflows "$RUNNER_TEMP/dk-workflows"
+          --agent-workflow "$RUNNER_TEMP/agent-workflow"
+
+  engine:
+    name: Package build and engine checks (unreleased toolchain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Clone Agent Workflow and export the pinned toolchain commit
+        run: |
+          commit=$(python3 -c 'import ast,sys; t=ast.parse(open("scripts/check_package_build.py").read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "TOOLCHAIN_COMMIT"))')
+          git clone --quiet https://github.com/dk-code-factory/agent-workflow.git "$RUNNER_TEMP/agent-workflow"
+          mkdir "$RUNNER_TEMP/toolchain"
+          git -C "$RUNNER_TEMP/agent-workflow" archive "$commit" | tar -x -C "$RUNNER_TEMP/toolchain"
+          echo "CF_AGENT_WORKFLOW=$RUNNER_TEMP/agent-workflow" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ runner.temp }}/toolchain/go.mod
+          cache: false
+      - name: Download Go modules for the offline build
+        working-directory: ${{ runner.temp }}/toolchain
+        env:
+          GOTOOLCHAIN: local
+        run: go mod download
+      - name: Git identity for disposable test repositories
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+      - name: Reproducible package build
+        env:
+          GOTOOLCHAIN: local
+        run: python3 -B scripts/check_package_build.py --agent-workflow "$CF_AGENT_WORKFLOW"
+      - name: Tests against the pinned engine source
+        env:
+          GOTOOLCHAIN: local
+        run: >-
+          python3 -B -m unittest -v
+          tests.test_package tests.test_validator_binding tests.test_recovery tests.test_dk_pr_fix
