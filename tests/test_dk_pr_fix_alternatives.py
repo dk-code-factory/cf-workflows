@@ -511,5 +511,29 @@ class Sources(Installed):
             self.assertEqual(prompt, __import__('cf_workflows.entries').entries.ENTRIES[name]['role_prompt'])
 
 
+class Checks(unittest.TestCase):
+    TASK = {'context': {'pins': {'target': 'a' * 40}}}
+
+    def test_an_answered_gate_accepts_only_the_manual_choice(self):
+        compared = comparison(self.TASK)
+        answer = {'answer_id': 'answer-1', 'value': 'pr'}
+        task = {'context': {'comparison': compared, 'user_choice': answer}}
+        policy = {'mode': 'semi-manual', 'enabled': True, 'min_score_gap': 0}
+        totals = alternatives.scores(compared, RUBRIC)
+        check = lambda output: alternatives.check_selection(  # noqa: E731
+            output, comparison=compared, totals=totals, policy=policy, answer=answer, citable={'git:code.py'})
+        self.assertEqual(check(manual(task))['choice'], 'pr')
+        for output in (auto(task), {**auto(task), 'choice': None}):
+            with self.assertRaisesRegex(alternatives.StageError, 'settles the choice manually'):
+                check(output)
+
+    def test_a_deeply_nested_report_is_rejected_not_raised(self):
+        claim, agent, output, error = alternatives._decode({
+            'claim': 'c', 'status': 'succeeded', 'agent': 'a',
+            'report': {'stage': 'selection', 'result': '[' * 100000 + ']' * 100000}})
+        self.assertIsNone(output)
+        self.assertEqual(error, {'path': 'report.result', 'message': 'not JSON: RecursionError'})
+
+
 if __name__ == '__main__':
     unittest.main()
