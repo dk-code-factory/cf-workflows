@@ -71,7 +71,9 @@ that before any session.
 The gate follows the engine's durable external input model. The helper opens
 one gate through `open_input_gate(request)`, bound to the original
 `request_id` and pinned to the proposal's evidence ID. The gate payload holds
-the full verdict, the validator reference and the editable paths.
+the full verdict, the validator reference and the editable paths. A gate payload
+whose verdict is not `needs_clarification`, or whose validator reference is
+malformed, blocks; a gate never admits, rejects or settles a proposal.
 
 On every call the helper reads `input_gates(request_id)` and replays the gates
 in creation order. Each gate is consumed at most once. The next gate for the
