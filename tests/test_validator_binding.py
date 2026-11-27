@@ -7,9 +7,11 @@ results do not show that a real engine or provider session behaves this way.
 from collections import Counter
 import copy
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -125,6 +127,61 @@ class Capabilities(Binding):
         self.assertEqual(result['preflight'], 'rejected')
         self.assertIn('unsupported engine capability: durable_input', result['error']['message'])
         self.assertEqual(without.calls, Counter(capabilities=1))
+
+    def test_engine_provider_record_maps_to_no_suite_capability(self):
+        # Engine main reports each runtime's ProviderCapabilities as booleans; none is a suite name.
+        record = dict.fromkeys(validator_binding.ENGINE_PROVIDER_FIELDS, True)
+        engine = FakeEngine(capabilities={**ENGINE, 'providers': {'fixture-provider': record}})
+        result = self.admit(engine, invocation=None)
+        self.assertEqual((result['preflight'], result['structural']), ('rejected', 'rejected'))
+        self.assertEqual(result['error']['path'], 'deployment.agents.codex.provider')
+        self.assertEqual(result['error']['message'], 'unsupported capability: admitted_roles, native_session')
+        self.assertEqual(engine.calls, Counter(capabilities=1))
+        self.assertEqual(engine.runs, [])
+
+    def test_unknown_provider_record_shape_blocks_instead_of_mapping(self):
+        for record in ({'sessions': True, 'admitted_roles': True}, {'sessions': 'yes'}):
+            with self.subTest(record=record):
+                engine = FakeEngine(capabilities={**ENGINE, 'providers': {'fixture-provider': record}})
+                result = self.admit(engine, invocation=None)
+                self.assertEqual((result['preflight'], result['structural']), ('blocked', 'accepted'))
+                self.assertIn('engine capability query failed: BindingError', result['error']['message'])
+                self.assertEqual(engine.runs, [])
+
+    def test_every_required_provider_capability_is_marked_unmapped(self):
+        # The suite vocabulary admission can require: base, merge guard and each #139 skill profile.
+        required = {*admission.BASE_CAPABILITIES, admission.MERGE_CAPABILITY, admission.CLAUDE_SKILL_PROFILE,
+                    admission.CLAUDE_CHILD_PROFILE, admission.CODEX_SKILL_PROFILE}
+        self.assertEqual(set(validator_binding.UNMAPPED_PROVIDER_CAPABILITIES), required)
+        self.assertFalse(required & set(validator_binding.ENGINE_PROVIDER_FIELDS))
+        self.assertNotIn(admission.INPUT_CAPABILITY, validator_binding.UNMAPPED_PROVIDER_CAPABILITIES)
+
+
+@unittest.skipUnless(os.environ.get('CF_AGENT_WORKFLOW'),
+                     'set CF_AGENT_WORKFLOW to a local agent-workflow clone with the pinned toolchain commit')
+class EngineVocabulary(unittest.TestCase):
+    """The mapped names against the engine source at the pinned unreleased toolchain commit."""
+
+    def source(self, path):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('check_package_build',
+                                                      Path(__file__).resolve().parents[1] / 'scripts/check_package_build.py')
+        build_check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build_check)
+        return subprocess.run(['git', '-C', os.environ['CF_AGENT_WORKFLOW'], 'show',
+                               f'{build_check.TOOLCHAIN_COMMIT}:{path}'],
+                              check=True, capture_output=True, text=True).stdout
+
+    def test_provider_fields_are_the_engine_provider_capabilities_record(self):
+        body = re.search(r'type ProviderCapabilities struct \{(.*?)\n\}', self.source('pkg/workflows/context.go'), re.S)
+        self.assertEqual(tuple(re.findall(r'json:"([a-z_]+)"', body.group(1))), validator_binding.ENGINE_PROVIDER_FIELDS)
+
+    def test_mapped_contracts_are_engine_contracts(self):
+        listed = re.search(r'func Capabilities\(\) \[\]string \{\s*return \[\]string\{([^}]*)\}',
+                           self.source('pkg/workflows/application_actions.go')).group(1)
+        constants = dict(re.findall(r'const (\w+) = "([^"]+)"', self.source('pkg/workflows/external_input.go')))
+        self.assertIn('DurableExternalInputV1', [name.strip() for name in listed.split(',')])
+        self.assertEqual(set(validator_binding.ENGINE_CAPABILITIES), {constants['DurableExternalInputV1']})
 
 
 class ValidatorTask(Binding):

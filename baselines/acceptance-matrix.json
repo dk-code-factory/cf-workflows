@@ -1399,7 +1399,9 @@
         "test_admission.Rejections.test_unavailable_provider_rejects_after_one_probe",
         "test_admission.DefaultPlan.test_merge_grant_requires_engine_merge_guard",
         "test_dk_pr_fix.Preflight.test_unavailable_publication_actions_reject",
-        "test_validator_binding.Capabilities.test_engine_contract_names_map_to_suite_capabilities"
+        "test_validator_binding.Capabilities.test_engine_contract_names_map_to_suite_capabilities",
+        "test_validator_binding.Capabilities.test_engine_provider_record_maps_to_no_suite_capability",
+        "test_validator_binding.Capabilities.test_every_required_provider_capability_is_marked_unmapped"
       ]
     },
     {

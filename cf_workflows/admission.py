@@ -95,7 +95,8 @@ MAX_SKILL_CHILD_RESOURCES = 32
 MERGE_CAPABILITY = 'merge_guard'
 INPUT_CAPABILITY = 'durable_input'  # Engine-level: request-bound clarification gates.
 # Agent Workflow #139 admits skill selections only in an entry workflow with one literal agent; the
-# installed workflow dispatches occurrences through a reusable workflow, and no release contains #139.
+# installed workflow dispatches occurrences through a reusable workflow, which needs agent-workflow #152,
+# and no release contains #139.
 SUPPLIED_SKILL_EXECUTION = False
 
 VALIDATOR_ROLE = 'configuration-validator'
@@ -1563,8 +1564,8 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
         result['preflight'] = 'rejected'
         result['error'] = {'path': 'custom.skills', 'message': 'supplied skills need session-scoped execution: '
                            'Agent Workflow #139 does not admit skill selections in reusable workflows, '
-                           'which the installed workflow dispatches occurrences through, and no released '
-                           'engine contains it'}
+                           'which the installed workflow dispatches occurrences through (agent-workflow '
+                           '#152), and no released engine contains it'}
     elif semantic_required:
         # Structural success never substitutes for semantic acceptance of custom inputs.
         result['preflight'] = 'semantic_required'
