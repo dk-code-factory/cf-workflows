@@ -105,6 +105,33 @@ dispatches and transport calls and covers:
 
 ## What remains
 
-Running the workflow needs Agent Workflow #129 and #130, as for the rest of
-[dk-pr-fix](dk-pr-fix.md#what-remains-blocked). These fixtures exercise the
-helpers only; they do not run the YAML graph or establish GitHub conformance.
+These fixtures exercise the helpers only. They do not run the YAML graph or
+establish GitHub conformance. The `dk-workflows#259` row in
+[`baselines/acceptance-matrix.json`](../baselines/acceptance-matrix.json) lists
+the tests above for all three acceptance criteria, but its native execution and
+live acceptance stay unverified until each of these is resolved:
+
+- **Released engine.** Engine-managed sessions and running the installed
+  package need Agent Workflow
+  [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). Both
+  are closed on its `main`, but no release contains them (newest `v0.2.1`; the
+  descriptor pins `0.2.2`). As for the rest of
+  [dk-pr-fix](dk-pr-fix.md#what-remains-blocked), no local controller stands in.
+- **Retained state across engine runs.** The reconciliation allowance, the
+  retained wait operations and the analysis results are in the state
+  namespace, which `helper.yml` names as `/cf-workflows-state`. Through engine
+  `8758775`, a container helper gets only a fresh per-container `/state`, and
+  no declaration mounts a persistent directory. Until
+  [#149](https://github.com/dk-code-factory/agent-workflow/issues/149) gives
+  one, the third criterion (bounds and uncertainty survive interruption) is
+  shown only within a single state namespace in-process.
+- **Fixture runs of the YAML graph.** `plugin check` from `8758775` accepts the
+  closure, but `plugin test` refuses container jobs and `action-v1` helper
+  steps ([#150](https://github.com/dk-code-factory/agent-workflow/issues/150)).
+  So the `cycle.yml` waits, the `main.yml` repetition and the skipped CI stage
+  in `stage.yml` are checked only by reading the YAML
+  (`test_workflow_waits_boundedly_and_skips_ci_while_provisional`).
+- **Live acceptance.** The row's `github_publication` and `live_provider`
+  procedures each need separate explicit authorization
+  ([qualification](qualification.md)).

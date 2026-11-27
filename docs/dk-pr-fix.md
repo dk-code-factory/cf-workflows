@@ -358,15 +358,19 @@ provider or host capability.
 - [Agent Workflow #129](https://github.com/dk-code-factory/agent-workflow/issues/129):
   engine-managed native sessions through the Codex or Claude SDK.
 - [Agent Workflow #130](https://github.com/dk-code-factory/agent-workflow/issues/130):
-  running an installed package against a separate checkout, resolving its
-  reusable references and admitted assets, and mounting the state namespace.
+  running an installed package against a separate checkout and resolving its
+  reusable references and admitted assets.
+- [Agent Workflow #149](https://github.com/dk-code-factory/agent-workflow/issues/149):
+  mounting the state namespace into helper containers. Through `8758775` a
+  container step gets only a fresh `/state`, so the `/cf-workflows-state` path
+  in `helper.yml` has no persistent source.
 - [Agent Workflow #139](https://github.com/dk-code-factory/agent-workflow/issues/139)
   discovery-isolation PR: sessions with host and repository skill and plugin
   discovery disabled, and observed evidence of the session's plugin set.
 - Every publication kind, merge included, is helper-side only until the
   workflow runs ([exact-intent publication](publication.md#what-remains)).
 - Proof that budgets, occurrences and continuation hold across real engine runs
-  and native sessions needs #129 and #130. The fixtures exercise only the
+  and native sessions needs #129, #130 and #149. The fixtures exercise only the
   helpers.
 - Semantic admission of custom inputs through a real engine: the validator task
   needs an engine operation receipt or a validator-only read-only tool policy,
