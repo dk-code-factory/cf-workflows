@@ -402,6 +402,15 @@ class PackageBuild(unittest.TestCase):
         self.assertEqual([args[3] for args in builds], ['codex,claude', 'claude,codex'])
         self.assertTrue(all(' ' in args[-1] and ' ' in args[5] for args in builds))
 
+    def test_build_tree_rejects_links_to_directories(self):
+        output = self.base / 'output'
+        (output / 'plugin').mkdir(parents=True)
+        (output / 'plugin' / 'file').write_text('x')
+        self.assertEqual(set(build_check.tree(output)), {'plugin/file'})
+        (output / 'plugin' / 'outside').symlink_to(self.base, target_is_directory=True)
+        with self.assertRaisesRegex(build_check.BuildCheckError, 'outside: not a regular file'):
+            build_check.tree(output)
+
     def test_differences_and_undeclared_resources_reject(self):
         cases = {'check': ('plugin check rejected', 1, 0), 'timestamp': ('SHA256SUMS differs between builds', 2, 2),
                  'undeclared': ("undeclared ['notes.txt']", 2, 2), 'dropped': ("missing ['request.example.json']", 2, 2),
