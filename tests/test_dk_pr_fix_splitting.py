@@ -401,6 +401,16 @@ class CommitSplit(Fixture):
         self.assertEqual(self.sessions, Counter({'inspect-commits': 2}))
 
 
+class Chain(Fixture):
+    def test_passes_that_revisit_an_earlier_head_lease_the_first_revision(self):
+        plan = {'logical_run': 'chain_fixture', 'pr': {'url': PR_URL}}
+        with splitting.Store(self.root, plan, write=True) as store:
+            for number, (original, final) in enumerate((('x', 'y'), ('y', 'z'), ('z', 'y'))):
+                store.build(f'op{number}', 'dk-commit-split', f'claim{number}', {'original': original, 'final': final})
+                store.advance(f'op{number}', 'built', 'applied')
+            self.assertEqual(splitting._chain(store, store.get('op2')), 'x')
+
+
 class PrSplit(Fixture):
     def split_plan(self, authorize=True, commands=(PASS,), run='split_fixture', **extra):
         return self.splitting_plan(
@@ -483,6 +493,33 @@ class PrSplit(Fixture):
             self.assertIn(error, result['feedback']['contract_error'])
         self.assertTrue(self.submit(plan, ledger, claimed, split(ctx), round_number=3)['complete'])
         self.assertEqual(self.sessions, Counter({'assess-scope': 1}))
+
+    def test_branch_names_git_rejects_get_a_same_session_correction(self):
+        plan = self.split_plan()
+        ledger = self.ledger(plan)
+        claimed = self.claim(plan, ledger)
+        ctx = claimed['task_input']['splitting']
+        for number, branch in enumerate(('split//notes', 'split/.notes', 'split.lock/notes')):
+            output = split(ctx)
+            output['splits'][0]['branch'] = branch
+            result = self.submit(plan, ledger, claimed, output, round_number=number)
+            self.assertFalse(result['complete'], branch)
+            self.assertIn('a new distinct branch name', result['feedback']['contract_error'])
+        self.assertTrue(self.submit(plan, ledger, claimed, split(ctx), round_number=3)['complete'])
+
+    def test_a_moved_symlink_syncs_by_its_link_text(self):
+        os.symlink('notes file.md', self.root / 'link.md')
+        git(self.root, 'add', '-A')
+        git(self.root, 'commit', '-q', '-m', 'Link the notes')
+        original = git(self.root, 'rev-parse', 'HEAD')
+        git(self.root, 'rm', '-q', '--cached', 'link.md')
+        git(self.root, 'commit', '-q', '-m', 'Move the link out')
+        final = git(self.root, 'rev-parse', 'HEAD')
+        git(self.root, 'reset', '-q', '--soft', original)
+        git(self.root, 'reset', '-q')
+        splitting._sync(self.root, {'original': original, 'final': final, 'moved': ['link.md']})
+        self.assertFalse(os.path.lexists(self.root / 'link.md'))
+        self.assertEqual(git(self.root, 'ls-files', 'link.md'), '')
 
     def test_an_existing_split_branch_blocks_the_build(self):
         git(self.root, 'branch', 'split/notes', self.target)

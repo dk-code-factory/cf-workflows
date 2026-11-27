@@ -110,6 +110,7 @@ def check_options(options):
         else:
             text(value, where, 256)
             require(not set(value) & set('\r\n#'), where, 'heading text without newlines or Markdown markers')
+            require(value == value.strip(), where, 'heading text without surrounding whitespace')
         result[key] = {'value': value, 'source': 'invocation'}
     return result
 
@@ -808,6 +809,10 @@ def reconcile(admitted, *, capture, ledger, transport, issues=(), alternatives=(
                           'change the inputs or grant a continuation'}}
     claim = ident + '-' + binding[:16] + ('' if rejected == 0 else f'-r{rejected}')
     known = ledger.claimed(claim)
+    if known is not None and latest is not None and known['seq'] != latest['seq']:
+        # Inputs reverted to an earlier binding: that row is no longer current, so this result is new.
+        claim += f'-s{latest["seq"]}'
+        known = ledger.claimed(claim)
     if known is not None:
         return finish(known, False, subjects['decisions'])
     task_record = assignment(admitted, task, governing, claim=claim, sources=sources, published=published,
@@ -908,10 +913,13 @@ def publication_plan(admitted):
             'options': {'permissions': {ACTION: effective_}}}
 
 
-def propose(admitted, report, capture):
-    """The exact edit_pr proposal for the section, or why there is none. Writes nothing."""
+def propose(admitted, report, capture, *, issues=()):
+    """The exact edit_pr proposal for the section, or why there is none. Writes nothing.
+
+    issues are the linked issues reconcile() was given, so issue sources keep their authority and links.
+    """
     governing = effective(admitted)
-    sources, _ = collect(admitted, capture)
+    sources, _ = collect(admitted, capture, issues=issues)
     meta = capture['metadata']
     body = meta.get('body') or ''
     result = draft(report, body, governing['section_heading'], sources)
@@ -940,18 +948,19 @@ def _journal_state(publisher, ident):
     return 'prepared'
 
 
-def publish(admitted, report, *, publisher, audience):
+def publish(admitted, report, *, publisher, audience, issues=()):
     """Publish the settled section through the shared exact-intent boundary when authorized.
 
     publisher is the shared publication helper (prfix.publication.Publication)
     built from publication_plan() with source_validator(ledger); audience(intent)
-    returns the independent audience assessment of the exact intent. A pending
+    returns the independent audience assessment of the exact intent; issues are
+    the linked issues reconcile() was given. A pending
     intent is only reconciled, never resent; a blocked one is never retried here.
     """
     if not report.get('result_ref'):
         return {'status': 'blocked', 'error': {'path': 'report', 'message': 'no current reconciliation result'}}
     try:
-        planned = propose(admitted, report, publisher.provider.capture(publisher.pr))
+        planned = propose(admitted, report, publisher.provider.capture(publisher.pr), issues=issues)
     except (AdmissionError, configuration.Blocked) as error:
         return {'status': 'blocked', 'error': _failure(error)}
     retained = _journal_state(publisher, planned['id']) if planned['status'] != 'not_authorized' else None

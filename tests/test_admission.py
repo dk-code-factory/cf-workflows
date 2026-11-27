@@ -476,11 +476,22 @@ class ReviewRegressions(Fixture):
         config = self.configuration(resources=[self.resource('prompts/review.md')])
         self.assertRejected(self.admit(config), 'incomplete resource closure')
 
+    def test_root_names_cannot_collide_with_readable_key_syntax(self):
+        for name in ('skill', 'a:b', ''):
+            with self.subTest(name=name):
+                result = self.admit(self.configuration(resources=[self.resource('prompts/policy.md')]),
+                                    roots={**self.roots, name: self.config_root})
+                self.assertRejected(result, 'reserved name skill')
+
     def test_nested_lists_footnotes_and_parentheses(self):
         self.assertEqual(admission.link_targets('- Rules:\n    - see [policy](policy.md)\n\n  continued [c](c.md)\n'),
                          ['policy.md', 'c.md'])
         self.assertEqual(admission.link_targets('Note[^1].\n\n[^1]: See the hidden notes.\n'), [])
         self.assertEqual(admission.link_targets('[x](a(b).md "t") [y](<z w.md>)'), ['a(b).md', 'z w.md'])
+        # A backtick line with a backtick in its info string is a span, and a closer takes no info string.
+        self.assertEqual(admission.link_targets('```code``` see [x](x.md)\n[y](y.md)\n'), ['x.md', 'y.md'])
+        self.assertEqual(admission.link_targets('```\n[a](a.md)\n```python\n```\n[b](b.md)\n'), ['b.md'])
+        self.assertEqual(admission.link_targets('~~~\n[a](a.md)\n~~~ \n[b](b.md)\n'), ['b.md'])
         # Indented code is scanned too: a link there can only reject, never drop out of the closure.
         self.write(self.repo, 'AGENTS.md', 'Intro.\n\n    [indented](missing.md)\n')
         self.assertRejected(self.admit(), 'missing resource missing.md')

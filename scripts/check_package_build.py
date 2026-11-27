@@ -111,6 +111,8 @@ def tree(root):
     files = {}
     for directory, names, entries in os.walk(root):
         names.sort()
+        for name in names:  # os.walk lists a link to a directory here and never descends into it.
+            require(not os.path.islink(Path(directory) / name), f'{Path(directory) / name}: not a regular file')
         for name in sorted(entries):
             path = Path(directory) / name
             mode = os.lstat(path).st_mode

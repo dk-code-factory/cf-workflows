@@ -430,6 +430,53 @@ class Shared(unittest.TestCase):
                 result[node.targets[0].id] = ast.get_source_segment(source, node)
         return result
 
+    @staticmethod
+    def ste_report(**changes):
+        report = {"complete": True, "changed_locations": [{"path": "docs/compliance.md", "start": 1, "end": 1,
+                                                           "reason": "Shorter sentence."}],
+                  "validation": ["Read the result."], "unresolved_ambiguities": [],
+                  "reference_verification_limits": ["No reference was supplied."], "compliance": "not_claimed",
+                  "commit_message": "Shorten a sentence"}
+        report.update(changes)
+        return report
+
+    def test_report_paths_are_names_not_compliance_claims(self):
+        actual = {"docs/compliance.md": [(1, 1)]}
+        units = {"docs/compliance.md": {}, "R1.2.md": {}}
+        self.assertTrue(prose.check_report("dk-asd-ste100", self.ste_report(), units, [], actual)["complete"])
+        ambiguity = [{"path": "R1.2.md", "line": 1, "text": "Unclear."}]
+        prose.check_report("dk-asd-ste100", self.ste_report(unresolved_ambiguities=ambiguity), units, [], actual)
+        claimed = self.ste_report(validation=["The text is compliant."])
+        with self.assertRaisesRegex(prose.Blocked, "compliance"):
+            prose.check_report("dk-asd-ste100", claimed, units, [], actual)
+
+    def test_untyped_report_identities_are_rejected(self):
+        actual, units = {"docs/a.md": [(1, 1)]}, {"docs/a.md": {}}
+        location = {"path": "docs/a.md", "start": 1, "end": 1}
+        cases = {
+            "report.changed_locations[0].path": self.ste_report(changed_locations=[{**location, "path": []}]),
+            "report.unresolved_ambiguities[0]": self.ste_report(
+                changed_locations=[location], unresolved_ambiguities=[{"path": {}, "line": 1, "text": "Unclear."}]),
+            "report.reference_checks[0].reference": self.ste_report(
+                changed_locations=[location], reference_checks=[{"reference": ["r"], "subject": "Wording."}]),
+        }
+        for path, report in cases.items():
+            with self.subTest(path), self.assertRaises(prose.Blocked) as raised:
+                prose.check_report("dk-asd-ste100", report, units, ["r"], actual)
+            self.assertIn(path, str(raised.exception))
+        no_op = {"complete": True, "changed_locations": [], "validation": ["Read it."], "unresolved_ambiguities": [],
+                 "reference_verification_limits": [], "no_op": {"reason": "Already plain.", "sources": [["docs/a.md"]]}}
+        with self.assertRaisesRegex(prose.Blocked, "report.no_op.sources"):
+            prose.check_report("dk-plain-english", no_op, units, [], {"docs/a.md": []})
+
+    def test_line_numbers_count_newlines_only(self):
+        for text, comment in (("x = 1\n\f\n# A comment.\ny = 2\n", 2), ("s = 'a\u2028b'\n# A comment.\ny = 2\n", 1)):
+            with self.subTest(text=text):
+                lines = prose._lines(text.encode())
+                self.assertEqual(len(lines), text.count("\n"))
+                self.assertEqual(prose.prose_lines("a.py", lines), {comment})
+                self.assertEqual(prose.prose_lines("a.sh", lines), {comment})
+
     def test_installed_checks_are_the_library_checks_verbatim(self):
         installed = self.definitions(prose.__file__)
         original = self.definitions(library.__file__)

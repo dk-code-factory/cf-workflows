@@ -270,6 +270,12 @@ class Recovery(Helpers):
             'capture differs': {**good, 'capture': 'sha256:' + '0' * 64},
             'verdict is unrelated': self.verdicts(handoff, {311: {'verdict': 'flaky'},
                                                             331: {'verdict': 'ambiguous', 'retryable': False}}),
+            # code-scan #22: unhashable or merely equal identities are corrected, not raised or accepted.
+            'run_id and attempt': {**good, 'runs': [{**good['runs'][0], 'run_id': [31]}, good['runs'][1]]},
+            'must be the handed-off integers': {**good, 'runs': [
+                {**good['runs'][0], 'attempt': float(good['runs'][0]['attempt'])}, good['runs'][1]]},
+            'job_id must be': {**good, 'runs': [{**good['runs'][0], 'jobs': [
+                {**good['runs'][0]['jobs'][0], 'job_id': [311]}, *good['runs'][0]['jobs'][1:]]}, good['runs'][1]]},
         }
         for message, diagnosis in cases.items():
             with self.subTest(message=message):

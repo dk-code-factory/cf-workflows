@@ -342,6 +342,39 @@ class Backup(unittest.TestCase):
                 recovery.backup(self.home, self.destination(), attempts=3)
         self.assertFalse(self.destination().exists())
 
+    def test_a_transient_entry_removed_during_the_audit_is_skipped(self):
+        staged = self.ns / '.staged-transient'
+        staged.write_bytes(b'{}')
+        real = os.lstat
+
+        def racing(path, *args, **kwargs):
+            if Path(path) == staged:
+                staged.unlink(missing_ok=True)  # The writer renames it away between listing and lstat.
+            return real(path, *args, **kwargs)
+        with patch.object(recovery.os, 'lstat', racing):
+            manifest = recovery.backup(self.home, self.destination())
+        self.assertFalse(staged.exists())
+        self.assertNotIn(NAMESPACE + '/.staged-transient', manifest['files'])
+
+    def test_an_artifact_in_a_directory_created_during_the_backup_is_copied_privately(self):
+        late = self.home / recovery.SUITE_DIR / 'repositories' / ('1' * 32) / 'artifacts'
+        body = b'{}'
+        name = hashlib.sha256(body).hexdigest() + '.json'
+        real, created = recovery.check_file, []
+
+        def check(path, kind, relative=None):
+            if not created:  # After the first audit: a new namespace writes its first artifact.
+                late.mkdir(parents=True)
+                (late / name).write_bytes(body)
+                created.append(True)
+            return real(path, kind, relative)
+        with patch.object(recovery, 'check_file', check):
+            manifest = recovery.backup(self.home, self.destination())
+        relative = 'repositories/' + '1' * 32 + '/artifacts/' + name
+        self.assertEqual(manifest['files'][relative]['file'], 'artifact')
+        copied = self.destination() / 'state' / relative
+        self.assertEqual(stat.S_IMODE(copied.stat().st_mode), 0o600)
+
     def test_committed_wal_records_are_captured_and_an_interrupted_writer_is_not(self):
         self.ledger.deadline('ci:run', 600)  # Committed in the WAL, not checkpointed.
         process = subprocess.Popen(
@@ -471,9 +504,15 @@ class Backup(unittest.TestCase):
         shutil.rmtree(self.home / recovery.SUITE_DIR)
         with self.assertRaisesRegex(recovery.RecoveryError, 'restore it together'):
             recovery.restore(self.destination(), self.home)
+        # A failed state copy changes nothing, so the restore can simply be retried.
+        with patch.object(recovery.shutil, 'copytree', side_effect=OSError(28, 'No space left on device')), \
+                self.assertRaises(OSError):
+            recovery.restore(self.destination(), self.home, engine=engine)
+        self.assertEqual(engine.calls['restore'], 0)
+        self.assertFalse((self.home / recovery.SUITE_DIR).exists())
         report = recovery.restore(self.destination(), self.home, engine=engine)
         self.assertEqual(report['engine'], {'quarantined': []})
-        self.assertEqual(engine.calls, Counter(status=2, backup=1, bundle=1, retained=1, restore=1))
+        self.assertEqual(engine.calls, Counter(status=2, backup=1, bundle=1, retained=2, restore=1))
 
 
 # -- Partial recovery and fresh-session reuse through the installed helpers -------------------------
@@ -1250,6 +1289,25 @@ class Upgrade(unittest.TestCase):
         report = recovery.restore(backup, self.base / 'restored')
         self.assertEqual(len(report['upgrade']), 2)
         self.assertEqual(report['runs'][NAMESPACE.split('/')[1] + '/mid']['publications'], ['pending'])
+        # The backup is the state before the upgrade: no in-progress journal, so the restored home
+        # can be backed up and upgraded again instead of being stuck mid-upgrade.
+        self.assertNotIn(recovery.JOURNAL, json.loads((backup / 'manifest.json').read_text())['files'])
+        restored = self.base / 'restored'
+        self.assertFalse((restored / recovery.SUITE_DIR / recovery.JOURNAL).exists())
+        recovery.backup(restored, self.base / 'restored backup')
+        self.assertEqual(recovery.upgrade(restored)['status'], 'applied')
+
+    def test_a_repeated_release_transition_takes_a_new_pre_upgrade_backup(self):
+        recovery.upgrade(self.home)
+        path = self.suite / recovery.JOURNAL
+        idents = []
+        for _ in range(2):  # Back to another release and forward again, with unchanged store versions.
+            journal = json.loads(path.read_text())
+            path.write_bytes(admission.canonical({**journal, 'to': {'version': 'other'}, 'status': 'applied'}))
+            again = recovery.upgrade(self.home)
+            self.assertTrue((self.suite / again['backup'] / 'manifest.json').is_file())
+            idents.append(again['backup'])
+        self.assertNotEqual(idents[0], idents[1])
 
     def snapshot(self):
         return {path: path.read_bytes() for path in self.suite.rglob('*') if path.is_file()}

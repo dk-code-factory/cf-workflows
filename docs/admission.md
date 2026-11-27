@@ -13,7 +13,10 @@ canonical `repository`; exact instruction, optional `logical_run`, optional
 `upstream`, authorizations), the saved configuration
 document or `null`, invocation-local inputs, deployment configuration (the parsed
 `agents.yml` shape), the admitted role catalog, named resource roots and an
-engine transport. The `repository` root is the target checkout.
+engine transport. The `repository` root is the target checkout. A root name is
+nonempty, contains no `:` and is not the reserved name `skill`, so the
+validator's readable keys (`<root>:<path>`, `skill:<id>/<path>`) stay
+unambiguous.
 
 Effective options start from the declared workflow-input defaults copied from the
 pinned portable example, then apply matching personal, repository, upstream and

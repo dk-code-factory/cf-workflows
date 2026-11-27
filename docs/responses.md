@@ -57,8 +57,10 @@ runs these steps in order, with helpers from
      while analysis is provisional. Replies follow the fix publication.
    - It lists one reply for each source in `replies_needed`, and only while the
      `reply` permission is effective. An inline source gets a `reply_inline` in
-     its thread. A comment or review body gets a PR comment that links the
-     source's exact URL. The URL is prepended unless the draft already links it
+     its thread, addressed to the thread's root comment because GitHub accepts
+     replies only there; a follow-up comment is answered the same way. A
+     comment or review body gets a PR comment that links the source's exact
+     URL. The URL is prepended unless the draft already links it
      as a whole link, by the same rule `feedback.View.answers` applies. A link
      to `#issuecomment-401` does not link comment 40.
    - Settled sources get nothing, so a reply is never repeated.
@@ -75,7 +77,8 @@ runs these steps in order, with helpers from
 3. Each proposal goes through [exact-intent publication](publication.md) with
    its own independent audience.
 4. `responses_settle` records every applied reply of the run once the reply is
-   observed in the source's own location.
+   observed in the source's own location. A reply to an earlier body version
+   never settles an edited source.
 5. A second `kind: responses` listing proposes `resolve_thread` for threads
    answered by an applied inline reply of this run. The listing proposes it only
    when `resolution()` allows it: `resolve_threads` is enabled and authorized,

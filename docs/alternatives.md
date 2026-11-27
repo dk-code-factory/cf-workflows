@@ -167,7 +167,8 @@ An automatic pick must be feasible and confident, have no material doubts, and
 lead every other feasible option by at least `min_score_gap`. A sole feasible
 option substantiates every rejection. `enabled: false` disables automatic picks.
 Every settled choice explains why each other option was rejected. A manual
-choice must cite the recorded gate answer and match it. Gates are found by their
+choice must cite the recorded gate answer and match it, and once a gate is
+answered only a manual choice settles the selection. Gates are found by their
 own identity (the comparison, request and question round), so issue-only runs
 without a record find them too. A waiting gate returns `waiting` with no new
 session or gate. An answer that names no evaluated feasible option is never

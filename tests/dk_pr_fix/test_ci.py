@@ -183,6 +183,16 @@ class CITests(unittest.TestCase):
         provider.issue["body"] = "Confirmed flaky test. " + linked
         self.assertTrue(ci.verify_exceptions(provider, PR, observation(), [declaration]))
 
+    def test_non_object_flaky_block_is_skipped_not_raised(self):
+        # code-scan #26: issue text is external; a JSON list block is not a declaration.
+        provider = Provider()
+        provider.issue["body"] = "```dk-flaky\n[]\n```\n" + provider.issue["body"]
+        self.assertTrue(ci.verify_exceptions(provider, PR, observation(), [candidate()]))
+        provider.issue["body"] = "```dk-flaky\nnull\n```"
+        result = ci.classify_current(provider, {"pr": PR, "options": {"ci": {"classifications": [candidate()]}}},
+                                     observation())
+        self.assertEqual(result["status"], "failed")
+
     def test_deadline_survives_restart_head_change_and_changed_timeout(self):
         with tempfile.TemporaryDirectory(prefix="portable-pr-ci-") as temporary:
             root = Path(temporary)

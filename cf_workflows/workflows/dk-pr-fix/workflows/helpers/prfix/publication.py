@@ -371,6 +371,11 @@ def reply_identity(item):
             "in_reply_to_id": item.get("in_reply_to_id")}
 
 
+def _pr_field(key, value):
+    """Comparable form of an edited PR field: GitHub reports a cleared body as null."""
+    return (value or "") if key == "body" else value
+
+
 def original_discussion(ledger, plan, discussion):
     """Remove only exact, reconciled effects created by this logical run."""
     result = copy.deepcopy(discussion)
@@ -389,7 +394,8 @@ def original_discussion(ledger, plan, discussion):
                     and observed.get("user", {}).get("id") == intent["actor_id"]):
                 # Reactions and updated_at on our own reply do not make it someone else's.
                 result[key] = [item for item in result[key] if reply_identity(item) != reply_identity(observed)]
-        elif kind == "edit_pr" and observed == payload and all(result.get(key) == value for key, value in payload.items()):
+        elif kind == "edit_pr" and observed == payload and all(
+                _pr_field(key, result.get(key)) == value for key, value in payload.items()):
             result.update(intent["before"])
         elif kind == "resolve_thread" and isinstance(observed, dict):
             before = intent["before"].get("thread")
@@ -439,6 +445,13 @@ class Publication:
 
     def _request(self, method, path, payload=None):
         return self.provider.request(method, path, payload)
+
+    def _descends(self, commit, ancestor):
+        """Read-only: whether ``commit`` strictly follows ``ancestor`` in the repository history."""
+        if not (isinstance(commit, str) and _SHA.fullmatch(commit)):
+            return False
+        compared = self._request("GET", f"{self.repo}/compare/{ancestor}...{commit}")
+        return isinstance(compared, dict) and compared.get("status") == "ahead" and compared.get("behind_by") == 0
 
     def _capture(self):
         ev = self.provider.capture(self.pr)
@@ -535,7 +548,8 @@ class Publication:
         head, base = meta.get("head", {}), meta.get("base", {})
         expected = (intent["lease"], intent["target"], intent["branch"], intent["head_repository"])
         actual = (head.get("sha"), base.get("sha"), head.get("ref"),
-                  str(head.get("repo", {}).get("full_name", "")).lower())
+                  # A deleted fork is reported as a null head repository.
+                  str((head.get("repo") or {}).get("full_name", "")).lower())
         if actual != expected:
             raise Drift("PR head, target, branch or repository lease changed")
         if intent["kind"] in REVIEW_KINDS:
@@ -562,7 +576,9 @@ class Publication:
             matches = [c for c in ev.get(key, []) if c.get("id") == source.get("id")]
             if len(matches) != 1 or digest(matches[0]) != source.get("fingerprint"):
                 raise Drift("original feedback changed or disappeared")
-            if intent["kind"] == "reply_inline" and source["id"] != intent["payload"]["comment_id"]:
+            # A follow-up inline comment is answered at its thread root, the only reply target.
+            if intent["kind"] == "reply_inline" and intent["payload"]["comment_id"] not in (
+                    source["id"], matches[0].get("in_reply_to_id")):
                 raise PublicationError("inline destination differs from original feedback")
 
     def _payload(self, kind, payload):
@@ -746,7 +762,7 @@ class Publication:
             "pr_id": _positive(meta.get("id"), "numeric PR identity"),
             "head": head, "lease": lease, "target": target,
             "branch": _branch(meta.get("head", {}).get("ref")),
-            "head_repository": str(meta.get("head", {}).get("repo", {}).get("full_name", "")).lower(),
+            "head_repository": str((meta.get("head", {}).get("repo") or {}).get("full_name", "")).lower(),
             "actor_id": ev["viewer"]["id"], "payload": payload,
             "authorization": authority, "action": action, "permission": setting,
             "sources": list(sources), "discussion": _discussion(ev), "before": {},
@@ -1101,7 +1117,8 @@ class Publication:
         elif kind == "edit_pr":
             # Never overwrite a field someone else changed after preparation.
             meta = ev["metadata"]
-            if any(meta.get(key) not in (value, intent["payload"][key]) for key, value in intent["before"].items()):
+            if any(_pr_field(key, meta.get(key)) not in (_pr_field(key, value), intent["payload"][key])
+                   for key, value in intent["before"].items()):
                 raise Drift("PR field changed after preparation")
         elif kind == "split_pr":
             pushed = self._load(intent["payload"]["push_operation"])
@@ -1346,8 +1363,8 @@ class Publication:
             found = current == payload["new_head"]
             result = {"head": current, "branch": payload.get("branch", intent["branch"])}
         elif kind == "edit_pr":
-            found = all(meta.get(k) == v for k, v in payload.items())
-            result = {k: meta.get(k) for k in payload}
+            result = {k: _pr_field(k, meta.get(k)) for k in payload}
+            found = result == payload
         elif kind in ("reply", "reply_inline"):
             wanted = intent["before"].get("satisfied_comment_id")
             known = self._known(saved)
@@ -1367,14 +1384,17 @@ class Publication:
             result = thread
         elif kind == "request_review":
             result = self._request("GET", self.pr_path + "/requested_reviewers")
-            actual = {"reviewers": {v.get("login") for v in result.get("users", [])},
-                      "team_reviewers": {v.get("slug") for v in result.get("teams", [])}}
-            found = all(set(values) <= actual[key] for key, values in payload.items())
+            # GitHub matches logins and slugs case-insensitively and reports their canonical case.
+            actual = {key: {v[name].lower() for v in result.get(field, []) if isinstance(v.get(name), str)}
+                      for key, field, name in (("reviewers", "users", "login"), ("team_reviewers", "teams", "slug"))}
+            found = all({v.lower() for v in values} <= actual[key] for key, values in payload.items())
             # Missing requests may have been satisfied, withdrawn or dismissed.
         elif kind == "ci_rerun":
-            result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
-            found = result.get("head_sha") == intent["head"] and result.get("run_attempt") == payload["attempt"] + 1
+            run = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
+            found = run.get("head_sha") == intent["head"] and run.get("run_attempt") == payload["attempt"] + 1
             # Same-attempt state can be a delayed request; no automatic replay.
+            # Only stable fields: the rerun's status and timings move on after it is queued.
+            result = {key: run.get(key) for key in ("id", "head_sha", "run_attempt")}
         elif kind == "approve_fork_ci":
             # GitHub names no approver: the same attempt executing jobs is the effect.
             # An advanced attempt, a still-gated or jobless run stays unknown.
@@ -1415,9 +1435,15 @@ class Publication:
             merge_sha = meta.get("merge_commit_sha")
             if merged and meta.get("head", {}).get("sha") == intent["head"] and meta.get("merged_by", {}).get("id") == intent["actor_id"] and isinstance(merge_sha, str) and _SHA.fullmatch(merge_sha):
                 commit = self._request("GET", f"{self.repo}/git/commits/{merge_sha}")
-                wanted = [intent["target"]] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
-                found = commit.get("sha") == merge_sha and [p.get("sha") for p in commit.get("parents", [])] == wanted
-                result = {"pr": meta, "commit": commit}
+                parents = [p.get("sha") for p in commit.get("parents", [])]
+                wanted = [parents[0] if parents else None] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
+                # The PUT pins only the head: a base that advanced before the merge is its first parent.
+                found = commit.get("sha") == merge_sha and parents == wanted and (
+                    parents[0] == intent["target"] or self._descends(parents[0], intent["target"]))
+                # Only stable fields: later comments, labels or edits change the PR metadata.
+                result = {"pr": {"number": meta.get("number"), "state": meta.get("state"), "merged": True,
+                                 "merge_commit_sha": merge_sha, "head": {"sha": intent["head"]},
+                                 "merged_by": {"id": intent["actor_id"]}}, "commit": commit}
         elif kind == "split_pr":
             wanted_number = self._known(saved).get("number")
             matches = []
@@ -1433,13 +1459,19 @@ class Publication:
                        and v.get("title") == payload["title"] and v.get("body") == payload["body"]
                        and v.get("head", {}).get("sha") == intent["created_head"]
                        and v.get("head", {}).get("ref") == branch
-                       and v.get("head", {}).get("repo", {}).get("full_name", "").lower() == intent["head_repository"]
+                       and str((v.get("head", {}).get("repo") or {}).get("full_name", "")).lower() == intent["head_repository"]
                        and intent["head_repository"].split("/", 1)[0] == owner.lower()
                        and v.get("base", {}).get("sha") == intent["target"]
                        and v.get("base", {}).get("ref") == payload["base"]
                        and v.get("base", {}).get("repo", {}).get("full_name", "").lower() == f"{self.pr['owner']}/{self.pr['name']}".lower()]
             if len(matches) == 1:
-                found, result = True, matches[0]
+                # Only the matched fields: comments and updated_at change the PR object.
+                pr = matches[0]
+                found, result = True, {
+                    "number": pr.get("number"), "state": pr["state"], "draft": True, "title": pr["title"],
+                    "body": pr["body"], "user": {"id": intent["actor_id"]},
+                    **{side: {"sha": pr[side]["sha"], "ref": pr[side]["ref"],
+                              "repo": {"full_name": pr[side]["repo"]["full_name"]}} for side in ("head", "base")}}
         proof = {"intent": saved["fingerprint"], "observation": digest(result), "kind": kind}
         if found:
             return {"outcome": "completed", "proof": proof, "result": self._receipt(saved, result)}

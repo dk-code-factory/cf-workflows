@@ -10,6 +10,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -797,6 +798,31 @@ class Boundary(Fixture):
         self.assertEqual((composed['status'], composed['error']['path']), ('rejected', 'caller'))
         self.calls()
 
+    def test_a_malformed_direct_request_field_is_rejected_not_raised(self):
+        for request in (direct(''), {**direct('a6'), 'id': 7}, {**direct('a7'), 'source': 'nul\0'}):
+            result = self.manual(request, {}, instructions='Compare the retry design again.')
+            self.assertEqual((result['status'], result['error']['path']), ('rejected', 'direct'), request)
+            self.calls()
+
+    def test_an_unreadable_branch_path_is_rejected_not_raised(self):
+        (self.repo / os.fsdecode(b'caf\xe9.txt')).write_text('x\n')
+        head = self.commit('latin-1 name')
+        result = self.pr_run('dk-pr-alternatives', {}, head=head)
+        self.assertEqual(result['status'], 'rejected')
+        self.assertEqual(result['error'], {'path': 'repository', 'message': 'checkout unreadable: UnicodeDecodeError'})
+        self.calls(capabilities=1)
+
+    def test_an_unopenable_ledger_is_blocked_not_raised(self):
+        self.state.parent.mkdir(parents=True, exist_ok=True)
+        self.state.write_text('not a directory')
+        result = self.pr_run('dk-pr-alternatives', {})
+        self.assertEqual((result['status'], result['error']['path']), ('blocked', 'ledger'))
+        self.calls(capabilities=1)
+        result = alternatives.run('dk-pr-alternatives', request={'pr': PR, 'instructions': 'Compare.'},
+                                  deployment=self.deployment, repository=self.repo, transport=self.transport({}),
+                                  target=self.target, head=self.head, state=7, requirements=ISSUE)
+        self.assertEqual((result['status'], result['error']['path']), ('blocked', 'ledger'))
+
     def test_interrupted_fresh_request_resumes_without_repeating_siblings(self):
         self.pr_run('dk-pr-alternatives', branch_script())
         before = copy.copy(self.engine.sessions)
@@ -940,6 +966,11 @@ class SavedOptions(Fixture):
             'selection.enabled': 'invocation', 'selection.min_score_gap': 'pr:this-pr',
             'selection.mode': 'repository:repo'}))
         self.assertEqual(checked['scoring'], {'value': entries.ALTERNATIVES_OPTIONS['scoring'], 'source': 'default'})
+        # An empty nested object sets nothing and keeps the lower layer's source.
+        empty = entries.check_options('dk-pr-alternatives', {'selection': {}, 'scoring': {}}, layers[:1])
+        self.assertEqual((empty['selection']['value']['mode'], empty['selection']['source']),
+                         ('automatic', 'repository:repo'))
+        self.assertEqual(empty['scoring'], {'value': entries.ALTERNATIVES_OPTIONS['scoring'], 'source': 'default'})
         # The saved automatic mode governs the run: a close pick stays pending and nothing asks the user.
         close = comparison(ratings={'pr': 80, 'smallest': 85, 'alternative': 20})
         result = self.pr_run('dk-pr-alternatives', branch_script(**{'comparison:retry': close,

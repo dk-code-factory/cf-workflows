@@ -233,6 +233,15 @@ class ActionTests(unittest.TestCase):
         with self.ledger(read_only=True) as ledger:
             self.assertEqual(ledger.db.execute("SELECT sum(amount) FROM reservations WHERE name='fixture-effects'").fetchone()[0], 1)
 
+    def test_failed_read_only_operation_can_retry_under_its_original_key(self):
+        # code-scan #1: a failed read-only check leaves no unresolved effect behind.
+        incomplete = {"complete": False, "missing": ["review"], "unresolved": [], "provisional": {}}
+        with patch.object(publishing, "readiness", return_value=incomplete):
+            with self.assertRaisesRegex(ValueError, "remains incomplete"):
+                self.handle("completion", "execute")
+        self.assertEqual(self.handle("completion", "reconcile")["outcome"], "no_effect")
+        self.assertTrue(self.handle("completion", "execute")["result"]["output"]["complete"])
+
     def test_absent_original_operation_is_read_only_proof_of_no_effect(self):
         before = self.state()
         observation = self.handle("coverage", "reconcile", key="never-dispatched")

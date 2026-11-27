@@ -151,7 +151,12 @@ def commit(store, ledger, base, revised, result):
     intent = ledger.prepare(request_id=record['request_id'], evidence_refs=record['evidence_refs'],
                             base_revision=base['revision'] if base is not None else None,
                             document=document, target_digest=content(document))
-    status = dispatch(store, ledger, intent)
+    try:
+        status = dispatch(store, ledger, intent)
+    except Exception:
+        # The ledger failed around the dispatch: the effect is unknown, and the prepared or
+        # pending intent is read back by the next recovery, never retried blindly.
+        status = 'pending'
     return {'intent_id': intent['intent_id'], 'status': status}
 
 
@@ -184,10 +189,16 @@ def write_back(store, ledger, configuration, result):
     revised = result.get('proposal', {}).get('configuration', configuration)
     if result['preflight'] != 'admitted' or revised == configuration:
         return None
-    if ledger.writes(('prepared', 'pending')):
-        # An earlier write is still unknown; never stack another on top of it.
-        return {'intent_id': None, 'status': 'deferred'}
-    return commit(store, ledger, configuration, revised, result)
+    deferred = {'intent_id': None, 'status': 'deferred'}
+    try:
+        if ledger.writes(('prepared', 'pending')):
+            # An earlier write is still unknown; never stack another on top of it.
+            return deferred
+        return commit(store, ledger, configuration, revised, result)
+    except Exception:
+        # A concurrent run prepared its intent first (prepare re-checks under its own lock), or the
+        # ledger is unavailable: nothing was prepared, and the admitted result stands.
+        return deferred
 
 
 def admit(*, request, invocation, deployment, roles, roots, transport, store, ledger, **options):

@@ -26,7 +26,7 @@ The entry has three parts:
 | --- | --- | --- |
 | `reconciliation_prompt` | The baseline prompt | Nonempty text. A changed value becomes a `reconciliation` prompt for the adapter and goes through the shared [semantic assessment](semantic.md). |
 | `language_review_passes` | `3` | Integer `1..3`. |
-| `section_heading` | `Decisions` | Text without newlines or `#`. |
+| `section_heading` | `Decisions` | Text without newlines, `#` or surrounding whitespace. |
 
 A default run is admitted from bundled control text, so it runs no validator
 session and loads no skill. An invocation may add only `prompts`. Tasks,
@@ -135,7 +135,9 @@ It appends every accepted result and every rejected claim; nothing is rewritten.
 - **Claims.** The claim binds the request and the binding. A lost session
   response reconciles to the original result. A rejected result is retained and
   never redispatched; the next attempt has a fresh claim, up to
-  `1 + retries_per_task` attempts per binding.
+  `1 + retries_per_task` attempts per binding. Inputs that revert to an earlier
+  binding get a fresh claim against the latest result, since the earlier one is
+  no longer current.
 
 ## Publication
 
@@ -145,7 +147,8 @@ higher level; several such headings block. CRLF bodies are matched without their
 carriage returns; text outside the section keeps its original line endings, and
 the section uses the body's own. Each settled decision that cites a public user
 or maintainer source is rendered with its public source links and a stable
-marker. Others are withheld, so a private request cannot reach the body through
+marker; an HTML comment opener (`<!--`) in its text is escaped, so the text
+cannot forge another entry's marker. Others are withheld, so a private request cannot reach the body through
 a public question. An existing entry of a decision the user excluded or paused,
 or one that a settled decision supersedes, is removed. Contested, unmanaged and other entries are kept verbatim, and nothing
 outside the section changes.
@@ -154,7 +157,8 @@ outside the section changes.
 with an `edit_pr` intent. The plan from `publication_plan` enables `edit_pr`
 only when the permission is effective, and `source_validator(ledger)` accepts
 only the current retained result. Without that, `propose` returns a private
-draft and nothing is written. The intent ID binds the logical run, the result
+draft and nothing is written. `propose` and `publish` take the same linked
+`issues` as `reconcile`, so issue sources keep their authority and links. The intent ID binds the logical run, the result
 and the heading. A pending intent is only reconciled from the service, never
 sent again; this also holds when the body already shows the effect.
 

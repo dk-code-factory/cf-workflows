@@ -261,8 +261,10 @@ def check_options(name, options, saved=()):
                 else:
                     value = _layer(declared[key], result[key]['value'], value, 'options.' + key,
                                    ENTRIES[name].get('rules', {}), ENTRIES[name]['skill'])
-                result[key] = {'value': value, 'source': source}
-                parts[key].update({leaf: source for leaf in _leaves(layer[key], key)})
+                leaves = _leaves(layer[key], key)
+                # An empty nested object sets nothing, so it does not take over the option's source.
+                result[key] = {'value': value, 'source': source if leaves else result[key]['source']}
+                parts[key].update({leaf: source for leaf in leaves})
         except AdmissionError as error:
             raise AdmissionError(where + error.path[len('options'):], error.message) from None
     for key, leaves in parts.items():

@@ -164,6 +164,16 @@ def check_verdict(output, index, answers):
     return copy.deepcopy(output)
 
 
+def check_validator(value, path):
+    """A retained validator reference: the fixed bundled role, its agent and the observed session."""
+    fields(value, path, ('role', 'definition_sha256', 'agent', 'session_id', 'result_ref', 'claim'))
+    require(value['role'] == admission.VALIDATOR_ROLE and value['definition_sha256'] == admission.BOOTSTRAP_SHA256,
+            path, 'not the fixed bundled validator role')
+    for key in ('agent', 'session_id', 'result_ref', 'claim'):
+        text(value[key], f'{path}.{key}', 512)
+    return value
+
+
 def check_session(session, task, answers):
     """Check the engine-observed session, then its verdict. Any other operation discards the verdict."""
     fields(session, 'validator', ('result_ref', 'output', 'observation'))
@@ -435,10 +445,13 @@ def admit(*, request, configuration, invocation, deployment, roles, roots, trans
         answers = {item['answer_id'] for item in clarifications}
         try:
             verdict = check_verdict(payload['verdict'], set(locations(admitted)), answers)
+            # Only a clarification is ever held by a gate; a gate payload never admits or settles a proposal.
+            require(verdict['verdict'] == 'needs_clarification', 'validator.output.verdict',
+                    'a gate holds only a clarification verdict')
+            validator = check_validator(payload['validator'], 'validator')
         except (AdmissionError, TypeError, KeyError) as failure:
             return outcome(admitted, proposal, request_id, None, clarifications,
                            error={'path': f"gates.{gate['gate_id']}", 'message': 'gate verdict invalid: ' + str(failure)})
-        validator = payload.get('validator')
         if gate['status'] == 'waiting':  # Interrupted clarification resumes without a new session or gate.
             return outcome(admitted, proposal, request_id, verdict, clarifications, validator,
                            gate={'gate_id': gate['gate_id'], 'evidence_id': identity, 'status': 'waiting'})

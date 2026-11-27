@@ -235,7 +235,8 @@ def collect(github, repository, pr, head):
         raise Incomplete('the PR author has no immutable identity')
     organization = pr['repository'].split('/')[1]
     merge_base = _git(repository, 'merge-base', base, head).decode().strip()
-    paths = sorted(filter(None, _git(repository, 'diff', '--name-only', merge_base, head).decode().split('\n')))
+    changed = _git(repository, 'diff', '-z', '--name-only', merge_base, head).decode().split('\0')
+    paths = sorted(filter(None, changed))
     ownership = codeowners(repository, base, paths, organization)
     reviews = _pages(lambda page: github.reviews(pr['url'], page), 'reviews')
     users, teams, excluded = {}, {}, []
@@ -325,6 +326,7 @@ def check_selection(output, candidates):
             require(candidate is not None, where, 'not an eligible candidate from the collected evidence')
             require(candidate['name'] not in result[key], where, 'duplicate recipient')
             require(isinstance(item['sources'], list) and item['sources']
+                    and all(isinstance(source, str) for source in item['sources'])
                     and set(item['sources']) <= set(candidate['sources']), where + '.sources',
                     "cite the candidate's own evidence")
             result[key].append(candidate['name'])
@@ -365,8 +367,10 @@ class GitHubEvidence:
         value = self.transport.request('GET', f'{self._route(repository)}/collaborators/{login}/permission')
         if not isinstance(value, dict):
             raise Incomplete('the permission response is not an object')
-        # role_name distinguishes maintain from write; permission is the legacy level.
-        return value.get('role_name') or value.get('permission')
+        # role_name distinguishes maintain from write; permission is the legacy level, which a custom
+        # role name (based on one of the levels) falls back to.
+        role = value.get('role_name')
+        return role if role in REVIEWERS else value.get('permission')
 
     def team_permission(self, repository, slug):
         if repository not in self.teams:

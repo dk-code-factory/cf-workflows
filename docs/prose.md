@@ -33,12 +33,14 @@ and any request authorization reject before the engine is contacted.
 
 `run(admitted, task, ...)` is the helper side of one prose occurrence.
 
-1. **Candidates.** For each file added or modified between the original PR base
-   and the checkout head, the pass is planned per file:
+1. **Candidates.** For each regular file added or modified between the original
+   PR base and the checkout head, the pass is planned per file (submodules and
+   symlinks are not candidates):
    - `reused`: the last accepted unit is current and its output is still the head
      blob. No session runs.
    - `delta`: the unit is current but the file changed later, for example after a
-     review fix. Only lines changed since the accepted output are candidates.
+     review fix. Only lines changed since the accepted output are candidates. An
+     accepted output no longer in the repository makes the unit not current.
    - `full`: no current unit. Lines changed since the PR base are candidates.
 
    Only changed lines that can hold prose are candidates:
@@ -54,8 +56,9 @@ and any request authorization reject before the engine is contacted.
      block scalars, Lua long brackets, and JavaScript or TypeScript regex
      literals (a `/` where an operand starts).
 
-   Other file types, and binary or non-UTF-8 files, are listed as skipped and
-   never edited.
+   Lines are counted at line feeds only, as the lexers count them. Other file
+   types, binary or non-UTF-8 files and files with non-UTF-8 names are listed as
+   skipped and never edited.
 2. **Session.** One engine-managed native session gets the exact instructions,
    the role prompt, the bundled assignment and checklist, applicable prompts, the
    preferences selected for each file, the candidate patches, quoted wording and
@@ -64,7 +67,8 @@ and any request authorization reject before the engine is contacted.
    original result, so a lost response never starts a second session.
 3. **Observation.** The engine must report the claim, the admitted role, digest
    and agent, no loaded skill and only reads and writes of assigned files. Git
-   history and the index must be unchanged, and no other file may change.
+   history and the index must be unchanged, no other file may change, and no
+   file mode may change.
 4. **Edits.** The helper compares each edited file with the head:
    - every changed line lies within two lines of a candidate line, and both the
      old and the new line are prose lines, so code is never edited and a
@@ -85,10 +89,12 @@ and any request authorization reject before the engine is contacted.
    validation. Ambiguities cite candidate files.
 6. **Commit.** A complete pass with edits is committed locally on top of the
    head, through a private index and a ledgered intent. An interrupted commit
-   settles from that intent and never commits twice. Nothing is pushed: commits
+   settles from that intent and never commits twice, also when HEAD already
+   moved to the intended commit. Nothing is pushed: commits
    reach the PR only through authorized publication stages.
 
-A rejected or incomplete pass restores the checkout and commits nothing. A lost
+A rejected or incomplete pass restores the checkout, including staged, renamed
+and new files, and commits nothing. A lost
 session response keeps the edits and the claim for reconciliation.
 
 The result is a private report: status, per-file units, changed locations,
@@ -102,7 +108,8 @@ The ASD-STE100 pass is best effort. Its report must state
 `compliance: "not_claimed"`. The report text, ambiguities and commit message
 may mention compliance, conformance or certification only in a fixed disclaimer
 (for example "compliance is not claimed" or "does not claim certification").
-Any other mention rejects the pass. Without a supplied reference, rule numbers
+Any other mention rejects the pass. Reported file paths are names, not report
+text, so a candidate such as `docs/compliance.md` claims nothing. Without a supplied reference, rule numbers
 anywhere in that text and `reference_checks` reject, and the helper
 adds an explicit limit naming the unchecked rules and dictionary and the
 official starting points. With references (`{id, path, sha256}`, read only when

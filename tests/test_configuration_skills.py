@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -223,6 +224,20 @@ class Onboarding(Fixture):
         self.assertNotIn('repository:sub/CLAUDE.md', self.fake.tasks[0]['readable'])
         self.nothing_saved()
 
+    def test_discovery_reads_only_bounded_regular_files(self):
+        os.mkfifo(self.repo / 'sub' / 'CLAUDE.md')  # No writer: a blocking open would never return.
+        self.write('.cursorrules', 'x' * (admission.MAX_FILE + 1))
+        found = {}
+        worker = threading.Thread(target=lambda: found.update(configuration.discover(self.repo)), daemon=True)
+        worker.start()
+        worker.join(30)
+        self.assertFalse(worker.is_alive(), 'discovery blocked on a FIFO')
+        sources = {item['path']: item for item in found['sources']}
+        self.assertEqual((sources['sub/CLAUDE.md']['status'], sources['sub/CLAUDE.md']['reason']),
+                         ('unreadable', 'not a regular file'))
+        self.assertEqual((sources['.cursorrules']['status'], sources['.cursorrules']['reason']),
+                         ('unreadable', 'exceeds the size bound'))
+
     def test_escaping_root_guidance_rejects_like_every_admitted_run(self):
         os.symlink(self.write('CLAUDE.md', 'Outside rule.\n', root=self.base), self.repo / 'CLAUDE.md')
         result = self.onboard()
@@ -405,6 +420,14 @@ class Config(Changes):
                                     repository=self.repo, transport=self.transport(
                                         session({'explanation': 'x', 'citations': ['permissions.unknown']})))
         self.assertEqual(bad['status'], 'blocked')
+        malformed = (session({'explanation': 'x', 'citations': [{'path': 'permissions.push'}]}),
+                     session({'explanation': 'x', 'citations': []}, operations=[{'kind': 'read', 'target': ['x']}]))
+        for respond in malformed:
+            with self.subTest(respond=respond):
+                result = configuration.explain(request=self.request('Why?'), store=self.store,
+                                               deployment=self.deployment, repository=self.repo,
+                                               transport=self.transport(respond))
+                self.assertEqual(result['status'], 'blocked')
 
     def test_saved_change_writes_the_exact_admitted_revision_and_reads_it_back(self):
         result = self.configure(proposal(*self.ENABLE))

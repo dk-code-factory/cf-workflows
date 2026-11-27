@@ -138,6 +138,13 @@ class Routing(unittest.TestCase):
         self.assertEqual(result['status'], 'blocked')
         self.assertEqual(github.calls, Counter())
 
+    def test_repository_targeted_request_is_blocked_without_reads(self):
+        github = GitHub({'id': 11, 'login': 'me'}, {'id': 11, 'login': 'me'})
+        result = routing.route(request={'repository': 'github.com/owner/repo', 'instructions': 'Iterate.'},
+                               transport=github)
+        self.assertEqual((result['status'], result['route'], result['skill']), ('blocked', None, None))
+        self.assertEqual(github.calls, Counter())
+
     def test_routing_preserves_the_exact_request_and_grants_nothing(self):
         original = request(logical_run='iteration-7', authorizations={'merge': MERGE})
         result = self.route(GitHub({'id': 11, 'login': 'me'}, {'id': 11, 'login': 'me'}), request=original)
@@ -179,7 +186,8 @@ class Routing(unittest.TestCase):
         self.assertEqual(other['maintain_other'], {'request_id': 'r3', 'instruction': 'Maintain their PR.',
                                                    'source': 'chat:3'})
         self.assertNotIn('authorizations', other['request'])
-        for bad in ({**fix, 'route': 'merge'}, {'route': 'fix'}, {**fix, 'source': ' '}):
+        for bad in ({**fix, 'route': 'merge'}, {'route': 'fix'}, {**fix, 'source': ' '},
+                    {**fix, 'route': ['fix']}, {**fix, 'route': {'fix': 1}}):
             with self.subTest(bad=bad):
                 self.assertEqual(self.route(GitHub({'id': 12, 'login': 'them'}, {'id': 11, 'login': 'me'}),
                                             explicit=bad)['status'], 'blocked')

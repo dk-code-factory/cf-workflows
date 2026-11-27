@@ -169,6 +169,7 @@ class Preset(Fixture):
             'permission override': ({}, None, {'permissions': {'edit_pr': True}}, None, 'invocation'),
             'unknown option': ({}, None, None, {'publish': True}, 'options.publish'),
             'heading marker': ({}, None, None, {'section_heading': '## Decisions'}, 'options.section_heading'),
+            'padded heading': ({}, None, None, {'section_heading': 'Decisions '}, 'options.section_heading'),
             'too many passes': ({}, None, None, {'language_review_passes': 4}, 'options.language_review_passes'),
             'repository target': ({}, {'repository': 'github.com/o/r', 'instructions': 'x'}, None, None, 'request.pr'),
         }
@@ -422,6 +423,23 @@ class Reconcile(Fixture):
         self.assertEqual(task['context']['subjects']['full'], 'governing inputs changed')
         self.assertEqual(task['requirements'], ['Keep public APIs stable.'])
 
+    def test_inputs_reverting_to_an_earlier_binding_become_the_current_result(self):
+        admitted = self.admit()
+        ledger = self.ledger(admitted)
+        first = self.reconcile(admitted, ledger, session(result(API, STORE, REDIS)))
+        self.assertEqual(first['status'], 'complete', first)
+        self.github.ev['comments'].append(comment(106, CAROL, 'Thanks!', 6))
+        second = self.reconcile(admitted, ledger, session(result()))
+        self.assertEqual(second['status'], 'complete', second)
+        del self.github.ev['comments'][-1]
+        reverted = self.reconcile(admitted, ledger, session(result()))
+        self.assertEqual((reverted['status'], reverted['session']), ('complete', True), reverted)
+        self.assertNotEqual(reverted['result_ref'], first['result_ref'])
+        self.assertEqual(ledger.latest()['result_ref'], reverted['result_ref'])
+        self.assertTrue(decisions.source_validator(ledger)('decisions:' + reverted['result_ref']))
+        again = self.reconcile(admitted, ledger)
+        self.assertEqual((again['session'], again['result_ref']), (False, reverted['result_ref']))
+
     def test_linked_issue_discussion_is_a_source(self):
         self.github.ev['metadata']['created_at'] = '2025-12-02T00:00:00Z'
         admitted = self.admit()
@@ -635,6 +653,23 @@ class Publish(Fixture):
         outcome = decisions.publish(admitted, report, publisher=self.publisher(admitted, ledger), audience=self.audience)
         self.assertEqual((outcome['status'], outcome['draft']['withheld']), ('applied', ['no-windows']))
         self.assertNotIn('Windows', self.github.ev['metadata']['body'])
+
+    def test_decisions_settled_by_a_linked_issue_publish_with_their_links(self):
+        self.github.ev['metadata']['created_at'] = '2025-12-02T00:00:00Z'
+        admitted = self.admit(authorize=True)
+        ledger = self.ledger(admitted)
+        issue = {'number': 3, 'url': 'https://github.com/o/r/issues/3', 'body': 'Run state must survive restarts.',
+                 'user': dict(ALICE), 'author_association': 'OWNER', 'created_at': '2025-12-01T00:00:00Z',
+                 'comments': []}
+        durable = decision('durable-state', ['issue:3'], text='Run state survives restarts.')
+        report = decisions.reconcile(admitted, capture=self.github.capture(None), ledger=ledger,
+                                     transport=self.transport(session(result(durable))), issues=[issue])
+        self.assertEqual(report['status'], 'complete', report)
+        outcome = decisions.publish(admitted, report, publisher=self.publisher(admitted, ledger),
+                                    audience=self.audience, issues=[issue])
+        self.assertEqual((outcome['status'], outcome['draft']['withheld']), ('applied', []), outcome)
+        self.assertIn('- Run state survives restarts. ([issue](https://github.com/o/r/issues/3)) '
+                      '<!-- cf-workflows:decision durable-state -->', self.github.ev['metadata']['body'])
 
     def test_contested_entries_are_kept_verbatim(self):
         self.github.ev['comments'].append(comment(104, BOB, 'Drop v1 API compatibility.', 4, 'MEMBER'))

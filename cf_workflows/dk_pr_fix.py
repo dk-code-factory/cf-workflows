@@ -416,7 +416,9 @@ def stage_request(prepared):
     marker = namespace / STATE_MARKER
     expected = admission.canonical({'format': STATE_FORMAT})
     if not os.path.lexists(marker):
-        if any(namespace.iterdir()):
+        # A leftover or concurrent first marker write's temporary file is not foreign state.
+        if any(not (item.name.startswith('.staged-') and item.is_file() and not item.is_symlink())
+               for item in namespace.iterdir()):
             raise ValueError('refusing a nonempty state directory without this suite\'s marker')
         _atomic_write(marker, expected)
     if marker.is_symlink() or not marker.is_file() or marker.read_bytes() != expected:

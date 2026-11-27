@@ -261,7 +261,9 @@ def _reply(plan, snapshot, evidence, view, key, body, reference):
     collection = feedback.COLLECTIONS[source["kind"]]
     raw = [item for item in evidence[collection] if item.get("id") == source["id"]]
     if source["kind"] == "inline":
-        kind, payload = "reply_inline", {"body": body, "comment_id": source["id"]}
+        # GitHub replies only to a thread's root comment and reports that root as the
+        # reply's in_reply_to_id, so a follow-up comment is answered at its thread root.
+        kind, payload = "reply_inline", {"body": body, "comment_id": source["root"]}
     else:
         # A PR comment answers a comment or review body only when it links the exact source.
         url = text(source["url"], "feedback source URL")
@@ -376,6 +378,9 @@ def settle(root, provider, ledger, plan, inputs):
             key = f"{source['kind']}:{source['id']}"
             reply = {"kind": "inline" if intent["kind"] == "reply_inline" else "comment", "id": observed.get("id")}
             if key not in view.sources:
+                continue
+            if source.get("version") != feedback.View.fingerprint(view.sources[key]):
+                # A reply to an earlier body never answers the edited source.
                 continue
             try:
                 record.record_reply(view, key, reply, saved["id"])

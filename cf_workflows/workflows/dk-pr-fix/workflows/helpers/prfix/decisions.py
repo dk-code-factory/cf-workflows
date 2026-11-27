@@ -649,8 +649,8 @@ def _items(value, path, required, optional=()):
 
 
 def _ids(value, path, known):
-    require(isinstance(value, list) and value and len(set(map(str, value))) == len(value), path,
-            'must be a nonempty array of distinct identities')
+    require(isinstance(value, list) and value and all(isinstance(item, str) for item in value)
+            and len(set(value)) == len(value), path, 'must be a nonempty array of distinct identities')
     unknown = [item for item in value if item not in known]
     require(not unknown, path, 'unknown identity: ' + ', '.join(sorted(map(str, unknown))))
     return value
@@ -696,6 +696,9 @@ def check_result(output, *, sources, retained, previous, changed, subjects, pass
         for key in ('subject', 'text', 'scope') + tuple(k for k in ('conditions', 'revisit') if k in item):
             text(item[key], f'{at}.{key}')
         require(item['status'] in STATUSES, at + '.status', 'settled, proposal, excluded or paused')
+        supersedes = item.get('supersedes', [])
+        require(isinstance(supersedes, list) and all(isinstance(other, str) for other in supersedes),
+                at + '.supersedes', 'must be an array of decision IDs')
         cited = _ids(item['sources'], at + '.sources', known)
         authorities = {known[ident]['authority'] for ident in cited}
         if item['status'] == 'settled':
@@ -751,12 +754,15 @@ def check_result(output, *, sources, retained, previous, changed, subjects, pass
     require(not missing, 'result.contradictions', 'affected or unresolved contradictions must be returned: '
             + ', '.join(missing))
     questions = _items(output['questions'], 'result.questions', ('id', 'question', 'sources', 'blocking'))
+    seen = set()
     for number, item in enumerate(questions):
         at = f'result.questions[{number}]'
+        require(text(item['id'], at + '.id', 256) not in seen, at + '.id', 'duplicate question ID')
+        seen.add(item['id'])
         text(item['question'], at + '.question')
         require(type(item['blocking']) is bool, at + '.blocking', 'must be boolean')
-        require(isinstance(item['sources'], list) and set(item['sources']) <= set(known), at + '.sources',
-                'cites unknown sources')
+        require(isinstance(item['sources'], list) and all(isinstance(i, str) for i in item['sources'])
+                and set(item['sources']) <= set(known), at + '.sources', 'cites unknown sources')
     for ident, item in contradictions.items():
         _ids(item['decisions'], f'contradictions.{ident}.decisions', decisions)
     return {'summary': output['summary'], 'decisions': sorted(decisions.values(), key=lambda d: d['id']),
@@ -904,7 +910,8 @@ def render(decision, sources):
     known = {item['id']: item for item in sources}
     links = [f"[{known[i]['kind']}]({known[i]['url']})" for i in decision['sources']
              if i in known and known[i]['public'] and known[i]['url']]
-    body = ' '.join(decision['text'].split())
+    # An HTML comment opener in the text could forge another decision's marker or hide the entry.
+    body = ' '.join(decision['text'].split()).replace('<!--', '&lt;!--')
     return f"- {body} ({'; '.join(links)}) <!-- cf-workflows:decision {decision['id']} -->"
 
 

@@ -29,6 +29,7 @@ import io
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import sqlite3
 import subprocess
 import tokenize
@@ -159,7 +160,8 @@ def _object(repository, oid):
 
 
 def _lines(data):
-    return data.decode('utf-8').splitlines(keepends=True)
+    # Lines end at \n only, as the comment lexer and tokenize count them (not at \f, \x85 or U+2028).
+    return re.findall(r'[^\n]*\n|[^\n]+\Z', data.decode('utf-8'))
 
 
 # -- Entry admission ---------------------------------------------------------------------------
@@ -283,9 +285,28 @@ def _spans(lines):
 
 
 def changed_paths(repository, base, head):
-    raw = git(repository, 'diff', '--no-renames', '--name-status', '-z', base, head).decode('utf-8', 'surrogateescape')
+    """Added or modified regular files; submodules (gitlinks) and symlinks hold no prose to edit."""
+    raw = git(repository, 'diff', '--no-renames', '--raw', '-z', base, head).decode('utf-8', 'surrogateescape')
     parts = [part for part in raw.split('\0') if part]
-    return sorted(parts[n + 1] for n in range(0, len(parts), 2) if parts[n] in ('A', 'M'))
+    found = []
+    for n in range(0, len(parts), 2):
+        _, mode, _, _, status = parts[n].split(' ')
+        if status in ('A', 'M') and mode in ('100644', '100755'):
+            found.append(parts[n + 1])
+    return sorted(found)
+
+
+def _utf8(path):
+    try:
+        path.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _present(repository, oid):
+    """Whether a blob is still in the repository (an accepted output may have been pruned)."""
+    return git(repository, 'cat-file', '-t', oid, check=False).strip() == b'blob'
 
 
 def candidates(repository, base, head, units, contract, bindings):
@@ -297,6 +318,11 @@ def candidates(repository, base, head, units, contract, bindings):
     """
     plan, skipped = {}, []
     for path in changed_paths(repository, base, head):
+        if not _utf8(path):
+            # Records and digests are UTF-8: such a name is reported, never edited.
+            skipped.append({'path': path.encode('utf-8', 'surrogateescape').decode('utf-8', 'replace'),
+                            'reason': 'file name is not UTF-8'})
+            continue
         head_oid, head_bytes = _blob(repository, head, path)
         base_oid, _ = _blob(repository, base, path)
         if len(head_bytes) > MAX_FILE:
@@ -314,7 +340,7 @@ def candidates(repository, base, head, units, contract, bindings):
             continue
         unit = units.get(path)
         current = (unit is not None and unit['contract'] == contract and unit['base_blob'] == base_oid
-                   and unit['binding'] == bindings[path])
+                   and unit['binding'] == bindings[path] and _present(repository, unit['output_blob']))
         if current and unit['output_blob'] == head_oid:
             plan[path] = {'path': path, 'mode': 'reused', 'head_blob': head_oid, 'base_blob': base_oid,
                           'binding': bindings[path], 'claim': unit['claim']}
@@ -379,7 +405,9 @@ def _python_prose(source):
         for line in range(token.start[0] - 1, token.end[0])}
     lines = {token.start[0] - 1 for token in tokens
              if token.type == tokenize.COMMENT and not token.string.startswith('#!')} - code
-    rows = source.splitlines()
+    if '\r' in source.replace('\r\n', ''):
+        return set()  # A lone CR is a line break to ast but not to the LF-only line indexes.
+    rows = source.split('\n')
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             first = node.body[0]
@@ -603,7 +631,8 @@ def check_report(name, output, units, references, actual):
     for number, item in enumerate(output['changed_locations']):
         where = f'report.changed_locations[{number}]'
         fields(item, where, ('path', 'start', 'end'), ('reason',))
-        require(item['path'] in actual, where + '.path', 'reports a location the session did not change')
+        require(isinstance(item['path'], str) and item['path'] in actual, where + '.path',
+                'reports a location the session did not change')
         require(type(item['start']) is int and type(item['end']) is int and 1 <= item['start'] <= item['end'],
                 where, 'invalid line span')
         require(any(item['start'] <= end and start <= item['end'] for start, end in actual[item['path']]), where,
@@ -617,7 +646,8 @@ def check_report(name, output, units, references, actual):
         where = f'report.unresolved_ambiguities[{number}]'
         fields(item, where, ('path', 'line', 'text'))
         text(item['text'], where + '.text')
-        require(item['path'] in units and type(item['line']) is int and item['line'] >= 1, where,
+        require(isinstance(item['path'], str) and item['path'] in units
+                and type(item['line']) is int and item['line'] >= 1, where,
                 'cites a line of a candidate file')
     if any(actual.values()):
         message = text(output.get('commit_message'), 'report.commit_message', 16384)
@@ -628,7 +658,8 @@ def check_report(name, output, units, references, actual):
         if output.get('no_op') is not None:
             fields(output['no_op'], 'report.no_op', ('reason', 'sources'))
             text(output['no_op']['reason'], 'report.no_op.reason')
-            require(isinstance(output['no_op']['sources'], list) and set(output['no_op']['sources']) <= set(units),
+            sources = output['no_op']['sources']
+            require(isinstance(sources, list) and all(isinstance(item, str) and item in units for item in sources),
                     'report.no_op.sources', 'cites candidate files')
     if ste:
         # Certification needs evidence this suite cannot hold; the pass never claims it.
@@ -637,12 +668,16 @@ def check_report(name, output, units, references, actual):
         require(isinstance(checks, list) and len(checks) <= MAX_ITEMS, 'report.reference_checks', 'must be an array')
         for number, item in enumerate(checks):
             fields(item, f'report.reference_checks[{number}]', ('reference', 'subject'))
-            require(item['reference'] in references, f'report.reference_checks[{number}].reference',
+            require(isinstance(item['reference'], str) and item['reference'] in references,
+                    f'report.reference_checks[{number}].reference',
                     'cites a reference that was not supplied')
             text(item['subject'], f'report.reference_checks[{number}].subject')
-        for value in _texts({key: output.get(key) for key in (
-                'validation', 'reference_verification_limits', 'changed_locations', 'no_op',
-                'unresolved_ambiguities', 'commit_message')}):
+        # File paths are names, not report wording: a candidate such as docs/compliance.md claims nothing.
+        for value in _texts([output.get(key) for key in ('validation', 'reference_verification_limits',
+                                                          'commit_message')] + [
+                [item.get('reason') for item in output['changed_locations']],
+                (output.get('no_op') or {}).get('reason'),
+                [item['text'] for item in output['unresolved_ambiguities']]]):
             require(not CLAIM.search(DISCLAIMER.sub(' ', value)), 'report',
                     'claims ASD-STE100 compliance or certification without evidence')
             require(references or not RULE_NUMBER.search(value), 'report',
@@ -724,6 +759,12 @@ class Ledger:
     def pass_(self, claim):
         return self.db.execute('SELECT * FROM passes WHERE claim=?', (claim,)).fetchone()
 
+    def commit_intents(self, logical_run, occurrence):
+        """The recorded commit intents of this occurrence's passes that have not settled."""
+        return [admission.load_json(row['commit_intent']) for row in self.db.execute(
+            "SELECT commit_intent FROM passes WHERE logical_run=? AND occurrence=? AND state='committing'",
+            (logical_run, occurrence))]
+
     def units(self, logical_run, occurrence):
         result = {}
         for row in self.db.execute('SELECT * FROM units WHERE logical_run=? AND occurrence=? ORDER BY seq',
@@ -777,18 +818,33 @@ def contract(admitted, task, references):
 
 
 def _status(repository):
+    """{path: XY} of the checkout; a rename or copy also lists its origin, as a staged deletion."""
     raw = git(repository, 'status', '--porcelain=v1', '-z', '--untracked-files=all').decode('utf-8', 'surrogateescape')
-    return {entry[3:]: entry[:2] for entry in raw.split('\0') if entry}
+    entries, result = iter(raw.split('\0')), {}
+    for entry in entries:
+        if entry:
+            result[entry[3:]] = entry[:2]
+            if entry[0] in 'RC' or entry[1] in 'RC':
+                result.setdefault(next(entries), 'D ')  # The origin record carries no status of its own.
+    return result
 
 
 def _restore(repository, head):
-    """Undo the session's uncommitted edits; the checkout was clean before dispatch."""
-    tracked = [path for path, code in _status(repository).items() if code != '??']
-    if tracked:
-        git(repository, '--literal-pathspecs', 'checkout', '-q', head, '--', *tracked)
-    for path, code in _status(repository).items():
-        if code == '??':
-            (Path(repository) / path).unlink()
+    """Undo the session's uncommitted edits, staged or not; the checkout was clean before dispatch."""
+    changed = sorted(_status(repository))
+    if not changed:
+        return
+    git(repository, '--literal-pathspecs', 'reset', '-q', head, '--', *changed)
+    at_head = [path for path in changed if git(repository, 'rev-parse', '--verify', '--quiet', f'{head}:{path}',
+                                                check=False).strip()]
+    if at_head:
+        git(repository, '--literal-pathspecs', 'checkout', '-q', head, '--', *at_head)
+    for path in set(changed) - set(at_head):
+        target = Path(repository) / path
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
 
 
 def _commit(repository, ledger, claim, message, paths, parent):
@@ -893,11 +949,16 @@ def run(admitted, task, *, repository, base, transport, ledger, references=None,
     require(pr is not None, 'request.pr', 'prose cleanup edits changed PR prose')
     references, limits = check_references(name, references)
     base, head = _commit_id(repository, base, 'base'), _commit_id(repository, 'HEAD')
-    require(_ancestor(repository, base, head), 'base', 'the original PR base must be an ancestor of the checkout head')
     logical_run, occurrence = snapshot['request']['logical_run'], occurrence_id(task)
+    for intent in ledger.commit_intents(logical_run, occurrence):
+        if intent['commit'] == head:
+            # HEAD already moved to an interrupted pass's commit: settle that pass from the head it started at.
+            head = intent['parent']
+            break
+    require(_ancestor(repository, base, head), 'base', 'the original PR base must be an ancestor of the checkout head')
     bound = contract(admitted, task, references)
     preferences = [item for item in snapshot['preferences'] if item['applicable']]
-    paths = changed_paths(repository, base, head)
+    paths = [path for path in changed_paths(repository, base, head) if _utf8(path)]
     bindings = {path: configuration.resolve(preferences, 'implementation', [path]) for path in paths}
     plan, skipped = candidates(repository, base, head, ledger.units(logical_run, occurrence), bound,
                                {path: value['binding'] for path, value in bindings.items()})
@@ -942,6 +1003,14 @@ def run(admitted, task, *, repository, base, transport, ledger, references=None,
             if outside:
                 raise Blocked('checkout', 'the session changed files outside its assignment: ' + ', '.join(outside[:5]))
             require(all(code[0] == ' ' for code in status.values()), 'checkout', 'the session staged changes')
+            edited = sorted(set(status) & set(work))
+            # The index matches HEAD here, so a raw worktree diff shows any mode change of an edited file.
+            raw = git(repository, '--literal-pathspecs', 'diff', '--raw', '--no-renames', '-z', '--', *edited
+                      ).decode('utf-8', 'surrogateescape').split('\0') if edited else []
+            for meta, path in zip(raw[::2], raw[1::2]):
+                old_mode, new_mode = meta[1:].split(' ')[:2]
+                if old_mode != new_mode:
+                    raise Blocked(path, 'the session changed the file mode')
             actual = {}
             for path, item in work.items():
                 after = (Path(repository) / path).read_bytes() if (Path(repository) / path).is_file() else None

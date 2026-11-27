@@ -16,7 +16,7 @@ the free-text policy as a whole. Each unit is bound to digests of:
 
 | Binding | Applies to | Contents |
 | --- | --- | --- |
-| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest, files and declared children |
+| `content` | the unit | Prompt slot, target and text; instruction text and adapter name; adapter definition; skill digest, files, arguments and declared children |
 | `resources` | prompts, custom adapters | Transitive closure of the configured resources the unit references |
 | `adapter` | targeted prompts, instructions, skills | The targeted adapter (baseline or custom), its role definition digest and resource closure |
 | `plan` | untargeted prompts and preferences, free-text policy | The set of selected adapters, each with its definition, role digest and resource closure |
@@ -114,8 +114,10 @@ the suite's own store and ledger at the XDG locations [below](#ledger).
   configuration is read. An unavailable store blocks before any gate read or
   task. When a clarification answer revised the saved configuration, the exact
   admitted revision is written back once after the installed-workflow checks
-  pass, and the result carries `configuration_write`. A rejected, waiting or
-  blocked preflight writes nothing. The result's `recovered_writes` lists the
+  pass, and the result carries `configuration_write`. When another run's write
+  is still unsettled or the ledger fails, the admitted result still returns: the
+  write is `deferred` when nothing was prepared, or `pending` for the next
+  recovery to read back. A rejected, waiting or blocked preflight writes nothing. The result's `recovered_writes` lists the
   intents settled by readback.
 - Preflight writes only the ledger and the store, never the target checkout or
   the state namespace; staging stays a separate `stage_request()` call.

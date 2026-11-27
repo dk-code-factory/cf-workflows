@@ -35,7 +35,7 @@ NAME = re.compile(r'[a-z][a-z0-9-]{0,63}')
 IDENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
 INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
 REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)')  # Not footnotes.
-FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})')
+FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)')
 CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
 REPOSITORY = re.compile(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+')
 HOST = re.compile(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?')
@@ -411,10 +411,11 @@ def link_targets(body):
     for line in body.splitlines():
         opening = FENCE.match(line)
         if fence:
-            if opening and opening[1][0] == fence[0] and len(opening[1]) >= len(fence):
+            # A closing fence is followed only by whitespace (CommonMark 4.5).
+            if opening and opening[1][0] == fence[0] and len(opening[1]) >= len(fence) and not opening[2].strip():
                 fence = None
             continue
-        if opening:
+        if opening and not (opening[1][0] == '`' and '`' in opening[2]):  # Backticks in the info string: a span.
             fence = opening[1]
             continue
         # Indented lines are scanned too: nested list items and continuations hold real
@@ -1392,6 +1393,9 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     require(isinstance(roots, dict) and 'repository' in roots, 'roots', 'repository root required')
     for name, path in roots.items():
         require(isinstance(name, str) and Path(path).is_dir(), 'roots.' + str(name), 'must be an existing directory')
+        # Readable keys are '<root>:<path>' beside 'skill:<id>/<path>', so a root name cannot be parsed apart.
+        require(name and ':' not in name and name != 'skill', 'roots.' + name,
+                "root names are nonempty, without ':' and not the reserved name skill")
     roots = {name: Path(path).resolve() for name, path in roots.items()}
     original = resolve_request(request)
     config = check_configuration(configuration)

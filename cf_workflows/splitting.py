@@ -693,14 +693,18 @@ def check_split(output, evidence, governing):
         require(options[MODE_OPTION[item['kind']]] != 'disabled', where + '.kind',
                 MODE_OPTION[item['kind']] + ' is disabled for this pull request; that work stays')
         branch = item['branch']
+        # Git's ref rules: no empty, dot-led or .lock component, and no trailing dot.
         require(isinstance(branch, str) and _BRANCH.fullmatch(branch) and '..' not in branch
                 and not branch.endswith(('/', '.', '.lock')) and branch not in branches
+                and all(part and not part.startswith('.') and not part.endswith('.lock') for part in branch.split('/'))
                 and branch not in (evidence['pr']['head_ref'], evidence['pr']['base_ref']), where + '.branch',
                 'a new distinct branch name')
         branches.add(branch)
         require(isinstance(item['paths'], list) and item['paths'], where + '.paths', 'name the moved paths')
         for path in item['paths']:
             require(path in changes and path not in moved, where + '.paths', f'{path} is not a changed path or moves twice')
+            require(all(state is None or state[0] != '160000' for state in changes[path]), where + '.paths',
+                    f'{path} is a submodule; splits move files')
             require(scopes[path] == item['kind'], where + '.paths', f'{path} is assessed as {scopes[path]} work')
             touching = [record for record in records if path in record['paths']]
             require(all(_owned(record, owners) for record in touching), where + '.paths',
@@ -1033,8 +1037,10 @@ def _sync(repository, value):
     original = _states(repository, value['original'], value['moved'])
     for path in value['moved']:
         file = Path(repository) / path
-        present = file.is_file() or file.is_symlink()
-        blob = git(repository, 'hash-object', '--', path).decode().strip() if present else None
+        if file.is_symlink():  # The tree holds the link text; hash-object on the path follows the link.
+            blob = git(repository, 'hash-object', '--stdin', data=os.fsencode(os.readlink(file))).decode().strip()
+        else:
+            blob = git(repository, 'hash-object', '--', path).decode().strip() if file.is_file() else None
         if blob not in ((original.get(path) or [None, None])[1], (final.get(path) or [None, None])[1]):
             raise Blocked('collision', f'{path} changed in the checkout during the split; reconcile it')
     keep = [path for path in value['moved'] if path in final]

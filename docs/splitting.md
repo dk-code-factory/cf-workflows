@@ -104,6 +104,8 @@ message. The helper accepts a split only when all of these hold:
 
 - moved paths have the split's kind, and the kind's mode is not `disabled`;
 - each path moves at most once, and core work stays in the source PR;
+- moved paths are files or symlinks, not submodules, and each new branch name
+  is a valid Git ref name;
 - no moved path contains another author's work;
 - the body links back to the source PR, with no tool attribution, unpinned
   code links or `path:line`;

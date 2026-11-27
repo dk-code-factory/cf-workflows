@@ -158,6 +158,12 @@ class ReviewerPreflight(ReviewerFixture):
                 result = self.entry('dk-pr-reviewers-run', configuration=configured, options=options)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
                 self.assertEqual(self.transport.calls['capabilities'], 0)
+        for limits in (5, ['max_parallel_reviewers'], 'none', None):
+            with self.subTest(limits=limits):
+                result = self.entry('dk-pr-reviewers-run', configuration=configured, options={'max_parallel': 2},
+                                    invocation={'options': {'limits': limits}})
+                self.assertEqual((result['preflight'], result['error']['path']),
+                                 ('rejected', 'invocation.options.limits'))
 
     def test_unsupported_controls_and_authority_reject_before_the_engine(self):
         cases = [
@@ -552,11 +558,24 @@ class Approvers(ApproverFixture):
         with self.assertRaisesRegex(ValueError, 'same PR and head'):
             approvers.request_payload(result, pr=PR, head='0' * 40)
 
+    def test_non_ascii_changed_paths_match_codeowners_unquoted(self):
+        git(self.repo, 'switch', '-q', '-c', 'unicode', self.base)
+        self.write('docs/\u0444.md', 'Text.\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Docs')
+        self.pull['head']['sha'] = head = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'switch', '-q', 'main')
+        self.permissions['erin'] = 'write'
+        found = approvers.collect(self.github(), self.repo, {'url': PR, 'repository': 'github.com/owner/repo'}, head)
+        self.assertEqual(found['evidence']['paths'], ['docs/\u0444.md'])
+        self.assertIn('erin', {item['name'] for item in found['candidates']}, 'the docs/ rule owns the path')
+
     def test_choices_outside_the_evidence_block_the_selection(self):
         for chosen in ({'reviewers': [('mallory', ['requested'])]}, {'reviewers': [('carol', ['.github/CODEOWNERS:2'])]},
                        {'reviewers': [('author', ['review:3'])]}, {'reviewers': [('alice', ['review:0'])]},
                        {'reviewers': [('alice', ['requested']), ('Alice', ['requested'])]},
-                       {'team_reviewers': [('writers', ['.github/CODEOWNERS:4'])]}):
+                       {'team_reviewers': [('writers', ['.github/CODEOWNERS:4'])]},
+                       {'reviewers': [('alice', [{'source': 'requested'}])]}, {'reviewers': [('alice', [['requested']])]}):
             with self.subTest(chosen=chosen):
                 self.engine = Engine()
                 result = self.select(self.github(), sessions=[self.choose(**chosen)])
@@ -564,6 +583,19 @@ class Approvers(ApproverFixture):
                 self.assertTrue(result['blockers'])
                 with self.assertRaises(ValueError):
                     approvers.request_payload(result, pr=PR, head=self.head)
+
+    def test_changed_paths_are_read_unquoted_for_codeowners(self):
+        # git quotes non-ASCII paths unless -z; the quoted form matches no CODEOWNERS rule.
+        git(self.repo, 'switch', '-q', 'change')
+        self.write('docs/café.md', 'Bonjour.\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'Docs')
+        self.head = self.pull['head']['sha'] = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'switch', '-q', 'main')
+        self.permissions['erin'] = 'write'
+        result = self.select(self.github(), sessions=[self.choose(reviewers=[('erin', ['.github/CODEOWNERS:4'])])])
+        self.assertEqual((result['complete'], result['reviewers']), (True, ['erin']), result.get('blockers'))
+        self.assertEqual(result['evidence']['paths'], ['docs/café.md', 'src/app.py'])
 
     def test_unresolved_ownership_uses_a_bounded_maintainer_search(self):
         self.pull['requested_reviewers'] = []
@@ -975,6 +1007,8 @@ class InstalledApprovers(ApproverFixture):
 
             def request(self, method, path):
                 self.routes.append((method, path))
+                if path.endswith('/bob/permission'):
+                    return {'permission': 'write', 'role_name': 'senior-dev'}  # A custom repository role.
                 if path.endswith('/permission'):
                     return {'permission': 'write', 'role_name': 'maintain'}
                 if '/reviews?' in path:
@@ -993,6 +1027,7 @@ class InstalledApprovers(ApproverFixture):
         self.assertEqual(github.reviews(PR, 1)['next'], 2)
         self.assertIsNone(github.reviews(PR, 2)['next'])
         self.assertEqual(github.permission('github.com/owner/repo', 'alice'), 'maintain')
+        self.assertEqual(github.permission('github.com/owner/repo', 'bob'), 'write')
         self.assertEqual([github.team_permission('github.com/owner/repo', slug) for slug in ('Core', 'docs', 'x')],
                          ['write', 'read', 'none'])
         found = github.maintainers('github.com/owner/repo', ['src/app.py', 'docs/a.md'])

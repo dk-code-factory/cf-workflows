@@ -177,12 +177,13 @@ def validate_descriptor(descriptor):
     if not _exact_version(descriptor['version']) or not _exact_version(descriptor['engine-version']):
         raise PackageError(where, 'version and engine-version must be exact semantic versions (without v or ranges)')
     hosts = descriptor['hosts']
-    if not isinstance(hosts, list) or sorted(hosts) != sorted(HOSTS) or len(set(hosts)) != len(hosts):
+    if (not isinstance(hosts, list) or not all(isinstance(host, str) for host in hosts)
+            or sorted(hosts) != sorted(HOSTS) or len(set(hosts)) != len(hosts)):
         raise PackageError(where, 'hosts must be exactly codex and claude')
     skills = descriptor['skills']
     if not isinstance(skills, list) or not skills:
         raise PackageError(where, 'skills must be nonempty')
-    seen = set()
+    seen, normalized = set(), []
     for skill in skills:
         if not isinstance(skill, dict) or sorted(skill) != sorted(SKILL_FIELDS):
             raise PackageError(where, 'each skill has exactly name, path and workflow')
@@ -197,12 +198,14 @@ def validate_descriptor(descriptor):
             if key in seen:
                 raise PackageError(where, f'skill {name} duplicates a {key[0]}')
             seen.add(key)
+        normalized.append({'name': name, 'path': path, 'workflow': workflow})
     resources = descriptor.get('resources', [])
     if not isinstance(resources, list):
         raise PackageError(where, 'resources must be a list')
     for resource in resources:
         local_path(resource, f'{where}: resource')
-    return descriptor
+    # Accepted spellings (./x, a//b) resolve to the paths the closure and installed files use.
+    return {**descriptor, 'skills': normalized}
 
 
 def workflow_ref(value, where):
@@ -215,9 +218,17 @@ def workflow_ref(value, where):
     return path
 
 
+def _read(root, name):
+    """The bytes of a declared regular file; symlinks, directories and special files reject."""
+    _check_path(root, name)
+    if not (root / name).is_file():
+        raise PackageError(name, 'requires a regular file')
+    return (root / name).read_bytes()
+
+
 def _text(root, name):
     try:
-        return (root / name).read_bytes().decode('utf-8')
+        return _read(root, name).decode('utf-8')
     except UnicodeDecodeError:
         raise PackageError(name, 'must be UTF-8') from None
 
@@ -310,15 +321,16 @@ def _workflow(root, ref, closure, visited, active=()):
     """Add the local reusable-workflow closure of ref and its declared helper and agent paths."""
     if ref in active:
         raise PackageError(ref, 'workflow dependency cycle')
-    if ref in visited:
-        return
-    _check_path(root, ref)
-    visited.add(ref)
-    closure.add(ref)
-    base = PurePosixPath(ref).parent
-    lines = _text(root, ref).split('\n')
-    if active and not _reusable(lines):
+    lines = None
+    if ref not in visited:  # Scanned once; every call, even a later one, checks on.workflow_call.
+        closure.add(ref)
+        lines = _text(root, ref).split('\n')
+        visited[ref] = _reusable(lines)
+    if active and not visited[ref]:
         raise PackageError(ref, 'a called plugin workflow requires on.workflow_call')
+    if lines is None:
+        return
+    base = PurePosixPath(ref).parent
     for number, line in enumerate(lines):
         indent = len(line) - len(line.lstrip(' '))
         body = line.strip()
@@ -355,20 +367,17 @@ def _workflow(root, ref, closure, visited, active=()):
 def _agent(root, name, closure, where):
     if not name.endswith(('.yaml', '.yml')):
         raise PackageError(where, 'agent definitions must be YAML: ' + name)
-    _check_path(root, name)
-    admission.role_definition((root / name).read_bytes(), name)
+    admission.role_definition(_read(root, name), name)
     closure.add(name)
 
 
 def declared_closure(root=ROOT):
     """(descriptor, sorted declared file paths). Every reference must resolve inside root."""
     root = Path(root)
-    _check_path(root, DESCRIPTOR)
-    descriptor = validate_descriptor(parse_descriptor((root / DESCRIPTOR).read_bytes()))
-    closure, visited = {DESCRIPTOR}, set()
+    descriptor = validate_descriptor(parse_descriptor(_read(root, DESCRIPTOR)))
+    closure, visited = {DESCRIPTOR}, {}
     for skill in descriptor['skills']:
-        _check_path(root, skill['path'])
-        metadata = skill_metadata((root / skill['path']).read_bytes(), skill['path'])
+        metadata = skill_metadata(_read(root, skill['path']), skill['path'])
         if metadata['name'] != skill['name']:
             raise PackageError(skill['path'], f'name {metadata["name"]!r} does not match binding {skill["name"]!r}')
         closure.add(skill['path'])

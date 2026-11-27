@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -460,6 +461,12 @@ class Preflight(PreflightFixture):
         with self.assertRaisesRegex(ValueError, 'nonempty'):
             dk_pr_fix.stage_request(prepared)
         self.assertEqual(os.listdir(namespace), ['.pr-fix-state'])
+        # An interrupted (or concurrent) first marker write leaves only its temporary file: still adoptable.
+        shutil.rmtree(namespace)
+        namespace.mkdir()
+        (namespace / '.staged-interrupted').write_bytes(b'{}')
+        self.assertEqual(dk_pr_fix.stage_request(prepared), reference)
+        self.assertTrue((namespace / dk_pr_fix.STATE_MARKER).is_file())
 
 
 class SemanticPreflight(PreflightFixture):
@@ -863,6 +870,17 @@ class LedgeredPreflight(SemanticPreflight):
                 self.assertNotEqual(self.store.inner.read()['revision'], base)
                 [intent] = self.ledger.writes()
                 self.assertEqual((intent['status'], intent['dispatches']), ('applied', 1 + writes_after))
+
+    def test_a_failed_write_back_returns_the_admitted_result(self):
+        self.clarify_saved()
+        failure = acceptance.LedgerError('configuration write cfgw_other must be reconciled before another write')
+        with patch.object(self.ledger, 'prepare', side_effect=failure):
+            result = self.admit(verdict('accepted'), invocation={}, stored=True)
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'), result.get('error'))
+        self.assertEqual(result['configuration_write'], {'intent_id': None, 'status': 'deferred'})
+        self.assertEqual(result['recovered_writes'], [])
+        self.assertIn('inputs', result)
+        self.assertEqual(self.store.calls['write'], 0)
 
     def test_another_writer_leaves_the_uncertain_write_blocked_and_reassesses(self):
         self.clarify_saved('interrupt-before')

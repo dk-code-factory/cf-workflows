@@ -219,6 +219,17 @@ class Description(Fixture):
                 self.assertFalse(result['complete'])
                 self.assertIn(error, result['feedback']['contract_error'])
 
+    def test_closing_keywords_and_decisions_of_the_current_body_are_kept(self):
+        # A body typed in the web UI: no trailing newline after the last (Decisions) section.
+        current = DESCRIPTION + '\nFixes #12.\n\n## Decisions\n\n- Keep it. <!-- cf-workflows:decision keep -->'
+        self.github.evidence['metadata']['body'] = current
+        plan = self.drafting_plan(['describe-pr'])
+        ledger = self.ledger(plan)
+        claimed = self.claim(plan, ledger, 'describe-pr')
+        self.assertEqual(claimed['task_input']['drafting']['evidence']['linked'], [12])
+        accepted = self.submit(plan, ledger, claimed, draft(body=current))
+        self.assertTrue(accepted['complete'], accepted)
+
     def test_repository_template_governs_and_quoted_wording_is_kept(self):
         (self.root / '.github').mkdir()
         (self.root / '.github' / 'pull_request_template.md').write_text('## Summary\n\n<!-- What? -->\n')
@@ -444,7 +455,7 @@ class Prepare(Fixture):
         names = ('_HEADING', '_FENCE', '_CODE', '_LABEL', 'VALIDATION', 'REPRODUCTION', '_REF', '_URL_REF',
                  '_CLOSING', '_CODE_LINK', '_PATH_LINE', '_ATTRIBUTION', '_TRAILER', '_MARKER', '_SHA', '_BOT',
                  '_names', 'git', '_bounded', '_source', '_strip_code', 'headings', '_front_matter', '_form_labels',
-                 'local_changes', '_identity', '_history', '_labels', '_check_sections', '_check_text',
+                 'local_changes', '_identity', '_history', '_labels', '_check_sections', '_settled', '_check_text',
                  '_check_layout', '_items', '_check_message', 'check_result', 'MAX_SOURCE', 'MAX_PATCH',
                  'MAX_ITEMS', 'HISTORY', 'PR_TEMPLATES', 'ISSUE_TEMPLATES')
         for name in names:
