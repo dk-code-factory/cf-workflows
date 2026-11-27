@@ -362,6 +362,26 @@ class BeforeReview(Fixture):
         self.assertEqual(self.stage(self.open())["status"], "complete")
         self.assertEqual(self.github.counts["write"], 3)
 
+    def test_an_unsettled_reply_to_an_earlier_body_never_settles_the_edited_source(self):
+        # code-scan #3: comment 40 is edited after its reply was applied but before settle.
+        self.respond()
+        for item in self.listed()["items"]:
+            self.publish(item)
+        self.assertEqual(self.github.counts["write"], 2)
+        self.github.ev["comments"][0]["body"] += " Also document it."
+        self.snapshot["discussion"] = "changed discussion"
+        view = self.view()
+        value = self.drafts(view)
+        value["assessments"][1] = assessment(view, "comment:40", request("constant", "named constant", "rejected"),
+                                             request("document", "Also document it.", "fixed"))
+        value["replies"][1] = {"source": "comment:40", "body": "Documented the protocol version; kept the literal."}
+        self.respond(value)
+        settled = responses.settle(self.root, self.github, self.ledger, self.plan, {})
+        self.assertIn("comment:40", settled["replies_needed"])
+        self.assertEqual([item["source"]["id"] for item in self.listed()["items"] if "source" in item], [40])
+        self.assertEqual(self.stage()["status"], "complete")
+        self.assertEqual(self.github.counts["write"], 4)
+
     def test_disabled_resolution_still_answers_and_leaves_the_thread_open(self):
         self.plan["options"]["permissions"]["resolve_threads"] = False
         self.respond()

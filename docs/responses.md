@@ -76,7 +76,8 @@ runs these steps in order, with helpers from
 3. Each proposal goes through [exact-intent publication](publication.md) with
    its own independent audience.
 4. `responses_settle` records every applied reply of the run once the reply is
-   observed in the source's own location.
+   observed in the source's own location. A reply to an earlier body version
+   never settles an edited source.
 5. A second `kind: responses` listing proposes `resolve_thread` for threads
    answered by an applied inline reply of this run. The listing proposes it only
    when `resolution()` allows it: `resolve_threads` is enabled and authorized,

@@ -379,6 +379,9 @@ def settle(root, provider, ledger, plan, inputs):
             reply = {"kind": "inline" if intent["kind"] == "reply_inline" else "comment", "id": observed.get("id")}
             if key not in view.sources:
                 continue
+            if source.get("version") != feedback.View.fingerprint(view.sources[key]):
+                # A reply to an earlier body never answers the edited source.
+                continue
             try:
                 record.record_reply(view, key, reply, saved["id"])
             except feedback.FeedbackError:
