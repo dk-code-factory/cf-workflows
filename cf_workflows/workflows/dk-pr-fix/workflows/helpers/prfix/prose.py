@@ -141,7 +141,9 @@ RULE_NUMBER = re.compile(r'\b(?:rule|R)\s?\d+(?:\.\d+)+', re.I)
 
 
 def _lines(data):
-    return data.decode('utf-8').splitlines(keepends=True)
+    """Lines split on LF only, as the comment lexers and tokenize count them."""
+    rows = data.decode('utf-8').split('\n')
+    return [row + '\n' for row in rows[:-1]] + ([rows[-1]] if rows[-1] else [])
 
 
 def _ranges(old, new):
@@ -203,7 +205,9 @@ def _python_prose(source):
         for line in range(token.start[0] - 1, token.end[0])}
     lines = {token.start[0] - 1 for token in tokens
              if token.type == tokenize.COMMENT and not token.string.startswith('#!')} - code
-    rows = source.splitlines()
+    if '\r' in source.replace('\r\n', ''):
+        return set()  # A lone CR is a line break to ast but not to the LF-only line indexes.
+    rows = source.split('\n')
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             first = node.body[0]
