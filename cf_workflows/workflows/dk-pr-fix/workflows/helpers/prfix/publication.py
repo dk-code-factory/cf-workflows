@@ -562,7 +562,9 @@ class Publication:
             matches = [c for c in ev.get(key, []) if c.get("id") == source.get("id")]
             if len(matches) != 1 or digest(matches[0]) != source.get("fingerprint"):
                 raise Drift("original feedback changed or disappeared")
-            if intent["kind"] == "reply_inline" and source["id"] != intent["payload"]["comment_id"]:
+            # A follow-up inline comment is answered at its thread root, the only reply target.
+            if intent["kind"] == "reply_inline" and intent["payload"]["comment_id"] not in (
+                    source["id"], matches[0].get("in_reply_to_id")):
                 raise PublicationError("inline destination differs from original feedback")
 
     def _payload(self, kind, payload):

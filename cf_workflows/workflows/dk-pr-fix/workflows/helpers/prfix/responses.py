@@ -261,7 +261,9 @@ def _reply(plan, snapshot, evidence, view, key, body, reference):
     collection = feedback.COLLECTIONS[source["kind"]]
     raw = [item for item in evidence[collection] if item.get("id") == source["id"]]
     if source["kind"] == "inline":
-        kind, payload = "reply_inline", {"body": body, "comment_id": source["id"]}
+        # GitHub replies only to a thread's root comment and reports that root as the
+        # reply's in_reply_to_id, so a follow-up comment is answered at its thread root.
+        kind, payload = "reply_inline", {"body": body, "comment_id": source["root"]}
     else:
         # A PR comment answers a comment or review body only when it links the exact source.
         url = text(source["url"], "feedback source URL")

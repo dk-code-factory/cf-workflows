@@ -64,6 +64,11 @@ class GitHub(FakeGitHub):
 
     def request(self, method, path, payload=None):
         write = method in WRITES and not (path == "graphql" and payload["query"].startswith("query"))
+        if method == "POST" and path.endswith("/replies"):
+            target = int(path.split("/")[-2])
+            # GitHub accepts a reply only to a thread's root comment.
+            if any(item["id"] == target and item.get("in_reply_to_id") for item in self.ev["inline"]):
+                raise AssertionError("fixture refuses a reply to a reply")
         if write:
             self.counts["write"] += 1
             if self.fault == "before":
@@ -140,10 +145,10 @@ class Fixture(unittest.TestCase):
     def view(self):
         return feedback.View(self.pr, copy.deepcopy(self.github.ev))
 
-    def drafts(self, view=None):
+    def drafts(self, view=None, inline="inline:30"):
         view = view or self.view()
         assessments = [
-            assessment(view, "inline:30", request("rename", "rename `value` to `count`", "fixed")),
+            assessment(view, inline, request("rename", "rename `value` to `count`", "fixed")),
             # dk-workflows#244: a declined bot suggestion still owes its author an answer.
             assessment(view, "comment:40", request("constant", "named constant", "rejected", category="style")),
             assessment(view, "comment:41", request("date", "confirm the release date", addressee="participant",
@@ -151,7 +156,7 @@ class Fixture(unittest.TestCase):
                                                        "disposition": "no_reply", "reason": "addressed_to_participant",
                                                        "justification": "Asked of bob, not the PR author."})),
         ]
-        replies = [{"source": "inline:30", "body": "Renamed to `count` in the published fix."},
+        replies = [{"source": inline, "body": "Renamed to `count` in the published fix."},
                    {"source": "comment:40", "body": "Kept the literal: it is the documented protocol version."}]
         return {"assessments": assessments, "replies": replies}
 
@@ -341,6 +346,21 @@ class BeforeReview(Fixture):
         self.assertEqual([item["source"]["id"] for item in listed], [40])
         self.assertEqual(self.stage()["status"], "complete")
         self.assertEqual(self.github.counts["write"], 4)
+
+    def test_a_follow_up_inline_comment_is_answered_at_its_thread_root(self):
+        # code-scan #2: the reviewer's request is a follow-up in the PR author's thread.
+        root = self.github.ev["inline"][0]
+        self.github.ev["inline"].append({**copy.deepcopy(root), "id": 31, "in_reply_to_id": 30, "created_at": at(4),
+                                         "html_url": URL + "#discussion_r31"})
+        root.update(user=copy.deepcopy(MAINTAINER), body="Is `value` the right name here?")
+        self.respond(self.drafts(inline="inline:31"))
+        result = self.stage()
+        self.assertEqual(result["status"], "complete", result)
+        self.assertIn(("POST", ["30", "replies"]),
+                      [(method, path.rsplit("/", 2)[-2:]) for method, path, _ in self.writes()])
+        self.assertTrue(self.github.ev["threads"][0]["isResolved"])
+        self.assertEqual(self.stage(self.open())["status"], "complete")
+        self.assertEqual(self.github.counts["write"], 3)
 
     def test_disabled_resolution_still_answers_and_leaves_the_thread_open(self):
         self.plan["options"]["permissions"]["resolve_threads"] = False

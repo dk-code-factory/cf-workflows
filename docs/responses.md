@@ -57,7 +57,8 @@ runs these steps in order, with helpers from
      while analysis is provisional. Replies follow the fix publication.
    - It lists one reply for each source in `replies_needed`, and only while the
      `reply` permission is effective. An inline source gets a `reply_inline` in
-     its thread. A comment or review body gets a PR comment that links the
+     its thread, addressed to the thread's root comment because GitHub accepts
+     replies only there; a follow-up comment is answered the same way. A comment or review body gets a PR comment that links the
      source's exact URL. The URL is prepended unless the draft already links it
      as a whole link, by the same rule `feedback.View.answers` applies. A link
      to `#issuecomment-401` does not link comment 40.
