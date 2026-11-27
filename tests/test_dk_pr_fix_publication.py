@@ -297,6 +297,16 @@ class HttpKinds(Fixture):
                 self.assertTrue(publisher.validate(proposal["id"], receipt))
                 self.assertEqual(publisher.execute(proposal["id"], self.audience(publisher.prepare(proposal))), receipt)
 
+    def test_deleted_head_fork_is_publication_drift_not_a_crash(self):
+        # code-scan #21: GitHub reports a deleted fork as "repo": null.
+        publisher, provider, ledger = self.world()
+        prepared = publisher.prepare(self.proposal("reply", {"body": "Fixed."}))
+        provider.ev["metadata"]["head"]["repo"] = None
+        with self.assertRaisesRegex(PublicationError, "repository lease changed"):
+            publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual((self.state(ledger, prepared["id"]), len(provider.writes)), ("blocked", 0))
+        self.assertEqual(publisher.prepare(self.proposal("reply", {"body": "Fixed."}, "again"))["intent"]["head_repository"], "")
+
     def test_merge_onto_an_advanced_base_is_recognised(self):
         # code-scan #20: the base gained a commit between the gate and the PUT.
         advanced = "e" * 40

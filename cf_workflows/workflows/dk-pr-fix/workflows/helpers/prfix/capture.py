@@ -596,7 +596,8 @@ def capture(root, provider, plan, *, clean=False):
             raise ValueError("maintaining another author's PR requires explicit authority")
     for ref in (metadata["head"]["ref"], metadata["base"]["ref"]):
         _git(root, "check-ref-format", "refs/heads/" + ref)
-    head_repository = metadata["head"].get("repo", {}).get("full_name")
+    # A deleted fork is reported as a null head repository.
+    head_repository = (metadata["head"].get("repo") or {}).get("full_name")
     if (not isinstance(head_repository, str) or len(head_repository.split("/")) != 2
             or any(not REPO_PART.fullmatch(p) or p in (".", "..") for p in head_repository.split("/"))):
         raise ValueError("complete head repository identity required")

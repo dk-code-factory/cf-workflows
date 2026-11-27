@@ -93,6 +93,12 @@ class CaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "clean worktree"):
             self.capture(clean=True)
 
+    def test_deleted_head_fork_is_an_incomplete_head_repository(self):
+        # code-scan #10: GitHub reports a deleted fork as "repo": null.
+        self.fixture.metadata["head"]["repo"] = None
+        with self.assertRaisesRegex(ValueError, "complete head repository identity required"):
+            self.capture()
+
     def test_tree_preserving_history_cleanup_reuses_content_only(self):
         task = {"id": "review", "definition_digest": "definition"}
         first = self.capture()

@@ -548,7 +548,8 @@ class Publication:
         head, base = meta.get("head", {}), meta.get("base", {})
         expected = (intent["lease"], intent["target"], intent["branch"], intent["head_repository"])
         actual = (head.get("sha"), base.get("sha"), head.get("ref"),
-                  str(head.get("repo", {}).get("full_name", "")).lower())
+                  # A deleted fork is reported as a null head repository.
+                  str((head.get("repo") or {}).get("full_name", "")).lower())
         if actual != expected:
             raise Drift("PR head, target, branch or repository lease changed")
         if intent["kind"] in REVIEW_KINDS:
@@ -761,7 +762,7 @@ class Publication:
             "pr_id": _positive(meta.get("id"), "numeric PR identity"),
             "head": head, "lease": lease, "target": target,
             "branch": _branch(meta.get("head", {}).get("ref")),
-            "head_repository": str(meta.get("head", {}).get("repo", {}).get("full_name", "")).lower(),
+            "head_repository": str((meta.get("head", {}).get("repo") or {}).get("full_name", "")).lower(),
             "actor_id": ev["viewer"]["id"], "payload": payload,
             "authorization": authority, "action": action, "permission": setting,
             "sources": list(sources), "discussion": _discussion(ev), "before": {},
@@ -1458,7 +1459,7 @@ class Publication:
                        and v.get("title") == payload["title"] and v.get("body") == payload["body"]
                        and v.get("head", {}).get("sha") == intent["created_head"]
                        and v.get("head", {}).get("ref") == branch
-                       and v.get("head", {}).get("repo", {}).get("full_name", "").lower() == intent["head_repository"]
+                       and str((v.get("head", {}).get("repo") or {}).get("full_name", "")).lower() == intent["head_repository"]
                        and intent["head_repository"].split("/", 1)[0] == owner.lower()
                        and v.get("base", {}).get("sha") == intent["target"]
                        and v.get("base", {}).get("ref") == payload["base"]
