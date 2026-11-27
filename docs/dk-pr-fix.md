@@ -214,7 +214,8 @@ is a deliberate refinement of the contract's per-run partitioning. The lease
 fences the shared Git index across runs, so it must be visible to every run.
 Content-addressed records are immutable and named by digest, so sharing them
 cannot mix two runs' state. The marker `.owned-by-cf-workflows-dk-pr-fix`
-(format `cf-workflows-dk-pr-fix-v1`) claims a directory only while it is empty.
+(format `cf-workflows-dk-pr-fix-v1`) claims a directory only while it is empty (apart from the `.staged-*` temporary
+file of an interrupted or concurrent first marker write).
 So dk-workflows settings, `.pr-fix-state` and other existing state are never
 adopted or imported. Back up the namespace together with the engine's recovery
 bundle.

@@ -461,6 +461,12 @@ class Preflight(PreflightFixture):
         with self.assertRaisesRegex(ValueError, 'nonempty'):
             dk_pr_fix.stage_request(prepared)
         self.assertEqual(os.listdir(namespace), ['.pr-fix-state'])
+        # An interrupted (or concurrent) first marker write leaves only its temporary file: still adoptable.
+        shutil.rmtree(namespace)
+        namespace.mkdir()
+        (namespace / '.staged-interrupted').write_bytes(b'{}')
+        self.assertEqual(dk_pr_fix.stage_request(prepared), reference)
+        self.assertTrue((namespace / dk_pr_fix.STATE_MARKER).is_file())
 
 
 class SemanticPreflight(PreflightFixture):
