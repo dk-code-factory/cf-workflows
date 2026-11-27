@@ -236,7 +236,9 @@ capabilities. Two blockers remain:
   and supported package claims wait for it. Then replace the pin with that
   release.
 - **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
-  with a container ("fixtures do not support job containers"). Every bound
+  with a container ("fixtures do not support job containers"); Agent Workflow
+  [#150](https://github.com/dk-code-factory/agent-workflow/issues/150) tracks
+  scripting them. Every bound
   skill's closure has them (`helper.yml`, `publication.yml`), so `plugin test`
   cannot run the suite (it requires a case for every bound skill), and no
   deterministic packaged smoke execution exists. The three configuration

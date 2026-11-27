@@ -309,12 +309,12 @@ release.
 ## What remains
 
 - Every row's native execution through an installed workflow on a released
-  engine. Each needs Agent Workflow #129/#130 in a release, and supplied skills
-  also need #139.
+  engine. Each needs Agent Workflow #129/#130 in a release and a persistent
+  state mount for helper containers (#149); supplied skills also need #139.
 - All three live procedures, each under its own explicit authorization.
 - A published engine release equal to the pin, and the shared toolchain's
   build, check, test and release validation from it. Reproducible packages for
   both hosts are shown only against unreleased source
   ([build check](packaging.md#reproducible-builds-against-unreleased-source)),
   and `plugin test` cannot run the bound skills until the fixture runner
-  supports container jobs.
+  supports container jobs (Agent Workflow #150).

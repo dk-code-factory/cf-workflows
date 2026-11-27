@@ -45,8 +45,8 @@ GENERATED = ('.codex-plugin', '.claude-plugin', '.agents', 'plugin.json', 'marke
 UPSTREAM_BLOCKERS = (
     ('engine release', 'no published engine release contains agent-workflow #130-#133 (packaged run, plugin '
      'build, check, test and release validation), so the pinned version has no verified download'),
-    ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs, so plugin test '
-     'cannot run any bound skill and no deterministic packaged smoke execution exists'),
+    ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs (agent-workflow '
+     '#150), so plugin test cannot run any bound skill and no deterministic packaged smoke execution exists'),
 )
 IDENTITY = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'

@@ -1256,7 +1256,12 @@
       ],
       "tests": [
         "test_dk_pr_fix_provisional.Provisional.test_lagging_metadata_permits_private_provisional_analysis_without_external_effects",
-        "test_dk_pr_fix_provisional.Provisional.test_same_revision_reconciliation_reuses_eligible_analysis_and_unblocks_publication"
+        "test_dk_pr_fix_provisional.Provisional.test_same_revision_reconciliation_reuses_eligible_analysis_and_unblocks_publication",
+        "test_dk_pr_fix_provisional.Provisional.test_changed_tree_after_reconciliation_refreshes_coverage",
+        "test_dk_pr_fix_provisional.Provisional.test_relevant_requirements_refresh_only_affected_work_at_the_same_revision",
+        "test_dk_pr_fix_provisional.Provisional.test_corrupt_cross_pr_missing_and_inconsistent_snapshots_remain_errors",
+        "test_dk_pr_fix_provisional.Provisional.test_interrupted_bounded_waits_keep_their_allowance_and_uncertainty",
+        "test_dk_pr_fix_provisional.Provisional.test_selected_ci_is_withheld_and_exhausted_waits_settle_the_run"
       ],
       "live_acceptance": [
         "github_publication",
