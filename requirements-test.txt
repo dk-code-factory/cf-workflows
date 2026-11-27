@@ -1,0 +1,2 @@
+# Test-only dependencies; the suite itself uses only the standard library.
+PyYAML==6.0.3

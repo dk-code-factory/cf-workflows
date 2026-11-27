@@ -3,7 +3,9 @@
 ## CI
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to
-`main`, every pull request and on demand. Its jobs:
+`main`, every pull request and on demand. The suite needs only the standard
+library; a few tests also need PyYAML from
+[`requirements-test.txt`](../requirements-test.txt). Its jobs:
 
 | Job | What it runs |
 | --- | --- |

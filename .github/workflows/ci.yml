@@ -33,6 +33,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install test dependencies
+        run: python3 -m pip install -r requirements-test.txt
       - name: Git identity for disposable test repositories
         run: |
           git config --global user.name ci
@@ -56,6 +60,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install test dependencies
+        run: python3 -m pip install -r requirements-test.txt
       - name: Git identity for disposable test repositories
         run: |
           git config --global user.name ci
@@ -73,6 +81,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install test dependencies
+        run: python3 -m pip install -r requirements-test.txt
       - name: Clone pinned upstream sources
         run: |
           git clone --quiet https://github.com/dk-code-factory/dk-workflows.git "$RUNNER_TEMP/dk-workflows"
@@ -94,6 +106,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install test dependencies
+        run: python3 -m pip install -r requirements-test.txt
       - name: Clone Agent Workflow and export the pinned toolchain commit
         run: |
           commit=$(python3 -c 'import ast,sys; t=ast.parse(open("scripts/check_package_build.py").read()); print(next(n.value.value for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "TOOLCHAIN_COMMIT"))')
