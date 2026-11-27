@@ -100,13 +100,16 @@ class InstalledClosure(unittest.TestCase):
         # review-post.yml (docs/publication-skills.md), plain-english.yml and
         # asd-ste100.yml (docs/prose.md), decisions.yml (docs/decisions.md), reviewers-run.yml,
         # code-simplify.yml and approvers.yml (docs/reviewer-skills.md), and description.yml,
-        # commit-message.yml and issue.yml (docs/drafting.md).
+        # commit-message.yml and issue.yml (docs/drafting.md), commit-split.yml and pr-split.yml
+        # (docs/splitting.md), and onboard.yml, config.yml and preferences.yml
+        # (docs/configuration-skills.md).
         entries = re.findall(r'^    workflow: workflows/(\S+)$', (INSTALL / 'plugin.yaml').read_text(), re.M)
         self.assertEqual(entries, ['main.yml', 'review.yml', 'iter.yml', 'feedback-read.yml', 'feedback-address.yml',
                                    'feedback-reply.yml', 'publish.yml', 'review-post.yml',
                                    'plain-english.yml', 'asd-ste100.yml', 'decisions.yml', 'reviewers-run.yml',
                                    'code-simplify.yml', 'approvers.yml', 'description.yml',
-                                   'commit-message.yml', 'issue.yml', 'commit-split.yml', 'pr-split.yml'])
+                                   'commit-message.yml', 'issue.yml', 'commit-split.yml', 'pr-split.yml',
+                                   'onboard.yml', 'config.yml', 'preferences.yml'])
         # Preflight runs the semantic assessment workflow itself, before any entry dispatches.
         reachable, pending = set(), [*entries, validator_binding.ASSESSMENT.split('/', 1)[1]]
         while pending:
@@ -966,6 +969,56 @@ class RelocatedReadOnlyRun(PreflightFixture):
         self.assertEqual(task['prompts'], [{'id': 'tone', 'slot': 'additional', 'text': 'Quote each source exactly.'}])
         self.assertEqual(task['policy'], {'requirements': ['Keep every source ID.']})
 
+    def test_scoped_preferences_reach_only_their_modes_and_paths(self):
+        engine = Engine()
+        transport = FakeTransport()
+        transport.configured.update(validator_session=verdict('accepted'), open_input_gate=engine.open,
+                                    input_gates=lambda request_id: [])
+
+        def scoped(ident, text, modes, include):
+            return {'id': ident, 'text': text, 'applies_to': modes, 'include': include, 'exclude': [],
+                    'condition': None}
+        saved = {'schema_version': 1, 'kind': 'configuration', 'suite': admission.SUITE, 'revision': 'rev_none',
+                 'resources': [], 'admission': {'structural': 'pending', 'semantic': None, 'request_id': None,
+                                                'context_digest': None, 'resource_digest': None,
+                                                'capability_digest': None, 'evidence_refs': []},
+                 'scopes': [{'id': 'me', 'selector': {'kind': 'personal', 'id': 'me'}, 'options': {},
+                             'permissions': {}, 'prompts': [], 'skills': [], 'preferences': [
+                                 scoped('code', 'Keep code.py minimal.', ['implementation'],
+                                        [{'type': 'file', 'path': 'code.py'}]),
+                                 scoped('docs', 'Wrap docs at 80 columns.', ['implementation'],
+                                        [{'type': 'directory', 'path': 'docs'}]),
+                                 scoped('review', 'Check naming.', ['review'],
+                                        [{'type': 'directory', 'path': '.'}]),
+                                 {'id': 'plain', 'text': 'Be concise.'}]}]}
+        # A reviewer makes the review-only preference applicable to the plan, not to the writer.
+        invocation = {'options': {'tasks': ['sync-guidance', {'stage': 'reviews'}], 'finalizers': [],
+                                  'reviewers': ['review']}}
+        prepared = dk_pr_fix.preflight(request=self.request, configuration=saved, invocation=invocation,
+                                       deployment=self.deployment, repository=self.repo, home=self.home,
+                                       transport=transport, install=self.install)
+        self.assertEqual(prepared['preflight'], 'admitted', prepared.get('error'))
+        self.assertEqual({item['id'] for item in prepared['inputs']['prompts']}, {'code', 'docs', 'review', 'plain'})
+        dk_pr_fix.stage_request(prepared)
+        controls = {key: value for key, value in prepared['inputs'].items() if key != 'request'}
+        steps = [{'name': 'request', 'operation': 'snapshot_request', 'input': {'request': prepared['inputs']['request']}},
+                 {'name': 'prepare', 'operation': 'prepare', 'input': {'controls': controls},
+                  'refs': {'snapshot': ['request', 'result', 'output', 'snapshot']}},
+                 {'name': 'claim', 'operation': 'claim', 'input': {'cycle': 1, 'publication': ''},
+                  'refs': {'plan': ['prepare', 'result', 'output', 'plan'],
+                           'task': ['prepare', 'result', 'output', 'stages', 0, 'groups', 0, 'tasks', 0, 'id']}}]
+        completed = self.run_driver(prepared, steps)
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode()[-4000:])
+        assignment = json.loads(completed.stdout)['results']['claim']['result']['output']['task_input']
+        # A writer implements: the review-only preference never reaches it; the unscoped one always does.
+        self.assertEqual((assignment['task']['kind'], assignment['task']['writes']), ('synchronization', True))
+        self.assertEqual([item['id'] for item in assignment['task']['prompts']], ['code', 'docs', 'plain'])
+        handed = assignment['preferences']
+        self.assertEqual((handed['mode'], handed['paths']), ('implementation', ['code.py']))
+        # Only the preference whose selectors match a captured path is handed off, with its paths.
+        self.assertEqual([(item['id'], item['paths'], item['requires_condition']) for item in handed['records']],
+                         [('code', ['code.py'], False)])
+
     def test_unconfigured_github_operation_fails_without_fallback(self):
         prepared = self.preflight(install=self.install)
         dk_pr_fix.stage_request(prepared)
@@ -991,6 +1044,82 @@ class RelocatedReadOnlyRun(PreflightFixture):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn('disjoint from the target checkout', completed.stderr.decode())
 
+
+
+class PreferenceHandoff(unittest.TestCase):
+    """prfix/preferences.py: the installed narrowing of accepted scoped preferences."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HELPERS))
+        self.addCleanup(sys.path.remove, str(HELPERS))
+        from prfix import preferences, prepare
+        self.preferences, self.prepare = preferences, prepare
+
+    def test_installed_selectors_are_the_library_selectors_verbatim(self):
+        from cf_workflows import configuration
+
+        def definitions(path):
+            source = Path(path).read_text()
+            return {node.name: ast.get_source_segment(source, node) for node in ast.parse(source).body
+                    if isinstance(node, ast.FunctionDef)}
+        installed, original = definitions(self.preferences.__file__), definitions(configuration.__file__)
+        for name in ('_glob', 'selects'):
+            with self.subTest(name):
+                self.assertEqual(installed[name], original[name])
+        self.assertEqual(self.preferences.PREFERENCE_MODES, admission.PREFERENCE_MODES)
+
+    def test_handoff_selects_what_the_library_resolve_selects(self):
+        from cf_workflows import configuration
+
+        def scope(modes, include, exclude=(), condition=None):
+            return {'applies_to': list(modes), 'include': list(include), 'exclude': list(exclude),
+                    'condition': condition}
+        records = [
+            ('glob', scope(['review'], [{'type': 'glob', 'path': 'src/**/*.py'}], [{'type': 'file', 'path': 'src/gen.py'}])),
+            ('dir', scope(['implementation', 'review'], [{'type': 'directory', 'path': 'docs'}])),
+            ('cond', scope(['review'], [], condition='When a migration changes.')),
+            ('impl', scope(['implementation'], [{'type': 'directory', 'path': '.'}]))]
+        paths = ['src/a.py', 'src/deep/b.py', 'src/gen.py', 'docs/x.md', 'README.md']
+        for kind, writes, mode in (('review', False, 'review'), ('fix', True, 'implementation')):
+            with self.subTest(mode):
+                task = {'kind': kind, 'writes': writes,
+                        'prompts': [{'id': ident, 'slot': 'preference', 'text': ident, 'scope': value}
+                                    for ident, value in records] + [{'id': 'plain', 'slot': 'preference',
+                                                                     'text': 'Any.'}]}
+                handed = self.preferences.handoff(task, paths)
+                library = configuration.resolve([{'id': ident, 'source': 'accepted', 'text': ident, 'scope': value}
+                                                 for ident, value in records], mode, paths)
+                self.assertEqual([(item['id'], item['paths'], item['requires_condition'])
+                                  for item in handed['records']],
+                                 [(item['id'], item['paths'], item['requires_condition'])
+                                  for item in library['records']])
+        # The binding covers only the selected records: an unrelated change leaves it unchanged.
+        task = {'kind': 'review', 'writes': False,
+                'prompts': [{'id': ident, 'slot': 'preference', 'text': ident, 'scope': value} for ident, value in records]}
+        before = self.preferences.handoff(task, paths)['binding']
+        task['prompts'][3]['text'] = 'Changed implementation-only text.'
+        self.assertEqual(self.preferences.handoff(task, paths)['binding'], before)
+        task['prompts'][0]['text'] = 'Changed review text.'
+        self.assertNotEqual(self.preferences.handoff(task, paths)['binding'], before)
+        # No scoped preference: no handoff, so other assignments are unchanged.
+        self.assertIsNone(self.preferences.handoff({'kind': 'review', 'prompts': [
+            {'id': 'plain', 'slot': 'preference', 'text': 'Any.'}]}, paths))
+
+    def test_prepared_occurrences_receive_only_their_modes(self):
+        review = {'id': 'r', 'slot': 'preference', 'target': None, 'text': 'Review it.',
+                  'scope': {'applies_to': ['review'], 'include': [], 'exclude': [], 'condition': 'Always.'}}
+        both = {'id': 'b', 'slot': 'preference', 'target': None, 'text': 'Both.',
+                'scope': {'applies_to': ['implementation', 'review'], 'include': [{'type': 'directory', 'path': '.'}],
+                          'exclude': [], 'condition': None}}
+        plain = {'id': 'p', 'slot': 'preference', 'target': None, 'text': 'Plain.'}
+        prompts = self.prepare.custom_prompts([review, both, plain])
+        for name, kind, writes, expected in (('writer', 'fix', True, ['b', 'p']),
+                                             ('reviewer', 'review', False, ['r', 'b', 'p']),
+                                             ('read-only inspection', 'inspection', False, ['p'])):
+            with self.subTest(name):
+                task = self.prepare.customize({'kind': kind, 'writes': writes, 'assignment': 'Do it.\n',
+                                               'base_assignment': 'Do it.'}, 'adapter', 'tasks', prompts, {})
+                self.assertEqual([item['id'] for item in task['prompts']], expected)
 
 if __name__ == '__main__':
     unittest.main()

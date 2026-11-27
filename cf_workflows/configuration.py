@@ -17,7 +17,8 @@ output, and performs the bounded deterministic operations of the entry.
 - `resolve` selects scoped preferences for one task's mode and paths.
 
 Sessions come from the engine transport (`native_session`); no helper starts a
-model or provider. Fixtures use fail-closed fakes.
+model or provider. cf_workflows.configuration_binding runs each session through
+the entry's installed preset; fixtures use fail-closed fakes.
 """
 import copy
 import fnmatch
@@ -261,6 +262,10 @@ def run_session(transport, task):
         raise Blocked('session.observation.native', 'session did not run with the admitted model and reasoning effort')
     if observed['skills_loaded'] != []:
         raise Blocked('session.observation.skills_loaded', 'entry sessions load no skills')
+    if observed['operations'] is None:
+        # The engine binding reports no operations without an engine operation receipt.
+        raise Blocked('session.observation.operations', 'the engine recorded no operation receipt for the entry '
+                      'session, so its read-only boundary is unverified')
     if not isinstance(observed['operations'], list):
         raise Blocked('session.observation.operations', 'must be an array')
     for number, operation in enumerate(observed['operations']):

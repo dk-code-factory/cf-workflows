@@ -1,0 +1,40 @@
+# Authored for cf-workflows (#26); no upstream counterpart. See docs/configuration-skills.md.
+# dk-config: a transient explanation, or one proposal of exact typed configuration
+# operations. The host applies, admits and writes the proposal through the single
+# configuration writer (cf_workflows.writes); this graph writes nothing.
+# A preset over the shared configure.yml: no helper container, PR or publication.
+name: cf-workflows:dk-config
+'on':
+  workflow_call:
+    inputs:
+      mode:
+        # explain or change.
+        type: string
+        required: true
+      prompt:
+        type: string
+        required: true
+      model:
+        type: string
+        default: ''
+      input:
+        type: object
+        required: true
+      turns:
+        type: number
+        default: 8
+    outputs:
+      explain:
+        value: ${{ jobs.session.outputs.explain }}
+      change:
+        value: ${{ jobs.session.outputs.change }}
+jobs:
+  session:
+    if: ${{ inputs.mode == 'explain' or inputs.mode == 'change' }}
+    uses: workflows/configure.yml
+    with:
+      mode: ${{ inputs.mode }}
+      prompt: ${{ inputs.prompt }}
+      model: ${{ inputs.model }}
+      input: ${{ inputs.input }}
+      turns: ${{ inputs.turns }}

@@ -1,0 +1,38 @@
+# Authored for cf-workflows (#26); no upstream counterpart. See docs/configuration-skills.md.
+# dk-preferences: one proposal of exact typed preference operations. The host checks
+# overlaps, admits and writes it through the single configuration writer; this graph
+# writes nothing.
+# A preset over the shared configure.yml: no helper container, PR or publication.
+name: cf-workflows:dk-preferences
+'on':
+  workflow_call:
+    inputs:
+      mode:
+        # change.
+        type: string
+        default: change
+      prompt:
+        type: string
+        required: true
+      model:
+        type: string
+        default: ''
+      input:
+        type: object
+        required: true
+      turns:
+        type: number
+        default: 8
+    outputs:
+      change:
+        value: ${{ jobs.session.outputs.change }}
+jobs:
+  session:
+    if: ${{ inputs.mode == 'change' }}
+    uses: workflows/configure.yml
+    with:
+      mode: ${{ inputs.mode }}
+      prompt: ${{ inputs.prompt }}
+      model: ${{ inputs.model }}
+      input: ${{ inputs.input }}
+      turns: ${{ inputs.turns }}

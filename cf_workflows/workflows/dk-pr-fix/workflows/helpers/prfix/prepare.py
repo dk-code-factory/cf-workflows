@@ -13,6 +13,7 @@ import re
 
 from .core import (FORMAT, Ledger, artifact, auth, digest,
                    identity, state_directory, text)
+from . import preferences
 from .decisions import DEPENDENT, options as options_of
 
 CHECKLIST = [
@@ -97,7 +98,8 @@ def customize(task, adapter, phase, prompts, policy):
     A default plan adds no keys, so its occurrence fingerprints are unchanged.
     """
     applicable = [item for item in prompts if item["target"] in (None, adapter)
-                  and PROMPT_SLOTS.get(item["slot"], lambda *_: True)(phase, task["kind"])]
+                  and PROMPT_SLOTS.get(item["slot"], lambda *_: True)(phase, task["kind"])
+                  and preferences.applies(item, task)]
     for item in applicable:
         if item["slot"] == "behavior_replacement":
             # The accepted replacement stands in for the adapter's assignment; instructions still follow it.

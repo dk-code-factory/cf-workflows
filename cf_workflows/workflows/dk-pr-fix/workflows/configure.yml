@@ -1,0 +1,209 @@
+# Authored for cf-workflows (#26); no upstream counterpart. See docs/configuration-skills.md.
+# The shared graph of the configuration entries (onboard.yml, config.yml and
+# preferences.yml). The host-side procedure (cf_workflows.configuration through
+# cf_workflows.configuration_binding) discovers, admits, checks and writes; this
+# graph runs only its one native session: one agent/run on the admitted leaf role
+# with no skill, a fixed JSON schema per mode and no output repair. It has no
+# helper container, PR capture or publication stage, and targets no PR.
+name: cf-workflows:configuration entry
+'on':
+  workflow_call:
+    inputs:
+      mode:
+        # onboard, explain or change; each entry preset allows only its own modes.
+        type: string
+        required: true
+      prompt:
+        type: string
+        required: true
+      model:
+        # The admitted `model` native control; empty runs the definition as installed.
+        type: string
+        default: ''
+      input:
+        # {assignment, files}: the typed assignment and the exact text of every readable file.
+        type: object
+        required: true
+      turns:
+        type: number
+        default: 8
+    outputs:
+      # The engine's outputs of the mode's agent/run step: agent, provider, model and structured.
+      onboard:
+        value: ${{ jobs.onboard.outputs.session }}
+      explain:
+        value: ${{ jobs.explain.outputs.session }}
+      change:
+        value: ${{ jobs.change.outputs.session }}
+schemas:
+  onboard:
+    type: object
+    required: [sources, rules, facts, configuration, conflicts, gaps, outcome]
+    properties:
+      sources:
+        type: array
+        items:
+          type: object
+          required: [path, status, reason]
+          properties:
+            path: {type: string}
+            status: {type: string, enum: [inspected, uninspected]}
+            reason: {type: [string, 'null']}
+          additionalProperties: false
+      rules:
+        type: array
+        items:
+          type: object
+          required: [text, source, line, scope, authority]
+          properties:
+            text: {type: string}
+            source: {type: string}
+            line: {type: [integer, 'null']}
+            scope: {type: string}
+            authority: {type: string, enum: [selected repository rule, evidence only, saved preference]}
+          additionalProperties: false
+      facts:
+        type: array
+        items:
+          type: object
+          required: [fact, source, line, documented]
+          properties:
+            fact: {type: string}
+            source: {type: [string, 'null']}
+            line: {type: [integer, 'null']}
+            documented: {type: boolean}
+          additionalProperties: false
+      configuration:
+        type: array
+        items:
+          type: object
+          required: [path, status]
+          properties:
+            path: {type: string}
+            status: {type: string, enum: [active, overridden, inactive]}
+          additionalProperties: false
+      conflicts:
+        type: array
+        items:
+          type: object
+          required: [summary, paths, resolution]
+          properties:
+            summary: {type: string}
+            paths: {type: array, items: {type: string}}
+            resolution: {type: [string, 'null']}
+          additionalProperties: false
+      gaps:
+        type: array
+        items:
+          type: object
+          required: [subject, impact]
+          properties:
+            subject: {type: string}
+            impact: {type: string}
+          additionalProperties: false
+      outcome:
+        type: string
+    additionalProperties: false
+  explain:
+    type: object
+    required: [explanation, citations]
+    properties:
+      explanation: {type: string}
+      citations: {type: array, items: {type: string}}
+    additionalProperties: false
+  change:
+    type: object
+    required: [outcome, summary, operations, questions, resolutions]
+    properties:
+      outcome:
+        type: string
+        enum: [proposal, questions, cancelled]
+      summary:
+        type: string
+      operations:
+        # Each typed operation object as a JSON string; the host decodes and applies them.
+        type: array
+        items: {type: string}
+      questions:
+        type: array
+        items:
+          type: object
+          required: [question, paths]
+          properties:
+            question: {type: string}
+            paths: {type: array, items: {type: string}}
+          additionalProperties: false
+      resolutions:
+        type: array
+        items:
+          type: object
+          required: [change, with, outcome, reason, answers]
+          properties:
+            change: {type: string}
+            with: {type: string}
+            outcome: {type: string, enum: [compatible, resolved]}
+            reason: {type: string}
+            answers: {type: array, items: {type: string}}
+          additionalProperties: false
+    additionalProperties: false
+jobs:
+  onboard:
+    if: ${{ inputs.mode == 'onboard' }}
+    steps:
+    - id: session
+      uses: agent/run
+      with:
+        agent:
+          select: leaf
+          definitions:
+            leaf: agents/leaf.yaml
+        model: ${{ inputs.model }}
+        turns: ${{ inputs.turns }}
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: onboard
+    outputs:
+      session: ${{ steps.session.outputs }}
+  explain:
+    if: ${{ inputs.mode == 'explain' }}
+    steps:
+    - id: session
+      uses: agent/run
+      with:
+        agent:
+          select: leaf
+          definitions:
+            leaf: agents/leaf.yaml
+        model: ${{ inputs.model }}
+        turns: ${{ inputs.turns }}
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: explain
+    outputs:
+      session: ${{ steps.session.outputs }}
+  change:
+    if: ${{ inputs.mode == 'change' }}
+    steps:
+    - id: session
+      uses: agent/run
+      with:
+        agent:
+          select: leaf
+          definitions:
+            leaf: agents/leaf.yaml
+        model: ${{ inputs.model }}
+        turns: ${{ inputs.turns }}
+        prompt: ${{ inputs.prompt }}
+        input: ${{ inputs.input }}
+        output:
+          format: json
+          repair-attempts: 0
+          schema: change
+    outputs:
+      session: ${{ steps.session.outputs }}
