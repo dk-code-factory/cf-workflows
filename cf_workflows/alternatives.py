@@ -812,14 +812,14 @@ def _ledger(state, scope, pr, repository_id, temporary):
 
 
 def _pr_ledger(state, scope, pr):
-    run = 'alternatives_' + digest(pr['url'])[:32]  # Once per PR across routes, runs and sessions.
+    run = alignment.pr_run(pr['url'])  # Once per PR across routes, runs and sessions.
     return alignment.Ledger(alignment.ledger_path(state, run, scope), logical_run=run, pr=pr, scope=scope)
 
 
 def _shared(state, scope, pr):
     """A reader of the other scope's own settled assessment of the same PR; it never creates a record."""
     other = next(item for item in alignment.SCOPES if item != scope)
-    run = 'alternatives_' + digest(pr['url'])[:32]
+    run = alignment.pr_run(pr['url'])
     path = alignment.ledger_path(state, run, other)
 
     def read():

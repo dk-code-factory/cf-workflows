@@ -443,7 +443,8 @@ def readiness(root, provider, ledger, plan, inputs=None):
         covered = app.coverage(root, provider, ledger, plan, {})
         result.update(complete=bool(covered["complete"]), missing=covered.get("missing", []),
                       withheld=covered.get("withheld", []), unresolved=covered.get("unresolved", []),
-                      responses=covered.get("responses"), review=covered.get("review"))
+                      responses=covered.get("responses"), review=covered.get("review"),
+                      alignment=covered.get("alignment"))
         snapshot = covered["snapshot"]
         result.update(head=snapshot["head"], target=snapshot["target"], provisional=app.provisional(snapshot))
         current_identity = snapshot["identities"]["current"]
@@ -451,6 +452,10 @@ def readiness(root, provider, ledger, plan, inputs=None):
             result["blockers"].append("PR metadata has not reached the analyzed revision; analysis is provisional")
         if not covered["complete"]:
             result["blockers"].append("selected task coverage or original finding settlement incomplete")
+        gated = (covered.get("alignment") or {}).get("gated", False)
+        if gated:
+            result["blockers"].append("retained alternatives analysis does not release review at this head: "
+                                      + covered["alignment"]["outcome"])
         reviews = [task for task in plan["tasks"] if task["kind"] == "review"]
         verifications = [task for task in plan["tasks"] if task["kind"] == "verification"]
         if not reviews or not verifications:
@@ -464,7 +469,8 @@ def readiness(root, provider, ledger, plan, inputs=None):
             row = _source(root, provider, ledger, plan, claim["report"], snapshot=snapshot)
             current[task["id"]] = row
             result["evidence"].append(row["reference"])
-        result["clean_review"] = bool(reviews) and all(t["id"] in current for t in reviews) and not covered["unresolved"]
+        result["clean_review"] = (bool(reviews) and all(t["id"] in current for t in reviews)
+                                  and not covered["unresolved"] and not gated)
         if covered.get("review") is not None:
             # Incoming review also needs ordinary (not only simplification) coverage.
             result["clean_review"] = result["clean_review"] and covered["review"]["clean_review"]

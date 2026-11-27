@@ -305,6 +305,37 @@ class CurrentAlignmentTest(Fixture):
         self.assertEqual([(h['head'], h['result']['alignment']) for h in history], [(h0, 'mismatch'), (h1, 'aligned')])
         self.assertEqual(self.ledger.usage('alignment')['used'], 3)
 
+    def test_a_caller_without_alignment_evidence_gates_on_head_and_analysis_only(self):
+        # The installed workflow holds no requirements evidence: inputs None keeps the retained ones.
+        sessions = Sessions({**architecture(), 'alignment': aligned()})
+        h0, h1 = self.heads[:2]
+        self.settle(sessions, h0)
+        self.step(sessions, 'alignment', head=h0, inputs=REQUIREMENTS)
+        self.assertEqual(self.gate(h0, inputs=None)['outcome'], 'released')
+        # New requirements reach the gate only through a caller that supplies them.
+        self.assertEqual(self.gate(h0, inputs=TICKET)['reason'], 'new_evidence')
+        later = self.gate(h1, inputs=None)
+        self.assertEqual((later['outcome'], later['reason']), ('alignment_required', 'later_head'))
+        interrupted = self.step(sessions, 'alignment', head=h1, inputs=REQUIREMENTS, finish=False)
+        self.assertEqual(self.gate(h1, inputs=None)['next']['resume'], interrupted['operation'])
+        self.ledger.finish(interrupted['operation'], aligned(), session='session-h1')
+        self.assertEqual(self.gate(h1, inputs=None)['outcome'], 'released')
+        # A record read through Records alone (the installed helpers) gives the same outcome, read-only.
+        before = self.path.read_bytes()
+        with alignment.Records.open(self.path, logical_run='run-1', pr_url=PR['url'].upper()) as records:
+            self.assertEqual(alignment.gate(records, head=h1, inputs=None), self.gate(h1, inputs=None))
+            with self.assertRaises(sqlite3.OperationalError):
+                records.db.execute('DELETE FROM attempts')
+        self.assertEqual(self.path.read_bytes(), before)
+        for wrong in ({'logical_run': 'run-2', 'pr_url': PR['url']},
+                      {'logical_run': 'run-1', 'pr_url': 'https://github.com/owner/repo/pull/8'}):
+            with self.assertRaisesRegex(AlignmentError, 'another logical run'):
+                alignment.Records.open(self.path, **wrong)
+        missing = self.path.with_name('missing.alignment.sqlite')
+        with self.assertRaisesRegex(AlignmentError, 'missing'):
+            alignment.Records.open(missing, logical_run='run-1', pr_url=PR['url'])
+        self.assertFalse(missing.exists())
+
     def test_an_existing_legitimate_rejection_stays_reusable(self):
         sessions = Sessions({**architecture(), 'alignment': aligned('mismatch'), 'verification': verified()})
         h0, h1 = self.heads[:2]

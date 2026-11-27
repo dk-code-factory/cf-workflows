@@ -142,9 +142,9 @@ SKIPPED = re.compile(r'.*-(?:wal|shm|journal)|(?:.*/)?\.staged-[^/]*|' + UPGRADE
 # Where each inventory row retains state. Rows without stores keep none of their own:
 # their runs report, route or read only.
 ROWS = {
-    'dk-pr-iter': ('run', 'feedback', 'reconciliation', 'writer'),
-    'dk-pr-fix': ('run', 'feedback', 'reconciliation', 'writer'),
-    'dk-pr-review': ('run',),
+    'dk-pr-iter': ('run', 'feedback', 'reconciliation', 'alignment', 'writer'),
+    'dk-pr-fix': ('run', 'feedback', 'reconciliation', 'alignment', 'writer'),
+    'dk-pr-review': ('run', 'alignment'),
     'dk-repo-onboard': (),
     'dk-config': ('configuration',),
     'dk-preferences': ('configuration',),

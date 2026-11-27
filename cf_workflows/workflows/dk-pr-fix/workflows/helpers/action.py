@@ -81,13 +81,18 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
         return app.coverage(root, provider, ledger, plan, inputs)
     if operation == "alignment":
         return app.alignment(root, provider, ledger, plan, inputs)
+    if operation == "alignment_gate":
+        # Read-only: the current-alignment gate over retained alternatives analysis (#23).
+        return app.alignment_gate(root, plan, app._snapshot(root, provider, plan))
     if operation == "completion":
         from prfix.publishing import readiness
         result = readiness(root, provider, ledger, plan)
         # A provisional run ends with its analysis settled and only work that
         # needs a reconciled head withheld; it is never complete or ready.
+        # Retained alternatives analysis that does not release review ends the same way.
         analyzed = "missing" in result and not result["missing"] and not result["unresolved"]
-        if not result["complete"] and not (analyzed and result["provisional"].get("provisional")):
+        if not result["complete"] and not (analyzed and (result["provisional"].get("provisional")
+                                                         or "current_alignment" in result.get("withheld", []))):
             raise ValueError("selected task/finalizer plan remains incomplete")
         return result
     if operation == "ci":

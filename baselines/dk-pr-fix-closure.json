@@ -484,6 +484,10 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/splitting.yml",
       "reason": "Build, per-commit validation and apply of a splitting entry's local operation before its publication barrier (#34); no upstream counterpart (docs/splitting.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py",
+      "reason": "Current-alignment gate and alignment-record reads (#23), installed so helper containers gate review on retained alternatives analysis; the library alignment module loads it; no upstream counterpart (docs/alignment.md)."
     }
   ],
   "corrections": [
