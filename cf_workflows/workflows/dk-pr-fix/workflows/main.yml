@@ -216,6 +216,22 @@ jobs:
       github_token: ${{ secrets.github_token }}
     needs:
     - request
+  alignment_gate:
+    # Current alignment (#23): read-only, before any review stage. Retained
+    # alternatives analysis of this PR that does not release review at the
+    # analyzed revision keeps the review partial and the run unready (coverage
+    # re-reads it each cycle); it never starts or repeats an architectural
+    # stage. An unreadable or foreign record stops the run here.
+    uses: workflows/helper.yml
+    with:
+      operation: alignment_gate
+      payload:
+        plan: ${{ needs.prepare.outputs.result.plan }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    needs: prepare
+    if: ${{ needs.prepare.status != 'failed' and needs.prepare.status != 'needs_attention' and needs.prepare.status
+      != 'canceled' }}
   cycles:
     uses: workflows/cycle.yml
     with:
@@ -226,9 +242,10 @@ jobs:
       turns: ${{ inputs.turns }}
     secrets:
       github_token: ${{ secrets.github_token }}
-    needs: prepare
-    if: ${{ needs.prepare.status != 'failed' and needs.prepare.status != 'needs_attention' and needs.prepare.status
-      != 'canceled' }}
+    needs:
+    - prepare
+    - alignment_gate
+    if: ${{ needs.alignment_gate.status == 'succeeded' }}
     repeat:
       max-attempts: ${{ needs.prepare.outputs.result.limits.review_cycles }}
       until: ${{ iteration.outputs.settled }}

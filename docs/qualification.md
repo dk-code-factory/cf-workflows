@@ -71,8 +71,8 @@ native execution and live acceptance are `pending` and every parity status is
 | Skill | Composition | Native execution | Delivery | Plugin descriptor | Direct / composed / recovery |
 | --- | --- | --- | --- | --- | --- |
 | `cf-workflows:dk-pr-iter` | shared_workflow | pending | #24, #25 | listed | 4 / 2 / 4 |
-| `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16 | listed | 4 / 2 / 4 |
-| `cf-workflows:dk-pr-review` | shared_workflow | pending | #24, #25 | listed | 3 / 2 / 2 |
+| `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16, #23 | listed | 4 / 2 / 5 |
+| `cf-workflows:dk-pr-review` | shared_workflow | pending | #23, #24, #25 | listed | 3 / 3 / 5 |
 | `cf-workflows:dk-repo-onboard` | shared_workflow | pending | #26 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-config` | boundary | pending | #26 | not listed | 2 / 1 / 3 |
 | `cf-workflows:dk-preferences` | shared_workflow | pending | #26 | not listed | 2 / 1 / 2 |

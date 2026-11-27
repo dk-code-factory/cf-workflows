@@ -248,6 +248,37 @@ def alignment(root, provider, ledger, plan, inputs):
     return result
 
 
+def alignment_gate(root, plan, snapshot):
+    """The current-alignment gate over this PR's retained alternatives analysis (#23).
+
+    The alternatives entries keep one branch record per PR in the state namespace
+    (prfix/alignment.py). Without one, no analysis was settled for this PR and
+    review is not gated. With one, the gate reads it, read-only, at the analyzed
+    revision: it never starts, repeats or authorizes an architectural stage, and
+    a later head only needs a refreshed alignment, never an old rejection
+    receipt. The installed workflow holds no alignment evidence of its own, so
+    the retained alignment's inputs stand. Review stays gated (``gated``) while
+    the plan selects review and the gate does not release it; no outcome is a
+    clean review or readiness.
+    """
+    from . import alignment as records
+    from .core import state_directory
+    run = records.pr_run(plan["pr"]["url"])
+    path = records.ledger_path(state_directory(root), run)
+    reviewing = any(task["kind"] == "review" for task in plan["tasks"])
+    base = {"retained": False, "outcome": "no_analysis", "release": None, "gated": False,
+            "clean_review": False, "ready": False}
+    if not os.path.lexists(path):
+        return base
+    try:
+        with records.Records.open(path, logical_run=run, pr_url=plan["pr"]["url"]) as ledger:
+            result = records.gate(ledger, head=snapshot["head"], inputs=None, identities=snapshot["identities"],
+                                  account="run-" + digest(plan["logical_run"])[:24])
+    except records.AlignmentError as error:
+        raise ValueError("retained alternatives analysis is unreadable: " + str(error)) from error
+    return {**result, "retained": True, "gated": reviewing and not result["release"]}
+
+
 def _fingerprint(snapshot, task, ledger=None):
     from .capture import fingerprint
     from . import decisions
@@ -992,14 +1023,16 @@ def task_status(root, provider, ledger, plan, inputs):
 SIMPLIFIERS = ("simplify", "simplify-code-first", "simplify-related-code", "simplify-code-first-related-code")
 
 
-def review_outcome(ledger, plan, snapshot, originals, verification, missing):
+def review_outcome(ledger, plan, snapshot, originals, verification, missing, gate=None):
     """Incoming review's record: distinct required and optional outcomes and finding dispositions.
 
     A clean review needs every required reviewer and the independent verifier
     current, at least one current ordinary (not simplification) reviewer, and no
     confirmed or unverified finding. Aggregate success, a report describing
     other passes and empty findings never stand in for a missing occurrence.
-    Nothing here is an approval, readiness or a publication.
+    Retained alternatives analysis that does not release review (``gate``) keeps
+    the review partial: it is never clean, and findings only comment. It never
+    withholds a finding. Nothing here is an approval, readiness or a publication.
     """
     occurrences = []
     for task in plan["tasks"]:
@@ -1026,9 +1059,12 @@ def review_outcome(ledger, plan, snapshot, originals, verification, missing):
     ordinary = any(item["role"] == "ordinary" and item["status"] == "covered" for item in occurrences)
     verified = any(item["role"] == "verification" and item["status"] == "covered" for item in occurrences)
     complete = not missing and not required and verified and not findings["unverified"]
-    clean = complete and ordinary and not findings["confirmed"]
-    return {"outcome": "clean" if clean else "findings" if complete and ordinary else "incomplete",
-            "clean_review": clean, "complete": complete, "partial": not complete or not ordinary,
+    released = not (gate or {}).get("gated")
+    clean = complete and ordinary and released and not findings["confirmed"]
+    return {"outcome": "clean" if clean else "findings" if complete and ordinary and findings["confirmed"]
+            else "incomplete",
+            "clean_review": clean, "complete": complete, "partial": not complete or not ordinary or not released,
+            "alignment": gate["outcome"] if gate else None,
             "required_missing": required, "optional_omitted": optional, "ordinary_covered": ordinary,
             "occurrences": occurrences, "findings": findings,
             # Approval, fork-CI approval and merge each need their own authority and current readiness.
@@ -1105,9 +1141,14 @@ def coverage(root, provider, ledger, plan, inputs):
     # Once waits are exhausted, nothing more a cycle can do: the run settles.
     analyzed = not missing and not (unverified if review else unresolved)
     waits = None if identities["current"] else reconciliation(ledger, identities)
-    outcome = review_outcome(ledger, plan, snapshot, originals, verification, missing) if review else None
+    # Retained alternatives analysis that does not release review at this head
+    # needs the alternatives entries, not another cycle: withheld, never missing.
+    gate = alignment_gate(root, plan, snapshot)
+    if gate["gated"]:
+        withheld.append("current_alignment")
+    outcome = review_outcome(ledger, plan, snapshot, originals, verification, missing, gate) if review else None
     return {"complete": analyzed and not withheld, "ready": False, "current": identities["current"],
-            "review": outcome,
+            "review": outcome, "alignment": gate,
             "provisional": provisional(snapshot), "reconciliation": waits,
             "waiting": waits is not None and not waits["exhausted"],
             "settled": analyzed and (waits is None or waits["exhausted"]),

@@ -46,7 +46,8 @@
       "delivery_issues": [
         14,
         15,
-        16
+        16,
+        23
       ],
       "behavior": [
         "cf_workflows/dk_pr_fix.py",
@@ -69,7 +70,8 @@
         "test_dk_pr_fix_continuation.Continuation.test_partial_parallel_failure_keeps_sibling_and_needs_explicit_continuation",
         "test_recovery.Helpers.test_codex_host_partial_run_survives_backup_and_restore",
         "test_recovery.Helpers.test_claude_host_partial_run_survives_backup_and_restore",
-        "test_dk_pr_fix.Preflight.test_publication_needs_enabled_permission_and_explicit_authorization"
+        "test_dk_pr_fix.Preflight.test_publication_needs_enabled_permission_and_explicit_authorization",
+        "test_dk_pr_fix_alignment.InstalledGate.test_verified_mismatch_at_the_current_head_keeps_a_fix_run_unready"
       ],
       "status": {
         "parity": "not_implemented",
@@ -89,7 +91,8 @@
       ],
       "behavior": [
         "cf_workflows/dk_pr_review.py",
-        "cf_workflows/workflows/dk-pr-fix/workflows/review.yml"
+        "cf_workflows/workflows/dk-pr-fix/workflows/review.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py"
       ],
       "documentation": "docs/review.md",
       "composition": "shared_workflow",
@@ -100,12 +103,15 @@
       ],
       "composed": [
         "test_dk_pr_review_findings.BodyAndInline.test_mixed_findings_keep_honest_anchors_and_never_duplicate",
-        "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing"
+        "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing",
+        "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_239_later_head_recovers_without_a_rejection_receipt"
       ],
       "recovery": [
         "test_dk_pr_review_findings.RerunsAndRecovery.test_lost_response_after_the_effect_settles_by_reconciliation",
         "test_dk_pr_review.ReviewPreflight.test_review_plans_never_write_or_publish_here",
-        "test_dk_pr_review_findings.RerunsAndRecovery.test_partial_findings_publish_after_identity_reconciliation_and_never_while_provisional"
+        "test_dk_pr_review_findings.RerunsAndRecovery.test_partial_findings_publish_after_identity_reconciliation_and_never_while_provisional",
+        "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_241_new_evidence_refreshes_uncertain_alignment_before_a_clean_review",
+        "test_dk_pr_fix_alignment.InstalledGate.test_foreign_or_unsupported_records_stop_the_gate"
       ],
       "status": {
         "parity": "not_implemented",
