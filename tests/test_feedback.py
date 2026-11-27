@@ -413,13 +413,22 @@ class Evidence(Feedback):
     def test_incomplete_or_foreign_evidence_rejects(self):
         cases = [lambda ev: ev.pop('threads'), lambda ev: ev['metadata'].update(number=8),
                  lambda ev: ev['inline'].append({'id': 5, 'user': REVIEWER, 'body': 'x', 'in_reply_to_id': 4}),
-                 lambda ev: ev['comments'].extend([{'id': 5, 'user': REVIEWER}] * 2)]
+                 lambda ev: ev['comments'].extend([{'id': 5, 'user': REVIEWER}] * 2),
+                 # code-scan #5: malformed thread nodes reject instead of raising AttributeError.
+                 lambda ev: ev['threads'].append({'id': 'T5', 'comments': 'x'}),
+                 lambda ev: ev['threads'].append({'id': 'T5', 'comments': {'nodes': [5]}})]
         for mutate in cases:
             github = GitHub()
             mutate(github.ev)
             with self.assertRaises(feedback.FeedbackError):
                 feedback.observe(github, PR)
             self.assertEqual(github.calls, Counter(capture=1))
+
+    def test_unhashable_assessment_source_rejects(self):
+        # code-scan #5: an agent report's source is untrusted shape.
+        for source in (['inline:1'], {'key': 'inline:1'}):
+            with self.subTest(source=source), self.assertRaisesRegex(feedback.FeedbackError, 'no current feedback source'):
+                feedback.validate(self.view(), {'source': source, 'fingerprint': '', 'requests': []})
 
     def test_ledger_binding_and_schema(self):
         self.assertEqual(self.path.parent, self.state / 'runs')

@@ -116,8 +116,10 @@ class View:
         self.threads = {}
         for thread in threads:
             ident = _text(thread.get('id') if isinstance(thread, dict) else None, 'review thread ID')
-            nodes = (thread.get('comments') or {}).get('nodes') or []
-            require(len(nodes) == 1, 'review thread ' + ident + ' lacks its first comment')
+            comments = thread.get('comments')
+            nodes = comments.get('nodes') if isinstance(comments, dict) else None
+            require(isinstance(nodes, list) and len(nodes) == 1 and isinstance(nodes[0], dict),
+                    'review thread ' + ident + ' lacks its first comment')
             root = _positive(nodes[0].get('databaseId'), 'review thread root')
             require(ident not in self.threads and root not in roots, 'duplicate review thread')
             self.threads[ident] = {'id': ident, 'root': root, 'resolved': thread.get('isResolved') is True}
@@ -233,7 +235,7 @@ def validate(view, assessment):
     """Check one source's assessment against the current observation; return its canonical form."""
     require(isinstance(assessment, dict) and set(assessment) == {'source', 'fingerprint', 'requests'},
             'assessment requires exactly source, fingerprint and requests')
-    source = view.sources.get(assessment['source'])
+    source = view.sources.get(assessment['source']) if isinstance(assessment['source'], str) else None
     require(source is not None, 'assessment names no current feedback source')
     require(assessment['fingerprint'] == View.fingerprint(source), 'source changed after it was assessed')
     requests = assessment['requests']

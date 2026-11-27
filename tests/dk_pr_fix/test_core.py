@@ -52,6 +52,12 @@ class CoreTests(unittest.TestCase):
                 core.state_directory(self.root, create=True)
         self.assertEqual(list(self.state.iterdir()), [])
 
+    def test_interrupted_marker_staging_does_not_block_claiming_the_namespace(self):
+        # code-scan #9: the marker is staged as .staged-* inside the directory being claimed.
+        (self.state / ".staged-interrupted").write_bytes(b"")
+        self.assertEqual(core.state_directory(self.root, create=True), self.state.resolve())
+        self.assertTrue((self.state / core.STATE_MARKER).is_file())
+
     def test_state_namespace_is_mounted_absolute_and_outside_the_checkout(self):
         inside = self.root / "state"
         inside.mkdir()
@@ -116,6 +122,18 @@ class CoreTests(unittest.TestCase):
         with core.Ledger(self.root, "fix", PR) as ledger:
             with self.assertRaisesRegex(ValueError, "exhausted"):
                 ledger.reserve("reviews", "replacement", 1)
+
+    def test_writer_lease_whose_claim_row_was_lost_resumes_only_under_its_own_claim(self):
+        # code-scan #8: the lease commits before the run ledger's claim transaction.
+        core.Ledger(self.root, "run", PR).close()
+        core.writer_lease(self.root, "run", "claim_lost", acquire=True)
+        with self.assertRaisesRegex(ValueError, "unfinished original writer"):
+            core.writer_lease(self.root, "run", "claim_other")
+        core.writer_lease(self.root, "run", "claim_lost")
+        core.writer_lease(self.root, "run", "claim_lost", acquire=True)
+        core.verify_writer_lease(self.root, "run", "claim_lost")
+        core.writer_lease(self.root, "run", "claim_lost", release=True)
+        core.writer_lease(self.root, "run", "claim_other")
 
     def test_reservation_response_loss_replays_after_restart_without_consuming_twice(self):
         with core.Ledger(self.root, "retained", PR) as ledger:

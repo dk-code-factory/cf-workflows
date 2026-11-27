@@ -247,6 +247,90 @@ class HttpKinds(Fixture):
                     self.assertEqual(publisher.execute(prepared["id"], self.audience(prepared)), receipt)
                     self.assertEqual(len(provider.writes), setup + 1)
 
+    def settled(self, publisher, provider, ledger, proposal):
+        prepared = publisher.prepare(proposal)
+        receipt = publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual(self.state(ledger, prepared["id"]), "applied")
+        self.assertIsNone(self.lock(ledger))
+        self.assertTrue(publisher.validate(prepared["id"], receipt))
+        self.assertEqual(publisher.execute(prepared["id"], self.audience(prepared)), receipt)
+        self.assertEqual(len(provider.writes), 1)
+        return receipt
+
+    def test_cleared_pr_body_reported_as_null_is_observed(self):
+        # code-scan #17: GitHub reports an emptied PR body as null.
+        publisher, provider, ledger = self.world()
+        original = provider.request
+
+        def request(method, path, payload=None):
+            result = original(method, path, payload)
+            if method == "PATCH":
+                provider.ev["metadata"]["body"] = None
+            return result
+        provider.request = request
+        self.assertEqual(self.settled(publisher, provider, ledger, self.proposal("edit_pr", {"body": ""}))["result"],
+                         {"body": ""})
+
+    def test_review_request_is_observed_under_the_canonical_login_case(self):
+        # code-scan #18: GitHub returns the canonical case of a case-insensitive login or slug.
+        publisher, provider, ledger = self.world()
+        original = provider.request
+
+        def request(method, path, payload=None):
+            result = original(method, path, payload)
+            if method == "POST" and path.endswith("requested_reviewers"):
+                provider.requested = {"users": [{"login": "alice"}], "teams": [{"slug": "core-team"}]}
+            return result
+        provider.request = request
+        self.settled(publisher, provider, ledger,
+                     self.proposal("request_review", {"reviewers": ["Alice"], "team_reviewers": ["Core-Team"]}))
+
+    def test_applied_rerun_and_merge_receipts_survive_later_object_changes(self):
+        # code-scan #19: receipts keep only stable fields of the run and the merged PR.
+        for kind, change in (("ci_rerun", lambda provider: provider.run.update(status="in_progress", updated_at="later")),
+                             ("merge", lambda provider: provider.ev["metadata"].update(comments=3, updated_at="later"))):
+            with self.subTest(kind=kind):
+                publisher, provider, ledger = self.world()
+                proposal, _ = self.scenario(kind, publisher, provider)
+                receipt = self.settled(publisher, provider, ledger, proposal)
+                change(provider)
+                self.assertTrue(publisher.validate(proposal["id"], receipt))
+                self.assertEqual(publisher.execute(proposal["id"], self.audience(publisher.prepare(proposal))), receipt)
+
+    def test_deleted_head_fork_is_publication_drift_not_a_crash(self):
+        # code-scan #21: GitHub reports a deleted fork as "repo": null.
+        publisher, provider, ledger = self.world()
+        prepared = publisher.prepare(self.proposal("reply", {"body": "Fixed."}))
+        provider.ev["metadata"]["head"]["repo"] = None
+        with self.assertRaisesRegex(PublicationError, "repository lease changed"):
+            publisher.execute(prepared["id"], self.audience(prepared))
+        self.assertEqual((self.state(ledger, prepared["id"]), len(provider.writes)), ("blocked", 0))
+        self.assertEqual(publisher.prepare(self.proposal("reply", {"body": "Fixed."}, "again"))["intent"]["head_repository"], "")
+
+    def test_merge_onto_an_advanced_base_is_recognised(self):
+        # code-scan #20: the base gained a commit between the gate and the PUT.
+        advanced = "e" * 40
+        for status, outcome in (("ahead", "applied"), ("diverged", "pending")):
+            with self.subTest(status=status):
+                publisher, provider, ledger = self.world()
+                provider.parents = [advanced, HEAD]
+                original = provider.request
+
+                def request(method, path, payload=None, original=original, status=status):
+                    if method == "GET" and path == f"repos/o/r/compare/{BASE}...{advanced}":
+                        return {"status": status, "behind_by": 0 if status == "ahead" else 1}
+                    return original(method, path, payload)
+                provider.request = request
+                prepared = publisher.prepare(self.proposal("merge", {"merge_method": "merge"}))
+                if outcome == "applied":
+                    receipt = publisher.execute(prepared["id"], self.audience(prepared))
+                    self.assertEqual(receipt["result"]["commit"]["parents"], [{"sha": advanced}, {"sha": HEAD}])
+                else:
+                    with self.assertRaises(UncertainEffect):
+                        publisher.execute(prepared["id"], self.audience(prepared))
+                self.assertEqual(self.state(ledger, prepared["id"]), outcome)
+                self.assertEqual(len(provider.writes), 1)
+
     def test_restart_keeps_original_intent_and_audience_without_replay(self):
         publisher, provider, ledger = self.world()
         prepared = publisher.prepare(self.proposal("submit_review", copy.deepcopy(REVIEW)))
@@ -736,7 +820,11 @@ class GitKinds(Fixture):
                     self.assertEqual(observed["outcome"], "completed")
                     publisher.execute(draft["id"], self.audience(draft))
                 self.assertEqual(self.state(ledger, "draft"), "applied")
-                publisher.execute(draft["id"], self.audience(draft))
+                receipt = publisher.execute(draft["id"], self.audience(draft))
+                # code-scan #19: later activity on the draft PR keeps its receipt valid.
+                provider.split_pulls[0].update(comments=2, updated_at="later")
+                self.assertTrue(publisher.validate(draft["id"], receipt))
+                self.assertEqual(publisher.execute(draft["id"], self.audience(draft)), receipt)
                 self.assertEqual((len(provider.writes), publisher.pushes), (1, 1))
 
     def test_remote_branch_drift_blocks_push_without_writing(self):

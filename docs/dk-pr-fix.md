@@ -214,11 +214,10 @@ is a deliberate refinement of the contract's per-run partitioning. The lease
 fences the shared Git index across runs, so it must be visible to every run.
 Content-addressed records are immutable and named by digest, so sharing them
 cannot mix two runs' state. The marker `.owned-by-cf-workflows-dk-pr-fix`
-(format `cf-workflows-dk-pr-fix-v1`) claims a directory only while it is empty (apart from the `.staged-*` temporary
-file of an interrupted or concurrent first marker write).
-So dk-workflows settings, `.pr-fix-state` and other existing state are never
-adopted or imported. Back up the namespace together with the engine's recovery
-bundle.
+(format `cf-workflows-dk-pr-fix-v1`) claims a directory only while it is empty
+apart from the marker's own `.staged-*` files. So dk-workflows settings,
+`.pr-fix-state` and other existing state are never adopted or imported. Back up
+the namespace together with the engine's recovery bundle.
 
 No engine can mount this namespace yet. Agent Workflow `8758775` binds only
 `/workspace`, a fresh per-launch `/state`, `/engine-lifetime`, its guardian,
