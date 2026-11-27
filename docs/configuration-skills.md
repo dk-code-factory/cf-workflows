@@ -129,16 +129,25 @@ narrows them per task:
   writers implement, review adapters review. A read-only occurrence of another
   kind gets none. An unscoped preference reaches every occurrence, as before.
 - **Claim.** The claim adds `preferences` when the occurrence has a scoped
-  preference: the mode, the PR paths the capture lists, and each scoped
-  preference whose selectors match one of them, with the matched paths and
-  whether it needs its condition. A prompt-only preference (empty `include`) is
-  kept as conditional. Its `binding` covers only the selected records.
+  preference: the mode, the PR paths the capture lists, the selected scoped
+  preferences with the captured paths each one selects and whether it needs its
+  condition, and a `rule`. A reviewer reviews exactly the captured paths, so it
+  gets only the preferences that select one of them. A writer may change paths
+  the PR does not change yet, so it gets every scoped preference of its mode;
+  one that selects no captured path is listed with no paths, and the rule
+  applies each listed preference to any path the writer changes that its scope
+  includes and does not exclude. A prompt-only preference (empty `include`) is
+  kept as conditional. The `binding` covers only the selected records.
 
 The selectors are a verbatim copy of `configuration.py` (a test keeps them
-identical), and a test checks that the selection equals `resolve()`. The
-captured paths and the occurrence's prompts are both in the claim fingerprint,
-so an unchanged occurrence keeps its accepted result, and a changed unrelated
-preference does not change the binding.
+identical). A test checks that a reviewer's records (id, text, scope, paths,
+condition) are the ones `resolve()` selects for the captured paths, and that a
+writer's are those plus the other preferences of its mode with no paths.
+Prompt ids are unique within an occurrence, so ordering by id needs no
+`source`. The captured paths and the occurrence's prompts are both in the claim
+fingerprint, so an unchanged occurrence keeps its accepted result, and a
+changed preference that the occurrence does not receive leaves the binding
+unchanged.
 
 ## Sessions
 
@@ -393,9 +402,11 @@ questions through one engine gate resumed with a new claim, and the
 reasoning effort; and definition, mode, mailbox, provider and output checks.
 
 `tests/test_dk_pr_fix.py` covers the [handoff](#per-task-preference-handoff):
-the verbatim selectors, equality with `resolve()`, mode narrowing at prepare,
-and a claim from a relocated read-only install that receives only the
-implementation preference selecting its changed path.
+the verbatim selectors, agreement with `resolve()`, a writer keeping a
+preference that selects no captured path while a reviewer drops it, mode
+narrowing at prepare, and a writer's claim from a relocated read-only install
+that receives both implementation preferences, one with its changed path and
+one with none, and no review preference.
 
 ## What remains
 
@@ -417,5 +428,7 @@ implementation preference selecting its changed path.
   the root guidance closure for every run, so an override changes what governs
   all runs and needs its own admission design.
 - The per-task handoff selects preferences by the PR's captured paths. A
-  condition is passed to the session, never evaluated.
+  writer's preference that selects no captured path is applied by the session
+  to the paths it changes; nothing checks that. A condition is passed to the
+  session, never evaluated.
 - Real configuration-agent and validator adherence needs separate authorization.

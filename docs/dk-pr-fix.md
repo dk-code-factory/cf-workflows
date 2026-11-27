@@ -116,8 +116,9 @@ Adaptations to the example:
   `workflows/splitting.yml`, the presets `workflows/commit-split.yml` and
   `pr-split.yml` and their `SKILL.md` files are `authored`.
 - An accepted scoped preference reaches only the occurrences of its modes, and
-  each claim carries `preferences`: the scoped preferences that select the
-  captured PR paths, with those paths
+  each claim carries `preferences`: for a reviewer the scoped preferences that
+  select the captured PR paths, with those paths; for a writer every scoped
+  preference of its mode, since it may change paths the PR does not change yet
   ([per-task handoff](configuration-skills.md#per-task-preference-handoff)).
   `prfix/preferences.py` is `authored`. The configuration entries do not run
   through this graph: their presets `workflows/onboard.yml`, `config.yml` and
@@ -155,7 +156,8 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    adapters of `dk-config` and `dk-preferences` reject; the read-only
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
    An accepted scoped preference reaches only occurrences of its modes, and
-   each claim lists the ones that select its captured paths
+   each claim lists them with the captured paths they select (a reviewer only
+   those that select one)
    ([per-task handoff](configuration-skills.md#per-task-preference-handoff)).
    Prose finalizers (`plain-english`, `asd-ste100`) run as ordinary task
    occurrences whose sessions the installed helpers bound and check

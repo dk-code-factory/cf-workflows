@@ -1015,9 +1015,11 @@ class RelocatedReadOnlyRun(PreflightFixture):
         self.assertEqual([item['id'] for item in assignment['task']['prompts']], ['code', 'docs', 'plain'])
         handed = assignment['preferences']
         self.assertEqual((handed['mode'], handed['paths']), ('implementation', ['code.py']))
-        # Only the preference whose selectors match a captured path is handed off, with its paths.
+        # A writer may change a path the PR does not change yet: the docs preference stays, with no captured
+        # path, and the rule applies it to any path the writer changes that its scope selects.
         self.assertEqual([(item['id'], item['paths'], item['requires_condition']) for item in handed['records']],
-                         [('code', ['code.py'], False)])
+                         [('code', ['code.py'], False), ('docs', [], False)])
+        self.assertIn('any other path you change that its scope includes', handed['rule'])
 
     def test_unconfigured_github_operation_fails_without_fallback(self):
         prepared = self.preflight(install=self.install)
@@ -1089,10 +1091,25 @@ class PreferenceHandoff(unittest.TestCase):
                 handed = self.preferences.handoff(task, paths)
                 library = configuration.resolve([{'id': ident, 'source': 'accepted', 'text': ident, 'scope': value}
                                                  for ident, value in records], mode, paths)
-                self.assertEqual([(item['id'], item['paths'], item['requires_condition'])
+                expected = [(item['id'], item['paths'], item['requires_condition']) for item in library['records']]
+                if mode == 'implementation':
+                    # A writer also keeps each preference of its mode that selects no captured path yet.
+                    chosen = {item['id'] for item in library['records']}
+                    expected = sorted(expected + [(ident, [], value['condition'] is not None)
+                                                  for ident, value in records
+                                                  if mode in value['applies_to'] and ident not in chosen])
+                self.assertEqual([(item['id'], item['text'], item['scope'], item['paths'], item['requires_condition'])
                                   for item in handed['records']],
-                                 [(item['id'], item['paths'], item['requires_condition'])
-                                  for item in library['records']])
+                                 [(ident, ident, dict(records)[ident], matched, conditional)
+                                  for ident, matched, conditional in expected])
+        # A writer keeps a path-scoped preference that selects no captured path; a reviewer leaves it out.
+        narrow = [('tests', scope(['implementation', 'review'], [{'type': 'directory', 'path': 'tests'}]))]
+        for kind, writes, expected in (('fix', True, [('tests', [])]), ('review', False, [])):
+            with self.subTest(kind):
+                handed = self.preferences.handoff({'kind': kind, 'writes': writes, 'prompts': [
+                    {'id': ident, 'slot': 'preference', 'text': ident, 'scope': value} for ident, value in narrow]},
+                    ['src/x.py'])
+                self.assertEqual([(item['id'], item['paths']) for item in handed['records']], expected)
         # The binding covers only the selected records: an unrelated change leaves it unchanged.
         task = {'kind': 'review', 'writes': False,
                 'prompts': [{'id': ident, 'slot': 'preference', 'text': ident, 'scope': value} for ident, value in records]}

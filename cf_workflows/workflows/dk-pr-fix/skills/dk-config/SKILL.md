@@ -13,7 +13,8 @@ paths. It has no request ID, history or gate.
 
 A change binds the exact request to a durable request ID. One session with the
 admitted leaf role and no skills returns exact typed operations, concrete
-questions (one durable gate, resumed without a new session) or a cancellation.
+questions (one durable gate; an interrupted wait opens no new session, and the
+answer resumes the request in a new session with a new claim) or a cancellation.
 The host applies only this entry's operations, admits the exact revision
 through the shared structural and semantic admission, and writes exactly that
 revision once through the suite's single configuration writer, then reads it
