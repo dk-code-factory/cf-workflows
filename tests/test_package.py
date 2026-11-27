@@ -417,12 +417,15 @@ class InventoryStatus(unittest.TestCase):
         self.assertEqual(status['inventory_rows'], 29)
         self.assertFalse(status['releasable'])
         missing = {item['prerequisite'] for item in status['blockers']}
-        self.assertEqual([item['prerequisite'] for item in status['blockers'][:2]],
-                         ['engine release', 'plugin test container jobs'])
+        self.assertEqual([item['prerequisite'] for item in status['blockers'][:3]],
+                         ['engine release', 'helper state mount', 'plugin test container jobs'])
+        blockers = {item['prerequisite']: item['missing'] for item in status['blockers']}
+        self.assertIn('agent-workflow#149', blockers['helper state mount'])
+        self.assertIn('agent-workflow#150', blockers['plugin test container jobs'])
         # Merged upstream capabilities are not listed as missing; only their release is.
         self.assertFalse({'agent-workflow#130', 'agent-workflow#131', 'agent-workflow#132',
                           'agent-workflow#133'} & missing)
-        self.assertTrue({'engine release', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
+        self.assertTrue({'engine release', 'helper state mount', 'plugin test container jobs', 'cf-workflows', 'cf-workflows:dk-pr-fix',
                          'cf-workflows:dk-pr-review', 'cf-workflows:dk-pr-iter', 'cf-workflows:dk-pr-feedback-read',
                          'cf-workflows:dk-pr-feedback-address', 'cf-workflows:dk-pr-feedback-reply',
                          'cf-workflows:dk-plain-english', 'cf-workflows:dk-asd-ste100',

@@ -88,9 +88,12 @@ class Prerequisites(unittest.TestCase):
         host = FakeHost()
         result, checks = self.check(host)
         self.assertFalse(result['ready'])
-        self.assertEqual({name for name, item in checks.items() if item['status'] != 'ok'}, {'engine'})
+        self.assertEqual({name for name, item in checks.items() if item['status'] != 'ok'}, {'engine', 'state_mount'})
         self.assertEqual(checks['engine']['status'], 'blocked')
         self.assertIn('#130', checks['engine']['guidance'])
+        self.assertEqual(checks['state_mount']['status'], 'blocked')
+        self.assertIn('/cf-workflows-state', checks['state_mount']['detail'])
+        self.assertIn('#149', checks['state_mount']['guidance'])
         self.assertEqual(host.calls, Counter({'which': 2, 'git config': 2, 'image inspect': 1, 'image tools': 1}))
 
     def test_missing_prerequisites_are_guidance_only(self):

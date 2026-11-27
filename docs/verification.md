@@ -93,7 +93,11 @@ byte for byte and the payload against `closure.json`
 ([reproducible builds](packaging.md#reproducible-builds-against-unreleased-source)).
 It verifies unreleased upstream source, not a supported release; its fake
 toolchain cases run in the default suite and the real build only with
-`CF_AGENT_WORKFLOW` set.
+`CF_AGENT_WORKFLOW` set. With it set, `StateMountBlocker` in
+`tests/test_dk_pr_fix.py` also reads the pinned commit's container launch and
+requires its bind targets to be exactly the fixed set that leaves
+`/cf-workflows-state` unmounted
+([state namespace](dk-pr-fix.md#state-namespace)).
 [Response stage](responses.md) tests (`tests/test_dk_pr_fix_responses.py`) cover
 dk-workflows#255 with the installed helpers and a fake GitHub transport that
 counts captures and writes: replies settled before a failing review and kept on

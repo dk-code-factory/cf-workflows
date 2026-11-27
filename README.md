@@ -22,7 +22,8 @@ checks. There is no runnable plugin, built package or verified host
 compatibility yet: running the installed workflow needs a released engine with
 Agent Workflow #129, #130 and the #139 discovery-isolation work, and packaging
 needs #131–#133 in that release. Those issues are closed upstream, but no engine
-release exists yet. Source pins are provenance, not a certified released engine.
+release exists yet. The engine also cannot mount the suite's state namespace
+into helper containers yet (Agent Workflow #149). Source pins are provenance, not a certified released engine.
 The [acceptance matrix](docs/qualification.md) traces all 29 rows and the nine
 inherited defects to deterministic evidence. It records that no
 host/provider/engine combination is verified and that live acceptance is

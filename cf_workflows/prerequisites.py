@@ -10,7 +10,9 @@ with `--pull=never` and no network to list its tools.
 The verified exact-engine download is Agent Workflow's shared setup
 (agent-workflow#130). It is merged upstream but in no release yet, so the
 engine check always reports it as blocked rather than substituting a local
-engine.
+engine. Every helper step needs the suite's state namespace at
+/cf-workflows-state, which no engine can mount into helper containers yet
+(agent-workflow#149), so the state_mount check is always blocked too.
 """
 import os
 from pathlib import Path
@@ -20,6 +22,7 @@ import subprocess
 import sys
 
 from . import admission
+from .dk_pr_fix import STATE_MOUNT
 
 MINIMUM_RUN_TIMEOUT = 2 * 3600
 DEFAULT_RUN_TIMEOUT = '30m'  # The engine's default controller.run-timeout.
@@ -104,6 +107,10 @@ def check(*, repository, deployment, host=None, writes=True, ci_timeout_seconds=
     checks.append(_item('engine', 'blocked', 'no verified exact-engine download path is available',
                         'Agent Workflow #130 provides the shared verified setup and the pinned engine has no '
                         'release yet. Do not substitute an engine from PATH or a local build.'))
+    checks.append(_item('state_mount', 'blocked',
+                        'no engine mounts the state namespace into helper containers at ' + STATE_MOUNT,
+                        'Agent Workflow #149 tracks a plugin-private persistent state mount. Do not keep '
+                        'state in the target checkout or mount it outside the engine.'))
     return {'schema_version': 1, 'kind': 'prerequisites',
             'ready': all(item['status'] == 'ok' for item in checks), 'checks': checks}
 

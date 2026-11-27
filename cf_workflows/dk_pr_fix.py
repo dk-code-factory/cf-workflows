@@ -15,8 +15,9 @@ engine, through the transport, for one validator task and durable input gates
 configuration store (cf_workflows.writes) unsettled configuration writes are
 read back before the saved configuration is read, and a revision a
 clarification answer made to it is written back once. Agent Workflow runs the
-workflow; until it can resolve an installed package and mount the state
-namespace (Agent Workflow #130), the result is a validated input set only.
+workflow. Its unreleased main resolves installed packages (Agent Workflow #130)
+but cannot mount the state namespace into helper containers (Agent Workflow
+#149), so the result is a validated input set only.
 """
 from collections import Counter
 import hashlib
