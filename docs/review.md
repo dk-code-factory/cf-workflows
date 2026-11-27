@@ -282,8 +282,10 @@ publication helpers list only verified findings and the final merge there.
   `findings` job lists with the `findings` selector, after the cycles and only
   when `prepare` reports `findings_authorized`, the barrier lists through
   `publication_list` and publishes one item at a time, and each item prepares,
-  runs its audience session and writes only on `invoke`, then always
-  reconciles through `publication_recover`. No engine parses or runs it.
+  runs its audience session only on `invoke` and writes only on `invoke` after
+  that session succeeds. After a succeeded `prepare` it reconciles through
+  `publication_recover` unless the write failed or needs attention. No engine
+  parses or runs it.
 - [`tests/test_dk_pr_fix_alignment.py`](../tests/test_dk_pr_fix_alignment.py)
   checks the [installed alignment gate](alignment.md#verification) on the same
   fixtures. Retained alternatives analysis that does not release review keeps

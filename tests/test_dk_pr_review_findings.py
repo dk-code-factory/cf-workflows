@@ -716,14 +716,20 @@ class InstalledRoute(unittest.TestCase):
         # invoke: false (a pending or applied submission) skips the audience session and the write.
         self.assertEqual(jobs["audience"]["if"], "${{ needs.prepare.outputs.result.invoke }}")
         self.assertEqual(jobs["audience"]["with"]["task"], "publication_audience")
-        self.assertIn("needs.prepare.outputs.result.invoke", jobs["publish"]["if"])
+        # The write also needs a succeeded audience session.
+        self.assertEqual(jobs["publish"]["if"],
+                         "${{ needs.prepare.outputs.result.invoke and needs.audience.status == 'succeeded' }}")
         self.assertEqual([step["argv"][-1] for step in jobs["publish"]["steps"]],
                          ["publication_execute", "publication_record"])
         for step in jobs["publish"]["steps"]:
             self.assertEqual((step["protocol"], step["effect"]), ("action-v1", "external_mutation"))
-        # Recovery always follows: it settles a lost response read-only and never resends.
+        # Recovery follows a succeeded prepare unless the write failed or needs attention: it settles a
+        # lost response read-only and never resends. A skipped write (invoke: false) still reconciles.
         self.assertEqual(helper_call(jobs["receipt"])[0], "publication_recover")
         self.assertEqual(set(jobs["receipt"]["needs"]), {"prepare", "publish"})
+        self.assertEqual(jobs["receipt"]["if"], "${{ needs.prepare.status == 'succeeded' and "
+                                                "needs.publish.status != 'failed' and "
+                                                "needs.publish.status != 'needs_attention' }}")
 
 
 if __name__ == "__main__":
