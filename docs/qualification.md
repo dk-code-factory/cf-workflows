@@ -163,9 +163,9 @@ and fail-closed unconfigured fixture operations.
 - Agent Workflow #127–#133 (the plugin toolchain, provider-neutral sessions
   and relocated packages), #138 (the portable merge guard) and #139
   (session-scoped supplied skills) are closed upstream. No release contains
-  them. The engine release and the fixture runner's missing container-job
-  support stay listed as [packaging](packaging.md#what-remains-blocked)
-  blockers. A development check builds identical packages from the unreleased
+  them. The engine release, the helpers' missing state mount (Agent Workflow
+  #149) and the fixture runner's missing container-job support (#150) stay
+  listed as [packaging](packaging.md#what-remains-blocked) blockers. A development check builds identical packages from the unreleased
   source; it verifies no combination.
 - Agent Workflow #134 (managed provider parity) is open. It gates only the
   capabilities that a selected path needs.
@@ -285,7 +285,8 @@ accepted records for it.
 `python3 -B -m cf_workflows.package` reports `releasable: false`. Its blockers
 come from three sources:
 
-- the missing engine release and the fixture runner's container-job gap;
+- the missing engine release, the helpers' state mount and the fixture
+  runner's container-job gap;
 - the non-runnable suite and every listed row without parity;
 - the matrix: each live procedure without an accepted record, the absence of
   any verified combination, and the rows without native-execution evidence.
@@ -309,8 +310,9 @@ release.
 ## What remains
 
 - Every row's native execution through an installed workflow on a released
-  engine. Each needs Agent Workflow #129/#130 in a release and a persistent
-  state mount for helper containers (#149); supplied skills also need #139.
+  engine. Each needs Agent Workflow #129/#130 in a release and a state mount
+  for the helper containers (#149); supplied skills also need #139 in a release
+  and selections in reusable workflows (#152).
 - All three live procedures, each under its own explicit authorization.
 - A published engine release equal to the pin, and the shared toolchain's
   build, check, test and release validation from it. Reproducible packages for

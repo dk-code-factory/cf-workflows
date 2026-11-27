@@ -82,7 +82,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor, but the installed workflow has never run through a released engine. Supplied skills (#16) stay rejected at preflight until a released engine ships Agent Workflow #139. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor, but the installed workflow has never run through an engine. Agent Workflow #129/#130 are on its main but no release contains them, and no engine mounts the state namespace that every helper step needs into helper containers (Agent Workflow #149), so the graph cannot run even from unreleased source; plugin test cannot exercise it until the fixture runner accepts container jobs (Agent Workflow #150). Supplied skills (#16) stay rejected at preflight: #139 admits a skill selection only in the entry workflow, and each occurrence runs through the reusable native.yml (Agent Workflow #152). No host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-review",

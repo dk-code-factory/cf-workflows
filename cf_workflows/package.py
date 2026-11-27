@@ -41,12 +41,16 @@ GENERATED = ('.codex-plugin', '.claude-plugin', '.agents', 'plugin.json', 'marke
 # Supported-capability prerequisites that are not available yet. Remove an entry
 # only when its released capability is actually consumed here. Agent Workflow
 # #130-#133 (plugin run, build, check/test and release validation) are merged
-# upstream, so only the release and the fixture runner's container gap remain.
+# upstream, so the release, the helpers' state mount and the fixture runner's
+# container gap remain.
 UPSTREAM_BLOCKERS = (
     ('engine release', 'no published engine release contains agent-workflow #130-#133 (packaged run, plugin '
      'build, check, test and release validation), so the pinned version has no verified download'),
-    ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs (agent-workflow '
-     '#150), so plugin test cannot run any bound skill and no deterministic packaged smoke execution exists'),
+    ('helper state mount', 'agent-workflow cannot mount a plugin-private persistent state directory into '
+     'container helpers (agent-workflow#149), so no helper of the installed workflow receives '
+     + dk_pr_fix.STATE_MOUNT),
+    ('plugin test container jobs', 'the agent-workflow fixture runner rejects container jobs (agent-workflow#150), '
+     'so plugin test cannot run any bound skill and no deterministic packaged smoke execution exists'),
 )
 IDENTITY = re.compile(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*')
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'

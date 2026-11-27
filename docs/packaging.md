@@ -106,7 +106,8 @@ as JSON, and exits 1 on a diagnostic. The status:
 - lists each skill with its inventory parity status (currently
   `not_implemented`);
 - reports `releasable: false` with its blockers: the missing engine release,
-  the fixture runner's missing container-job support, the non-runnable suite,
+  the missing helper state mount, the fixture runner's missing container-job
+  support, the non-runnable suite,
   every listed row without implemented parity, and the
   [acceptance matrix](qualification.md#release-readiness) blockers (pending live
   procedures, no verified combination, rows without native evidence). The
@@ -135,6 +136,7 @@ the parsed `agents.yml`. Each check is `ok`, `missing` with guidance, or
 | `helper_image` | The pinned image is already present locally and contains Python 3.11 or newer, Git, `gh` and `sleep` |
 | `run_timeout` | `controller.run-timeout` of at least `2h` and at least the CI window; the engine default `30m` is too short |
 | `engine` | Always `blocked`: no verified exact-engine download path exists yet |
+| `state_mount` | Always `blocked`: no engine mounts the state namespace into helper containers at `/cf-workflows-state` ([Agent Workflow #149](https://github.com/dk-code-factory/agent-workflow/issues/149)) |
 
 The check reports guidance; it never repairs anything. It runs only `git config
 --local --get`, `IMAGE image inspect` and, for an image that is already present,
@@ -228,13 +230,19 @@ execution and shared verified engine setup),
 (`plugin check` and `plugin test`) and
 [#133](https://github.com/dk-code-factory/agent-workflow/issues/133) (release
 validation) are merged on its `main`, so they are no longer listed as missing
-capabilities. Two blockers remain:
+capabilities. Three blockers remain:
 
 - **Engine release.** As of 2026-11-26 no published release contains them (the
   newest tag is `v0.2.1`, which predates them), and the pinned `0.2.2` has no
   verified download. Setup through `engine_bootstrap.py`, release validation
   and supported package claims wait for it. Then replace the pin with that
   release.
+- **Helper state mount.** No engine mounts a plugin-private persistent state
+  directory into helper containers
+  ([#149](https://github.com/dk-code-factory/agent-workflow/issues/149)). Every
+  helper step needs the [state namespace](dk-pr-fix.md#state-namespace) at
+  `/cf-workflows-state`, so even an unreleased-source `plugin run` would reject
+  at its first helper.
 - **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
   with a container ("fixtures do not support job containers"); Agent Workflow
   [#150](https://github.com/dk-code-factory/agent-workflow/issues/150) tracks
@@ -247,4 +255,4 @@ capabilities. Two blockers remain:
   pinned helper image, provider sessions and a released engine, which need
   separate authorization.
 
-Neither needs a change to the descriptor format.
+None needs a change to the descriptor format.

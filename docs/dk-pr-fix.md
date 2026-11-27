@@ -219,6 +219,28 @@ So dk-workflows settings, `.pr-fix-state` and other existing state are never
 adopted or imported. Back up the namespace together with the engine's recovery
 bundle.
 
+No engine can mount this namespace yet. Agent Workflow `8758775` binds only
+`/workspace`, a fresh per-launch `/state`, `/engine-lifetime`, its guardian,
+`/actions` and, for grouped runs, `/engine-task-state` into a helper container,
+and no workflow, package or `agents.yml` field adds another bind
+([Agent Workflow #149](https://github.com/dk-code-factory/agent-workflow/issues/149)).
+The per-launch `/state` does not survive the step, and the workspace is the
+target checkout the namespace must stay outside of, so neither stands in.
+`StateMountBlocker` in `tests/test_dk_pr_fix.py` pins this: every helper names
+`/cf-workflows-state`, the package status and runtime prerequisites report the
+missing mount, and, with `CF_AGENT_WORKFLOW` set, the pinned engine source binds
+exactly those fixed targets.
+
+**Engine task state.** The engine's `durable-task-state-v1` service (grouped
+runs, `/engine-task-state`) retains claims, allowance reservations and absolute
+deadlines in the controller's database. It could hold the ledger's claims,
+budgets and deadlines, but not its submissions, operations, publication
+intents, local commits, content-addressed stores or the cross-run writer lease.
+Moving only part of the ledger would split records that one SQLite transaction
+keeps consistent today (a claim's completion with its submission and accepted
+report) across two stores with no shared transaction. The installed workflow
+therefore uses no task group, and still needs the state mount.
+
 ## Budgets, occurrences and continuation
 
 All of this lives in the logical run's SQLite ledger. A replacement engine run,
@@ -355,26 +377,48 @@ the installed helpers, each with a fresh state namespace.
 These fixtures do not run the YAML graph, start sessions or prove any engine,
 provider or host capability.
 
-- [Agent Workflow #129](https://github.com/dk-code-factory/agent-workflow/issues/129):
-  engine-managed native sessions through the Codex or Claude SDK.
-- [Agent Workflow #130](https://github.com/dk-code-factory/agent-workflow/issues/130):
-  running an installed package against a separate checkout and resolving its
-  reusable references and admitted assets.
-- [Agent Workflow #149](https://github.com/dk-code-factory/agent-workflow/issues/149):
-  mounting the state namespace into helper containers. Through `8758775` a
-  container step gets only a fresh `/state`, so the `/cf-workflows-state` path
-  in `helper.yml` has no persistent source.
-- [Agent Workflow #139](https://github.com/dk-code-factory/agent-workflow/issues/139)
-  discovery-isolation PR: sessions with host and repository skill and plugin
-  discovery disabled, and observed evidence of the session's plugin set.
+Agent Workflow
+[#129](https://github.com/dk-code-factory/agent-workflow/issues/129)
+(engine-managed native sessions through the Codex or Claude SDK),
+[#130](https://github.com/dk-code-factory/agent-workflow/issues/130)
+(running an installed package against a separate checkout with its reusable
+references and admitted assets) and
+[#139](https://github.com/dk-code-factory/agent-workflow/issues/139)
+(sessions with host and repository skill and plugin discovery disabled, and
+observed evidence of the session's plugin set) are merged on its `main`
+(`8758775`). They are no longer missing capabilities. What still blocks each
+acceptance criterion:
+
+- **State mount**
+  ([Agent Workflow #149](https://github.com/dk-code-factory/agent-workflow/issues/149)).
+  No engine mounts the [state namespace](#state-namespace) into helper
+  containers, so every helper step would reject and the graph cannot run even
+  from unreleased source. This blocks the relocated read-only run against a
+  separate target and the end-to-end proof that instructions, identities and
+  resource references reach every stage.
+- **Engine release.** No published release contains #129, #130 or #139 (the
+  newest tag is `v0.2.1`; the plugin pins the unreleased `0.2.2`). A supported
+  run, and with it the separate verifier engine session and the session
+  isolation evidence, needs that release and the state mount.
+- **Packaged fixture execution**
+  ([Agent Workflow #150](https://github.com/dk-code-factory/agent-workflow/issues/150)).
+  `plugin test` rejects container jobs, so the installed graph has no
+  deterministic engine-side smoke run ([packaging](packaging.md#what-remains-blocked)).
+- **Live acceptance.** Session isolation probes, real provider sessions and
+  GitHub publication each need separately authorized live evidence
+  ([qualification](qualification.md)).
 - Every publication kind, merge included, is helper-side only until the
   workflow runs ([exact-intent publication](publication.md#what-remains)).
 - Proof that budgets, occurrences and continuation hold across real engine runs
-  and native sessions needs #129, #130 and #149. The fixtures exercise only the
-  helpers.
+  and native sessions needs the state mount and a release. The fixtures
+  exercise only the helpers.
 - Semantic admission of custom inputs through a real engine: the validator task
-  needs an engine operation receipt or a validator-only read-only tool policy,
-  which Agent Workflow `8758775` does not provide ([engine binding](semantic.md#engine-binding)).
-  Supplied-skill bindings ([skills.md](skills.md)) also need Agent Workflow #139.
+  needs an engine operation receipt or a validator-only read-only tool policy
+  ([Agent Workflow #151](https://github.com/dk-code-factory/agent-workflow/issues/151);
+  [engine binding](semantic.md#engine-binding)).
+- Supplied-skill bindings ([skills.md](skills.md)): #139 admits a selection
+  only in the entry workflow, and each occurrence runs through the reusable
+  `native.yml`
+  ([Agent Workflow #152](https://github.com/dk-code-factory/agent-workflow/issues/152)).
 
 No local launcher, controller or second agent loop stands in for these.

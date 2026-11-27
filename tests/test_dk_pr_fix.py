@@ -10,7 +10,7 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
@@ -202,6 +202,59 @@ class InstalledClosure(unittest.TestCase):
             # Every helper step sees the mounted state namespace.
             self.assertEqual(body.count('CF_WORKFLOWS_STATE: /cf-workflows-state'), body.count('/actions/helpers/action.py'), name)
 
+
+
+class StateMountBlocker(unittest.TestCase):
+    """The helpers' state namespace has no engine mount yet, and every report says so."""
+
+    # Bind targets of the pinned engine's typed container launch
+    # (pkg/runtimeexec/api_container.go and MountedGuardian at TOOLCHAIN_COMMIT).
+    ENGINE_TARGETS = {'/workspace', '/state', '/engine-lifetime', '/engine-guardian/guardian', '/actions',
+                      '/engine-task-state'}
+
+    def test_helpers_need_a_namespace_that_no_engine_target_provides(self):
+        values = set()
+        for name, body in workflow_files().items():
+            values |= set(re.findall(r'CF_WORKFLOWS_STATE: (\S+)', body))
+            # No workflow, engine or deployment field declares another bind mount, so none is pretended.
+            self.assertNotRegex(body, r'(?m)^\s*(volumes|mounts|binds):', name)
+        self.assertEqual(values, {dk_pr_fix.STATE_MOUNT})
+        for target in self.ENGINE_TARGETS:
+            self.assertFalse(PurePosixPath(dk_pr_fix.STATE_MOUNT).is_relative_to(target), target)
+        # The engine's per-launch /state and the workspace cannot stand in: one is fresh per container,
+        # the other is the target checkout the namespace must stay outside of.
+        self.assertNotIn(dk_pr_fix.STATE_MOUNT, self.ENGINE_TARGETS)
+
+    def test_blocker_is_named_in_package_prerequisites_and_matrix(self):
+        from cf_workflows import package
+        blockers = dict(package.UPSTREAM_BLOCKERS)
+        self.assertIn('agent-workflow#149', blockers['helper state mount'])
+        self.assertIn(dk_pr_fix.STATE_MOUNT, blockers['helper state mount'])
+        matrix = json.loads((ROOT / 'baselines' / 'acceptance-matrix.json').read_text())
+        row = next(row for row in matrix['rows'] if row['skill'] == 'dk-pr-fix')
+        self.assertEqual(row['status']['native_execution'], 'pending')
+        self.assertIn('Agent Workflow #149', row['remaining'])
+        self.assertIn('#149', (ROOT / 'docs' / 'dk-pr-fix.md').read_text())
+
+    @unittest.skipUnless(os.environ.get('CF_AGENT_WORKFLOW'),
+                         'set CF_AGENT_WORKFLOW to a local agent-workflow clone with the pinned toolchain commit')
+    def test_pinned_engine_source_binds_only_its_fixed_targets(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('check_package_build', ROOT / 'scripts/check_package_build.py')
+        build_check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build_check)
+
+        def show(path):
+            return subprocess.run(['git', '-C', os.environ['CF_AGENT_WORKFLOW'], 'show',
+                                   f'{build_check.TOOLCHAIN_COMMIT}:{path}'],
+                                  check=True, capture_output=True).stdout.decode()
+        launch = show('pkg/runtimeexec/api_container.go')
+        # One bind helper appends every mount; its literal targets are the whole set.
+        self.assertEqual(launch.count('q.Mounts = append('), 1)
+        targets = set(re.findall(r'Target: "(/[^"]+)"', launch)) | set(re.findall(r'bind\([^,()]+, "(/[^"]+)"', launch))
+        guardian = re.search(r'MountedGuardian = "(/[^"]+)"', show('pkg/runtimeexec/guardian.go')).group(1)
+        self.assertEqual(targets | {guardian}, self.ENGINE_TARGETS)
+        self.assertNotIn(dk_pr_fix.STATE_MOUNT, targets)
 
 class PreflightFixture(unittest.TestCase):
     def setUp(self):
