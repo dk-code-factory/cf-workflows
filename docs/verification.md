@@ -9,6 +9,7 @@ python3 scripts/check_baselines.py \
   --agent-workflow /path/to/agent-workflow
 python3 -B -m cf_workflows.package
 python3 -B scripts/check_acceptance.py
+python3 -m pip install -r requirements-test.txt  # PyYAML, used by some tests
 python3 -m unittest discover -s tests -v
 ```
 
