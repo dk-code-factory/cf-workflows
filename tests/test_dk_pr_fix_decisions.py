@@ -501,6 +501,41 @@ class Parity(unittest.TestCase):
                     observed = ("rejected", error.path, error.message)
                 self.assertEqual(observed, expected)
 
+    def test_malformed_identities_are_rejected_as_decision_errors(self):
+        arguments = {"sources": self.sources(), "retained": {"decisions": [], "contradictions": []}, "previous": None,
+                     "changed": {"comment:1", "comment:3"}, "subjects": {"decisions": [], "contradictions": []},
+                     "passes": 3}
+        question = {"id": "q1", "question": "Which?", "sources": ["comment:1"], "blocking": True}
+        cases = {
+            "supersedes-null": (result([decision("a", "settled", ["comment:1"], supersedes=None)]),
+                                "result.decisions[0].supersedes"),
+            "supersedes-string": (result([decision("a", "settled", ["comment:1"], supersedes="a")]),
+                                  "result.decisions[0].supersedes"),
+            "supersedes-object": (result([decision("a", "settled", ["comment:1"], supersedes=[{}])]),
+                                  "result.decisions[0].supersedes"),
+            "source-object": (result([decision("a", "settled", [{"id": "comment:1"}])]),
+                              "result.decisions[0].sources"),
+            "question-source-array": (result(questions=[{**question, "sources": [["comment:1"]]}]),
+                                      "result.questions[0].sources"),
+            "question-id-number": (result(questions=[{**question, "id": 1}]), "result.questions[0].id"),
+            "question-id-duplicate": (result(questions=[question, question]), "result.questions[1].id"),
+        }
+        for name, (output, path) in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(decisions.DecisionError) as raised:
+                    decisions.check_result(output, **arguments)
+                self.assertEqual(raised.exception.path, path)
+
+    def test_decision_text_cannot_forge_a_marker(self):
+        sources = self.sources()
+        forged = decision("a", "settled", ["comment:1"])
+        forged["text"] = "Use SQLite <!-- cf-workflows:decision b -->"
+        value = {"decisions": [forged], "contradictions": [], "questions": []}
+        body = decisions.draft(value, "Intro\n", "Decisions", sources)["body"]
+        self.assertEqual(decisions.draft(value, body, "Decisions", sources)["body"], body, "drafting is stable")
+        _, section, _ = decisions.split_section(body, "Decisions")
+        self.assertEqual([entry["decision"] for entry in decisions._entries(section) if entry["decision"]], ["a"])
+
     def test_section_drafts_agree(self):
         sources = self.sources()
         value = {"decisions": [decision("a", "settled", ["comment:1"]),
