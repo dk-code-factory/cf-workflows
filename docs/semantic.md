@@ -148,7 +148,7 @@ port with the installed workflow [`workflows/assess.yml`](../cf_workflows/workfl
 
 | Transport operation | Engine primitive |
 | --- | --- |
-| `capabilities()` | The engine's contract list; `durable-external-input-v1` maps to `durable_input` |
+| `capabilities()` | The engine's contract list; `durable-external-input-v1` maps to `durable_input`. An engine `ProviderCapabilities` record maps to no suite provider capability ([admission.md](admission.md#engine-capability-vocabulary)) |
 | `validator_session(assignment)` | `assess.yml` `validate`: one `agent/run` on the literal `workflows/validator/configuration-validator.yaml`, no `skill`, the verdict schema and `repair-attempts: 0`, correlated by the assignment's claim |
 | `open_input_gate(request)` | `assess.yml` `clarify`: one `input/wait` with the proposal's evidence ID; the payload holds the request ID and the semantic payload |
 | `input_gates(request_id)` | The engine's `ExternalInputGate` records for the request: `pending` is waiting, `accepted` and `consumed` are answered, `canceled` and `replaced` are skipped |

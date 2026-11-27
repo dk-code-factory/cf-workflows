@@ -131,6 +131,7 @@ class Routing(Semantic):
         result = self.run_semantic(verdict('accepted'), invocation=invocation, capabilities=offered)
         self.assertEqual((result['preflight'], result['structural']), ('rejected', 'accepted'))
         self.assertIn('session-scoped execution', result['error']['message'])
+        self.assertIn('agent-workflow #152', result['error']['message'])
         self.calls(gate_reads=0)
 
 

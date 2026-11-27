@@ -107,7 +107,8 @@ Custom inputs are:
 When any exist, the result is structurally `accepted`, semantically `blocked`
 and its preflight is `semantic_required`. Structural success never admits it;
 [semantic assessment](semantic.md) decides. A selected supplied skill still
-rejects preflight until Agent Workflow #139 loads it ([skills.md](skills.md)). The bundled
+rejects preflight until the installed workflow can carry a #139 selection,
+which needs Agent Workflow #152 ([skills.md](skills.md)). The bundled
 validator check runs before the engine query. The default plan has no custom
 inputs, so it is admitted with `semantic: null` and needs no validator session.
 
@@ -127,10 +128,42 @@ after one level.
 - Reusing acceptance and writing revisions back: [acceptance.md](acceptance.md).
 - Snapshot capture of PR metadata: the installed workflow's `prepare` helper
   ([dk-pr-fix](dk-pr-fix.md)).
-- Supplied-skill bindings and evidence: [skills.md](skills.md); loading needs Agent Workflow #139.
+- Supplied-skill bindings and evidence: [skills.md](skills.md); loading needs Agent Workflow #139
+  in a release and #152 for reusable workflows.
 
-No real engine reports these capabilities yet; the gating issues are Agent
-Workflow #129 and #130. Until they land, real preflight rejects. The #138
-merge-guard correction has landed, and the installed helpers consume it. The
-tests use a fail-closed fake transport, and their results do not certify any engine,
-provider or host.
+No released engine reports these capabilities. Agent Workflow #129 and #130
+are closed on upstream main (`8758775`), but no release contains them (newest
+tag v0.2.1; the plugin pins the unreleased 0.2.2). The vocabulary engine main
+does report maps onto only one suite name, so real preflight still rejects
+([below](#engine-capability-vocabulary)). The #138 merge-guard correction has
+landed, and the installed helpers consume it. The tests use a fail-closed fake
+transport, and their results do not certify any engine, provider or host.
+
+## Engine capability vocabulary
+
+The suite capability names are suite-defined. What Agent Workflow main
+`8758775` reports, and what `validator_binding.EngineTransport` maps it to:
+
+| Engine report | Suite name |
+| --- | --- |
+| `durable-external-input-v1` in the engine contract list (`workflows.Capabilities()`) | `durable_input` |
+| Other contracts (`durable-task-state-v1`, `structured-containers-v1`, ...) | none; ignored |
+| A runtime's `ProviderCapabilities` record (`sessions`, `resume`, `interrupt`, `structured_output`, `managed_policy`, shown by `agent-workflow doctor`) | none |
+
+Every provider capability admission can require is therefore unsupported
+against engine main. `validator_binding.UNMAPPED_PROVIDER_CAPABILITIES`
+records why for each:
+
+| Suite capability | Why no engine field stands for it |
+| --- | --- |
+| `native_session` | `sessions` reports conversation-session support only; nothing admits the suite's native task contract, and no released engine contains #129/#130 |
+| `admitted_roles` | Native tasks share the deployment's one runtime role and its tool policy; no per-task role or read-only policy is reported ([agent-workflow #151](https://github.com/dk-code-factory/agent-workflow/issues/151)) |
+| `merge_guard` | The #138 repository guard is a helper check, not a reported provider capability |
+| #139 skill profiles | Enforced when a skill selection is admitted, not reported; selections in reusable workflows reject ([agent-workflow #152](https://github.com/dk-code-factory/agent-workflow/issues/152)) |
+
+A provider record in the engine's boolean shape is bound to no suite
+capability, so admission rejects that provider for each required name instead
+of calling it unavailable. A record with any other field or a non-boolean
+value blocks preflight as a failed capability query. A binding that infers
+suite names from an engine version is meaningful only against a released
+engine the plugin pins; until one exists, nothing here claims support.

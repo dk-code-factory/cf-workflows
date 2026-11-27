@@ -19,7 +19,11 @@ The engine is a host port, never a local launcher: run(workflow, inputs, key)
 admits one run of an installed workflow under a correlation key and returns its
 status, run ID and outputs; inputs(key) returns the ExternalInputGate records of
 the runs under that key; capabilities() reports the engine contract list and
-the providers' capabilities.
+the providers' capabilities. Only `durable-external-input-v1` maps to a suite
+name. Engine main's per-runtime ProviderCapabilities record (sessions, resume,
+interrupt, structured_output, managed_policy) maps to no suite provider
+capability, so against it admission rejects every provider; see
+UNMAPPED_PROVIDER_CAPABILITIES and docs/admission.md#engine-capability-vocabulary.
 
 The engine records the task's opaque agent reference, provider and structured
 output. It does not record which tools the session used: native tasks share the
@@ -39,6 +43,22 @@ ASSESSMENT = 'workflows/assess.yml'
 DEFINITION = 'workflows/validator/configuration-validator.yaml'
 # Engine contract names mapped to the suite's engine-level capability names.
 ENGINE_CAPABILITIES = {'durable-external-input-v1': admission.INPUT_CAPABILITY}
+# The fields of Agent Workflow's per-runtime ProviderCapabilities record (pkg/workflows/context.go
+# at 8758775, reported by `agent-workflow doctor`). None of them is a suite provider capability.
+ENGINE_PROVIDER_FIELDS = ('sessions', 'resume', 'interrupt', 'structured_output', 'managed_policy')
+# Every provider capability structural admission can require, with why no engine field stands for it.
+UNMAPPED_PROVIDER_CAPABILITIES = {
+    'native_session': 'no engine field admits the suite\'s native task contract; `sessions` reports '
+                      'conversation-session support only, and no released engine contains #129/#130',
+    'admitted_roles': 'native tasks share the deployment\'s one runtime role and its tool policy; no '
+                      'per-task role or read-only policy is reported (agent-workflow #151)',
+    admission.MERGE_CAPABILITY: 'the #138 repository merge guard is a helper check, not a provider '
+                                'capability the engine reports',
+    **{profile: 'the #139 skill profile is enforced when a skill selection is admitted, not reported; '
+                'selections in reusable workflows reject (agent-workflow #152)'
+       for profile in (admission.CLAUDE_SKILL_PROFILE, admission.CLAUDE_CHILD_PROFILE,
+                       admission.CODEX_SKILL_PROFILE)},
+}
 # Agent Workflow's task mailbox bound for the prompt, structured-output instructions and typed input.
 MAILBOX = 1 << 20
 MAILBOX_RESERVE = 64 << 10
@@ -158,6 +178,25 @@ def gate(record, request_id):
                         'prompt': record.get('prompt'), 'payload': payload['assessment']}}
 
 
+def providers(offered):
+    """Suite capability lists per provider; an engine ProviderCapabilities record maps to none.
+
+    A list is taken as the suite names the port reports. A record in the engine's own
+    shape names no suite capability (UNMAPPED_PROVIDER_CAPABILITIES), so admission
+    rejects the provider as lacking each required one instead of as unavailable.
+    """
+    if not isinstance(offered, dict):
+        return offered
+    result = {}
+    for provider, value in offered.items():
+        if isinstance(value, dict):
+            if not (set(value) <= set(ENGINE_PROVIDER_FIELDS) and all(isinstance(v, bool) for v in value.values())):
+                raise BindingError(f'provider {provider} capabilities are not an engine ProviderCapabilities record')
+            value = []
+        result[provider] = value
+    return result
+
+
 class EngineTransport:
     """The semantic transport over an Agent Workflow engine port; see the module docstring."""
 
@@ -172,7 +211,7 @@ class EngineTransport:
         return {'engine': {'version': raw['version'],
                            'capabilities': sorted({ENGINE_CAPABILITIES[name] for name in offered
                                                    if name in ENGINE_CAPABILITIES})},
-                'providers': raw['providers']}
+                'providers': providers(raw['providers'])}
 
     def validator_session(self, task):
         check_definition(self.install)

@@ -170,7 +170,8 @@ skill occurrence never implies it.
   workflows are not certified"). dk-pr-fix dispatches each occurrence through
   the reusable `native.yml` with `agent: ${{ inputs.agent }}`. Wiring the
   binding, and binding the skill digest in the occurrence fingerprint, needs
-  that upstream capability first. Until then
+  that upstream capability first
+  ([agent-workflow #152](https://github.com/dk-code-factory/agent-workflow/issues/152)). Until then
   `admission.SUPPLIED_SKILL_EXECUTION` stays false, and preflight rejects a
   selected skill after structural checks and before any claim. Budgets and
   claims are keyed by the same occurrence IDs, so they are retained when a
