@@ -53,6 +53,10 @@ cover dk-workflows#239 and #241 with a disposable repository and ledger and a
 fake native-session transport whose unscripted dispatches fail. They count
 dispatches per stage, so no settled comparison repeats, and check partial
 COMMENT eligibility separately from the alignment gate.
+`tests/test_dk_pr_fix_alignment.py` drives the
+[installed gate](alignment.md#installed-gate) on the incoming-review fixtures. It
+counts stage sessions in the retained record, reviewer and verifier dispatches,
+and GitHub writes.
 [Structural admission](admission.md) tests (`tests/test_admission.py`) use
 disposable Git repositories and resource roots plus a fake engine transport. Any
 operation other than the configured `capabilities()` query fails without a live

@@ -256,7 +256,9 @@ and nothing is deleted.
 
 **Completion and readiness.** `complete` means every required selected
 occurrence has current coverage, every original finding is settled and, when the
-CI stage is selected, current-head CI succeeded. It holds for an empty plan and
+CI stage is selected, current-head CI succeeded. Retained alternatives analysis
+of the PR that does not release review also withholds it
+([alignment gate](alignment.md#installed-gate)). It holds for an empty plan and
 for plans with only custom tasks or finalizers. `ready` is a separate,
 stricter merge gate: it also needs selected current review and independent
 verification, a clean published head, fresh CI and live repository

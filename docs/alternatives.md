@@ -283,10 +283,12 @@ asserts its transport call counts or new sessions per stage.
 ## What remains
 
 - The installed `dk-pr-fix` and `dk-pr-review` workflows do not run the staged
-  procedure yet, so they reject its adapters. Installing it needs native stage
-  tasks with helper checks, engine input gates for manual selection, and the
-  stage checks and alignment ledger inside the helper closure, which cannot
-  import this library. Agent Workflow
+  procedure yet, so they reject its adapters. They only read its branch record
+  through the [installed alignment gate](alignment.md#installed-gate), whose
+  record reads are already in the helper closure. Installing the procedure needs
+  native stage tasks with helper checks, engine input gates for manual
+  selection, and the stage checks and ledger writes inside the helper closure,
+  which cannot import this library. Agent Workflow
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
   [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) are on
   its `main` but in no release, and its `plugin test` runner rejects container

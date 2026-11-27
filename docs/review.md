@@ -123,8 +123,10 @@ by the existing claim ledger.
 | `optional_omitted` | Optional occurrences that failed or are missing, reported separately |
 | `findings` | Candidate IDs that are `confirmed`, `rejected` or `unverified` |
 | `complete` | Every required occurrence is current and every finding has a verification disposition |
-| `clean_review` | `complete`, at least one current ordinary reviewer and no confirmed finding |
-| `outcome` | `clean`, `findings` or `incomplete` |
+| `clean_review` | `complete`, at least one current ordinary reviewer, no confirmed finding and an [alignment gate](alignment.md#installed-gate) that does not hold review |
+| `outcome` | `clean`, `findings` (complete, with confirmed findings) or `incomplete` |
+| `partial` | Not `complete`, no current ordinary reviewer, or held by the alignment gate. A partial review only comments |
+| `alignment` | The alignment gate outcome, `no_analysis` without a retained record |
 
 These rules come from dk-workflows#254:
 
@@ -245,6 +247,11 @@ publication helpers list only verified findings and the final merge there.
   the reviewer and verifier results with no new session, a renewed lag before
   dispatch withholds everything again, and the eventual `COMMENT` establishes
   no clean review, approval or readiness.
+- [`tests/test_dk_pr_fix_alignment.py`](../tests/test_dk_pr_fix_alignment.py)
+  checks the [installed alignment gate](alignment.md#verification) on the same
+  fixtures. Retained alternatives analysis that does not release review keeps
+  the review partial and unready. Its verified findings still post as a
+  `COMMENT`.
 - [`tests/test_routing.py`](../tests/test_routing.py) uses a fake GitHub
   transport that answers only the two identity reads, at most once each. Any
   other operation fails. Cases cover own and other PRs, multi-host accounts,
@@ -276,9 +283,10 @@ publication helpers list only verified findings and the final merge there.
 - `iter.yml` has never run through an engine. These fixtures check its YAML
   and helpers, not the engine's conditional calls or session adherence. Like
   review.yml, it needs Agent Workflow #129 and #130 in a release.
-- [Alignment](alignment.md) gating of ordinary review runs only as a library.
-  The [alternatives entries](alternatives.md) drive its stages as library
-  procedures; the installed review workflow rejects their adapters.
+- The installed review reads retained alternatives analysis through the
+  [alignment gate](alignment.md#installed-gate), but only the library
+  [alternatives entries](alternatives.md) run its stages. The installed review
+  workflow rejects their adapters (#27).
 - A profile built from an installed code-review-ad package uses custom adapters.
   `dk-pr-review` preflight routes them through semantic assessment and maps them
   once accepted, but through a real engine the validator task blocks until the

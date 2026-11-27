@@ -8,10 +8,10 @@ rules of the [invocation](contracts/v1/invocation.md) and
 [dk-workflows#241](https://github.com/dk-code-factory/dk-workflows/issues/241).
 Provisional PR identity is [provisional.md](provisional.md).
 
-Like [feedback obligations](feedback.md), this is a library operation that no
-installed workflow calls yet. The [alternatives entries](alternatives.md) (#27)
-drive its stages; incoming review (#24) will consume it. Native sessions for
-these stages need Agent Workflow #129 and #130.
+The [alternatives entries](alternatives.md) (#27) drive its stages as library
+procedures. The installed `dk-pr-fix` and `dk-pr-review` workflows read the
+result through the [installed gate](#installed-gate) before review. They never
+run a stage. Native sessions for these stages need Agent Workflow #129 and #130.
 
 ## Stages
 
@@ -90,6 +90,44 @@ head is ignored. A receipt at this head that differs from the verified changes
 rejects. `identities` (the [capture](provisional.md#pinning) record) only marks
 the outcome `provisional`. Private analysis may continue.
 
+`inputs=None` is a caller that holds no alignment evidence of its own. The
+retained alignment's inputs stand, so only a later head or changed analysis makes
+it stale (`later_head`, `changed_analysis`). New requirements reach the gate only
+through a caller that supplies `inputs`.
+
+## Installed gate
+
+The gate and the record's reads are one implementation:
+[`prfix/alignment.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py)
+in the installed helpers. It uses only the standard library.
+`cf_workflows/alignment.py` loads it and builds its writing `Ledger` on its
+`Records`.
+
+`main.yml` runs the `alignment_gate` helper operation after `prepare` and before
+the cycles. Coverage reads the gate again each cycle at the analyzed revision.
+The operation reads the PR's branch record, `runs/<sha256(pr_run)>.alignment.sqlite`,
+where `pr_run` is `alternatives_<digest(PR URL)[:32]>`, the record the
+alternatives entries keep for each PR.
+
+- No record: `no_analysis`. Review is not gated and no record is created.
+- A record: it is opened read-only, and the suite, kind, run, PR and version are
+  checked. `gate(..., inputs=None, identities=...)` runs at the pinned revision.
+  An unreadable, foreign or unsupported record fails the operation, so the
+  cycles do not run.
+- `gated` is true when the plan selects review and the outcome does not release
+  it. Then coverage reports `current_alignment` under `withheld`, not `missing`.
+  The run settles without another cycle, but `complete` and `ready` stay false.
+  Incoming review stays `partial` and is never `clean`. Its independently
+  verified findings are still listed, as a `COMMENT` only. `completion` returns
+  this unready result and does not fail, as it does for provisional analysis.
+  `readiness` reports the outcome as a blocker.
+
+The installed run never starts, repeats or authorizes a stage, and never writes
+the record. A later head needs only a refreshed alignment from the alternatives
+entries. It needs no rejection receipt, and settled stages and allowances are
+kept. Recovery backs up the `alignment` store with dk-pr-fix, dk-pr-review and
+dk-pr-iter runs ([recovery](recovery.md)).
+
 ## Partial COMMENT findings
 
 `partial_comment(finding, verification, snapshot=..., permissions=..., publications=())`
@@ -140,7 +178,30 @@ covers:
 - retained, narrowed, exhausted and granted allowances;
 - independent verification, pending choices and incompatible interactions;
 - partial COMMENT eligibility checked separately from the gate, including the
-  provisional block.
+  provisional block;
+- a caller without alignment evidence (`inputs=None`), and read-only `Records`
+  that give the same outcome, refuse a foreign run or PR and create nothing.
+
+[`tests/test_dk_pr_fix_alignment.py`](../tests/test_dk_pr_fix_alignment.py)
+drives the installed gate. It writes the retained record with the library
+ledger, as the alternatives entries keep it, counts stage sessions, and uses the
+fail-closed fake GitHub transport of the incoming-review tests. It covers:
+
+- no record: review is ungated and no record is created;
+- dk-workflows#239 through the installed run: a mismatch verified at an earlier
+  head with no receipt gates the later head (`later_head`). The verified finding
+  still posts as one `COMMENT`, and readiness and merge are withheld. One
+  alignment refresh at the new head releases it, with no repeated comparison,
+  selection, reviewer or verifier session;
+- dk-workflows#241: an uncertain alignment keeps review unclean, and
+  `completion` ends unready. New requirements refresh it through the library,
+  and only then is the review clean;
+- unsettled analysis gates review, and the gate leaves the record's bytes
+  unchanged;
+- a verified mismatch at the current head keeps a dk-pr-fix run unready;
+- provisional identity marks the gate and still withholds findings;
+- foreign and unsupported records stop the gate;
+- the library and the helpers share one gate.
 
 [`tests/test_dk_pr_review_findings.py`](../tests/test_dk_pr_review_findings.py)
 checks the same rule through the installed incoming-review helpers
@@ -154,10 +215,12 @@ or verifier session and no clean review or readiness.
 - Running these stages as engine-managed native sessions needs Agent Workflow
   #129 and #130. The alternatives entries and the direct manual entry drive them
   as library procedures ([alternatives](alternatives.md)).
-- [Incoming review](review.md) (#24) does not call the gate. No installed
-  workflow runs the architectural stages: the installed workflows reject the
-  alternatives adapters ([alternatives](alternatives.md#what-remains), #27).
-  Until one does, an installed review has no settled analysis to gate.
+- The installed workflows gate review on retained analysis but do not run the
+  architectural stages. They reject the alternatives adapters
+  ([alternatives](alternatives.md#what-remains), #27). A gated run needs the
+  library alternatives entries to refresh alignment. The installed gate has never
+  run through a released engine: Agent Workflow #129, #130 and #139 are on its
+  `main` but in no release.
 - Posting an eligible finding goes through [exact-intent
   publication](publication.md). Incoming review applies the same rules in its
   [finding publication](review.md#finding-publication); it does not call this
