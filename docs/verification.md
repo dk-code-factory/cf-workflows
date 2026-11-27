@@ -104,7 +104,10 @@ reply authority and custom or empty plans.
 helpers in review mode, the router, its `routing.preflight()` admission and the
 installed `iter_route` check with fail-closed fake GitHub and engine
 transports. They count native dispatches and identity reads, and cover
-dk-workflows#254 report-only pass claims.
+dk-workflows#254 report-only pass claims. `tests/test_dk_pr_review_profile.py`
+admits a code-review-ad pass profile through the review preflight's semantic
+assessment and acceptance ledger, counting validator tasks, and runs each pass
+as its own occurrence in the installed helpers.
 [Finding publication](review.md#finding-publication) tests
 (`tests/test_dk_pr_review_findings.py`) cover dk-workflows#240 body-only and
 mixed findings with summaries disabled, partial `COMMENT` reviews, unchanged

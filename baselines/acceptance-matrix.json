@@ -103,7 +103,8 @@
       "direct": [
         "test_dk_pr_review.Helpers.test_review_mode_reads_another_authors_pr_and_never_fixes",
         "test_dk_pr_review.Helpers.test_clean_review_needs_every_required_session_and_independent_verification",
-        "test_dk_pr_review.ReviewPreflight.test_review_preset_maps_onto_the_review_entry"
+        "test_dk_pr_review.ReviewPreflight.test_review_preset_maps_onto_the_review_entry",
+        "test_dk_pr_review_profile.PassProfile.test_each_admitted_pass_is_its_own_session_and_keeps_its_original_report"
       ],
       "composed": [
         "test_dk_pr_review_findings.BodyAndInline.test_mixed_findings_keep_honest_anchors_and_never_duplicate",
@@ -116,7 +117,9 @@
         "test_dk_pr_review.ReviewPreflight.test_review_plans_never_write_or_publish_here",
         "test_dk_pr_review_findings.RerunsAndRecovery.test_partial_findings_publish_after_identity_reconciliation_and_never_while_provisional",
         "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_241_new_evidence_refreshes_uncertain_alignment_before_a_clean_review",
-        "test_dk_pr_fix_alignment.InstalledGate.test_foreign_or_unsupported_records_stop_the_gate"
+        "test_dk_pr_fix_alignment.InstalledGate.test_foreign_or_unsupported_records_stop_the_gate",
+        "test_dk_pr_review_profile.PassProfile.test_unchanged_profile_reuses_its_acceptance_and_a_changed_pass_is_assessed_alone",
+        "test_dk_pr_review_profile.PassProfile.test_snapshotted_package_resources_reject_before_any_gate_read_or_session"
       ],
       "status": {
         "parity": "not_implemented",
@@ -125,7 +128,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization. A code-review-ad pass profile is admitted only as inline custom reviewer adapters; one that pins the package files as adapter resources rejects because the installed workflow mounts no configured resource."
     },
     {
       "skill": "dk-repo-onboard",

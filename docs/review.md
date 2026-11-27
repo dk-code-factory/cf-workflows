@@ -112,6 +112,35 @@ code-review-ad passes (Toolkit, Standards, Spec) is a parallel group of
 reviewer adapters, one occurrence per pass. Every original report is retained
 by the existing claim ledger.
 
+### Pass profiles
+
+A pass profile reaches the installed review as custom invocation options: one
+`review` adapter per pass with the `reviewer` definition and no writes, and one
+reviewer group that selects them all, for example
+`{"options": {"tasks": [{"stage": "reviews"}], "reviewers": [["code-review-ad-toolkit", "code-review-ad-standards", "code-review-ad-spec"]], "adapters": {...}}}`.
+`dk_pr_review.preflight()` sends the adapters through
+[semantic assessment](semantic.md#installed-workflow) as one validator task.
+Only an accepted profile maps onto review.yml's declared `tasks`, `reviewers`
+and `adapters` inputs. Acceptance grants no permission. A rejected or blocked
+assessment maps nothing. With the suite's acceptance ledger, an unchanged
+profile is reused on a fresh preflight with no validator task, and a changed
+pass goes back to the validator alone
+([acceptance reuse](acceptance.md#installed-preflight)).
+
+In the installed helpers each pass is its own required occurrence. One session
+cannot cover two passes, and a report that claims sibling passes covers only
+its own (dk-workflows#254). Without every pass and the separate verifier the
+review stays `incomplete`. Each pass keeps its exact original report,
+deliverables included, and an unchanged rerun reuses every pass without a new
+session.
+
+A profile in the upstream generator's form pins the package's files as adapter
+resources. The installed workflow mounts no configured resource, so such a
+profile rejects before any gate read or validator task
+([installed-workflow limits](semantic.md#installed-workflow)). The pass
+assignments must carry the guidance inline. Loading the installed
+code-review-ad skill itself is a supplied reviewer skill (#16).
+
 ## Outcomes
 
 `coverage` returns a `review` record. `readiness` copies it.
@@ -271,6 +300,15 @@ publication helpers list only verified findings and the final merge there.
   findings, optional versus required failures, reuse and head refresh, and
   merge withheld without coverage. The review preflight cases cover the preset,
   scope overrides and rejected writes and publications.
+- [`tests/test_dk_pr_review_profile.py`](../tests/test_dk_pr_review_profile.py)
+  admits a code-review-ad pass profile through `dk_pr_review.preflight()` with
+  a fake engine transport (one scripted validator task) and the suite's
+  acceptance ledger, then runs the accepted inputs through the installed
+  helpers in review mode. Cases: the declared review.yml inputs, reuse on a
+  fresh preflight, a changed pass assessed alone, rejected and blocked
+  assessments, package resources rejected before any gate read, one session
+  per pass with its original report, missing passes kept `incomplete`, and an
+  unchanged rerun with no new session.
 - `tests/test_skills.py` (`IncomingReviewCoordinator`) checks a supplied
   coordinator skill with its one required child pass on the review preset
   (Agent Workflow #139 admits exactly one required child, on Claude only).
@@ -288,11 +326,12 @@ publication helpers list only verified findings and the final merge there.
   `pr-alternatives` occurrence, which runs the
   [staged procedure](alternatives.md#installed-workflow) through verification
   and the gate; it has never run through a released engine.
-- A profile built from an installed code-review-ad package uses custom adapters.
-  `dk-pr-review` preflight routes them through semantic assessment and maps them
-  once accepted, but through a real engine the validator task blocks until the
-  engine records its operations ([engine binding](semantic.md#engine-binding)).
-  The profile itself is #13. Supplied reviewer skills need #16 and Agent Workflow #139.
+- A [pass profile](#pass-profiles) is admitted and run only in these fixtures.
+  Through a real engine its validator task blocks until the engine records its
+  operations ([engine binding](semantic.md#engine-binding)). A profile that
+  pins the code-review-ad package files as adapter resources rejects until the
+  installed workflow mounts configured resources. Supplied reviewer skills need
+  #16 and Agent Workflow #139.
 - Finding publication runs through the installed graph only once Agent
   Workflow #129 and #130 land. The fixtures prove the helper and ledger
   behavior, not GitHub's acceptance of these payloads (for example an empty
