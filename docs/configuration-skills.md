@@ -200,8 +200,8 @@ persisting it.
 2. A source is `selected` when admission consumes it for every run. Other
    sources are `unselected`, and their rules are evidence only. This suite has no
    saved source-selection override yet.
-3. The helper sets each source's status: `inspected`, `unreadable` (too large or
-   not UTF-8) or `unsafe` (a symlink that leaves the repository). The session can
+3. The helper sets each source's status: `inspected`, `unreadable` (too large,
+   not UTF-8 or not a regular file; reads are non-blocking and bounded) or `unsafe` (a symlink that leaves the repository). The session can
    mark a source `uninspected`, but it cannot upgrade a status.
 4. `view()` reads the saved configuration for the target: each effective option,
    permission and saved entry option (`entries.<entry>.<option>`) with its source

@@ -235,7 +235,7 @@ def collect(github, repository, pr, head):
         raise Incomplete('the PR author has no immutable identity')
     organization = pr['repository'].split('/')[1]
     merge_base = _git(repository, 'merge-base', base, head).decode().strip()
-    paths = sorted(filter(None, _git(repository, 'diff', '--name-only', merge_base, head).decode().split('\n')))
+    paths = sorted(filter(None, _git(repository, 'diff', '-z', '--name-only', merge_base, head).decode().split('\0')))
     ownership = codeowners(repository, base, paths, organization)
     reviews = _pages(lambda page: github.reviews(pr['url'], page), 'reviews')
     users, teams, excluded = {}, {}, []
@@ -325,6 +325,7 @@ def check_selection(output, candidates):
             require(candidate is not None, where, 'not an eligible candidate from the collected evidence')
             require(candidate['name'] not in result[key], where, 'duplicate recipient')
             require(isinstance(item['sources'], list) and item['sources']
+                    and all(isinstance(source, str) for source in item['sources'])
                     and set(item['sources']) <= set(candidate['sources']), where + '.sources',
                     "cite the candidate's own evidence")
             result[key].append(candidate['name'])

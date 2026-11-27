@@ -303,6 +303,26 @@ class Clarification(Semantic):
         self.assertEqual(result['assessment']['resolved'][0]['answers'], ['answer-1'])
         self.assertEqual(result['proposal']['invocation']['prompts'][1]['text'], 'Test changes are in scope.')
 
+    def test_tampered_gate_payload_never_admits_or_escapes(self):
+        self.wait()
+        held = copy.deepcopy(self.engine.gates[0]['request']['payload'])
+        accepted = {**held['verdict'], 'verdict': 'accepted', 'uncertainties': []}
+        cases = {
+            'accepted verdict': {'verdict': accepted},
+            'validator as text': {'validator': 'session'},
+            'validator without result': {'validator': {k: v for k, v in held['validator'].items() if k != 'result_ref'}},
+            'non-text result': {'validator': {**held['validator'], 'result_ref': ['r']}},
+            'another role': {'validator': {**held['validator'], 'role': 'leaf'}},
+            'no validator': {'validator': None},
+        }
+        for label, change in cases.items():
+            with self.subTest(label=label):
+                self.engine.gates[0]['request']['payload'] = {**held, **change}
+                result = self.run_semantic()
+                self.assertEqual((result['preflight'], result['semantic']), ('blocked', 'blocked'))
+                self.assertIn('gate verdict invalid', result['error']['message'])
+                self.calls()
+
     def test_changed_proposal_is_a_new_request_and_ignores_old_answers(self):
         self.wait()
         self.engine.answer('gate-1', 'answer-1', {'action': 'remove', 'paths': [PROMPT]})

@@ -940,6 +940,11 @@ class SavedOptions(Fixture):
             'selection.enabled': 'invocation', 'selection.min_score_gap': 'pr:this-pr',
             'selection.mode': 'repository:repo'}))
         self.assertEqual(checked['scoring'], {'value': entries.ALTERNATIVES_OPTIONS['scoring'], 'source': 'default'})
+        # An empty nested object sets nothing and keeps the lower layer's source.
+        empty = entries.check_options('dk-pr-alternatives', {'selection': {}, 'scoring': {}}, layers[:1])
+        self.assertEqual((empty['selection']['value']['mode'], empty['selection']['source']),
+                         ('automatic', 'repository:repo'))
+        self.assertEqual(empty['scoring'], {'value': entries.ALTERNATIVES_OPTIONS['scoring'], 'source': 'default'})
         # The saved automatic mode governs the run: a close pick stays pending and nothing asks the user.
         close = comparison(ratings={'pr': 80, 'smallest': 85, 'alternative': 20})
         result = self.pr_run('dk-pr-alternatives', branch_script(**{'comparison:retry': close,

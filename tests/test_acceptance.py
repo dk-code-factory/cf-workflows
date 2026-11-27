@@ -573,6 +573,30 @@ class Writes(Ledgered):
         self.assertEqual(self.transport.calls, Counter())
         self.assertEqual(self.store.calls, Counter(read=1))
 
+    def test_a_concurrent_prepare_defers_the_write_and_keeps_the_admitted_result(self):
+        run = self.clarify()
+        other = acceptance.LedgerError('configuration write cfgw_other must be reconciled before another write')
+        with patch.object(self.ledger, 'prepare', side_effect=other):
+            result = run()
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'))
+        self.assertEqual(result['configuration_write'], {'intent_id': None, 'status': 'deferred'})
+        self.assertEqual(self.store.calls['write'], 0)
+        self.assertEqual(self.intents(), [])
+
+    def test_a_ledger_failure_after_the_write_leaves_it_pending_for_readback(self):
+        run = self.clarify()
+        with patch.object(self.ledger, 'settle', side_effect=sqlite3.OperationalError('database is locked')):
+            result = run()
+        self.assertEqual((result['preflight'], result['semantic']), ('admitted', 'accepted'))
+        [intent] = self.intents()
+        self.assertEqual(result['configuration_write'], {'intent_id': intent['intent_id'], 'status': 'pending'})
+        self.assertEqual((intent['status'], intent['dispatches']), ('pending', 1))
+        self.ledger, self.engine = self.open_ledger(), Engine()
+        again = self.admit_stored()
+        self.assertEqual(again['recovered_writes'], [{'intent_id': intent['intent_id'], 'status': 'applied'}])
+        self.assertEqual(self.store.calls['write'], 0)
+        self.assertEqual(self.saved_instruction(), 'Only the flaky test.')
+
     def test_unsettled_write_blocks_another_prepare(self):
         run = self.clarify('interrupt-after')
         with self.assertRaises(Interrupted):

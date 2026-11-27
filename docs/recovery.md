@@ -80,7 +80,8 @@ install the newer release instead of downgrading. It never merges:
 - the saved configuration is written only where none exists or an identical one
   does;
 - a backup that holds the engine bundle needs the engine adapter, which restores
-  its database and bundle first.
+  its database and bundle after the suite state is staged, so a failed copy of
+  the state changes nothing and the restore can be retried.
 
 ## Engine binding
 
@@ -141,7 +142,10 @@ installed release's schema:
 2. It records `upgrade.json` (`prepared`): the previous and target release
    (descriptor version, closure digest and helper digest), each store's version
    and the backup location.
-3. It takes one pre-upgrade backup under `upgrades/<id>/`, without the engine.
+3. It takes one pre-upgrade backup under `upgrades/<id>/`, without the engine
+   and without the in-progress journal, so restoring it never leaves the state
+   mid-upgrade. Each upgrade gets a new `<id>`, so a repeated release
+   transition never reuses an older backup.
 4. It marks `migrating` and migrates each store. Logical-run ledgers are opened
    by the target installation's own helpers in a separate interpreter, which
    migrate versions 1 and 2 to 3 in one transaction. The other stores are at

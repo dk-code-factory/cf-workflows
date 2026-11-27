@@ -114,8 +114,10 @@ the suite's own store and ledger at the XDG locations [below](#ledger).
   configuration is read. An unavailable store blocks before any gate read or
   task. When a clarification answer revised the saved configuration, the exact
   admitted revision is written back once after the installed-workflow checks
-  pass, and the result carries `configuration_write`. A rejected, waiting or
-  blocked preflight writes nothing. The result's `recovered_writes` lists the
+  pass, and the result carries `configuration_write`. When another run's write
+  is still unsettled or the ledger fails, the admitted result still returns: the
+  write is `deferred` when nothing was prepared, or `pending` for the next
+  recovery to read back. A rejected, waiting or blocked preflight writes nothing. The result's `recovered_writes` lists the
   intents settled by readback.
 - Preflight writes only the ledger and the store, never the target checkout or
   the state namespace; staging stays a separate `stage_request()` call.
