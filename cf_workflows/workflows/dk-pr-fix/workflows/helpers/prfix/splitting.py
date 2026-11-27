@@ -415,6 +415,7 @@ def check_split(output, evidence, governing):
         branch = item['branch']
         require(isinstance(branch, str) and _BRANCH.fullmatch(branch) and '..' not in branch
                 and not branch.endswith(('/', '.', '.lock')) and branch not in branches
+                and all(part and not part.startswith('.') and not part.endswith('.lock') for part in branch.split('/'))
                 and branch not in (evidence['pr']['head_ref'], evidence['pr']['base_ref']), where + '.branch',
                 'a new distinct branch name')
         branches.add(branch)
@@ -525,8 +526,10 @@ def _sync(repository, value):
     original = _states(repository, value['original'], value['moved'])
     for path in value['moved']:
         file = Path(repository) / path
-        present = file.is_file() or file.is_symlink()
-        blob = git(repository, 'hash-object', '--', path).decode().strip() if present else None
+        if file.is_symlink():  # The tree holds the link text; hash-object on the path follows the link.
+            blob = git(repository, 'hash-object', '--stdin', data=os.fsencode(os.readlink(file))).decode().strip()
+        else:
+            blob = git(repository, 'hash-object', '--', path).decode().strip() if file.is_file() else None
         if blob not in ((original.get(path) or [None, None])[1], (final.get(path) or [None, None])[1]):
             raise Blocked('collision', f'{path} changed in the checkout during the split; reconcile it')
     keep = [path for path in value['moved'] if path in final]
@@ -725,12 +728,14 @@ class Store:
         return self._load(self.db.execute(f'SELECT * FROM operations WHERE entry = ? AND state IN ({marks}) '
                                           'ORDER BY seq DESC LIMIT 1', (entry, *states)).fetchone())
 
-    def ending_at(self, head):
-        """The latest moved operation whose result is head."""
+    def ending_at(self, head, before=None):
+        """The latest moved operation whose result is head, optionally recorded before the seq before."""
         if self.db is None:
             return None
         for row in self.db.execute("SELECT * FROM operations WHERE state IN ('applying', 'applied') "
                                    'ORDER BY seq DESC'):
+            if before is not None and row['seq'] >= before:
+                continue
             value = self._load(row)
             if value['value']['final'] == head:
                 return value
@@ -1133,8 +1138,9 @@ def _chain(store, operation):
     """The first revision of the run's chain of applied operations ending at this one."""
     original = operation['value']['original']
     while True:
-        earlier = store.ending_at(original)
-        if earlier is None or earlier['id'] == operation['id']:
+        # Only earlier operations: passes that revisit an earlier head cannot cycle the walk.
+        earlier = store.ending_at(original, before=operation['seq'])
+        if earlier is None:
             return original
         operation, original = earlier, earlier['value']['original']
 
