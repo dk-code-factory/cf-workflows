@@ -1206,8 +1206,12 @@
         }
       ],
       "tests": [
+        "test_dk_pr_fix_pending_review.PendingReviews.test_preflight_refuses_before_any_intent_and_preserves_the_draft",
+        "test_dk_pr_fix_pending_review.PendingReviews.test_draft_created_before_dispatch_blocks_without_writing",
         "test_dk_pr_fix_pending_review.PendingReviews.test_conclusive_rejection_settles_not_applied_and_keeps_the_draft",
-        "test_dk_pr_fix_pending_review.PendingReviews.test_ambiguous_failures_stay_pending_even_with_a_current_draft"
+        "test_dk_pr_fix_pending_review.PendingReviews.test_ambiguous_failures_stay_pending_even_with_a_current_draft",
+        "test_dk_pr_fix_pending_review.PendingReviews.test_missing_current_draft_alone_proves_nothing",
+        "test_dk_pr_fix_pending_review.PendingReviews.test_resumed_recovery_settles_from_retained_original_evidence"
       ],
       "live_acceptance": [
         "github_publication"
