@@ -406,9 +406,12 @@ def bundle_assets(bundle):
     """{'origin/id': {path: sha256}} of each retained asset tree in an engine bundle.
 
     Every tree must hold exactly the files its bundle.json lists, with their sizes
-    and digests; a tree without a manifest, or a manifest without its files, rejects.
+    and digests; a tree without a manifest, or a manifest without its files, rejects,
+    and so does a versioned tree without the owner.json the engine requires. The
+    engine also requires bundle.json to match its own serialization byte for byte;
+    that is left to the engine, which refuses such a tree on resume (fail closed).
     """
-    manifests, files = {}, {}
+    manifests, files, owners = {}, {}, set()
     try:
         with tarfile.open(bundle, 'r:gz') as archive:
             for member in _members(archive):
@@ -424,7 +427,9 @@ def bundle_assets(bundle):
                 elif rest.startswith('files/'):
                     files.setdefault(key, {})[rest[len('files/'):]] = (
                         len(data), hashlib.sha256(data).hexdigest(), stat.S_IMODE(member.mode))
-                elif rest != 'owner.json':
+                elif rest == 'owner.json':
+                    owners.add(key)
+                else:
                     raise RecoveryError('unexpected retained asset entry: ' + member.name)
     except (tarfile.TarError, OSError, EOFError) as error:
         raise RecoveryError('unreadable engine bundle: ' + str(error)) from error
@@ -441,6 +446,8 @@ def bundle_assets(bundle):
             raise RecoveryError('retained asset manifest names another tree: assets/' + key)
         # The historical helper bundle lists files; a versioned asset bundle lists entries with a kind.
         versioned = bool(manifest.get('version'))
+        if versioned and key not in owners:  # verifyAssetBundleDirectory (retained_assets.go) requires owner.json.
+            raise RecoveryError('retained asset tree has no owner.json: assets/' + key)
         entries = manifest.get('entries') if versioned else manifest.get('files')
         if not isinstance(entries, list):
             raise RecoveryError('retained asset manifest lists no files: assets/' + key)
@@ -570,8 +577,10 @@ class Engine:
         verifies the modes of retained asset trees (0444/0555 files, 0555
         directories) on resume, on use and on the next bundle; only the setuid,
         setgid and sticky bits are dropped. If extraction or `agent-workflow
-        restore` fails, every entry this call created is removed again, so a
-        retry starts from the same state. The engine quarantines every unfinished run as
+        restore` fails, every entry this call created is removed again. When
+        the failure comes after `agent-workflow restore` replaced the database
+        (a timeout or unreadable output), the database stays restored; a retry
+        still recovers, since restore replaces it again. The engine quarantines every unfinished run as
         `restore_uncertainty`; resuming it needs resume(run, retry_uncertain=True).
         """
         if self.owned():

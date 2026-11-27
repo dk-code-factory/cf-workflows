@@ -808,7 +808,7 @@ def asset_tree(files, versioned):
     return ident, {'origin_run_id': ORIGIN, 'id': ident, 'files': entries}
 
 
-def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=None):
+def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=None, owner=True):
     """A synthetic recovery bundle in the layout `agent-workflow bundle` writes (pkg/workflows/bundle.go at 8758775).
 
     It is built here, not exported by the engine. trees are {path: bytes}
@@ -816,7 +816,7 @@ def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=N
     the engine exports (0700 above files/, 0555 directories and 0444/0555 files
     in it); extra are (name, bytes or None for a directory, or ('link', target))
     entries added as they are; tamper rewrites one retained file's bytes, and
-    mode its mode, after its manifest is written.
+    mode its mode, after its manifest is written; owner=False leaves out owner.json.
     """
     import io
     import tarfile
@@ -855,8 +855,9 @@ def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=N
                 first = name == sorted(files)[0]
                 add(archive, base + 'files/' + name, tamper if tamper is not None and first else data,
                     mode=mode if mode is not None and first else materialized(name))
-            add(archive, base + 'owner.json', json.dumps({'origin_run_id': ORIGIN, 'stage_id': 'c' * 32}).encode(),
-                mode=0o600)
+            if owner:
+                add(archive, base + 'owner.json', json.dumps({'origin_run_id': ORIGIN, 'stage_id': 'c' * 32}).encode(),
+                    mode=0o600)
         for name, data in extra:
             if isinstance(data, tuple):
                 add(archive, name, link=data[1])
@@ -867,12 +868,13 @@ def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=N
 
 def remove_tree(path):
     """Remove a restored engine state, whose retained asset trees are read-only as the engine keeps them."""
-    def writable(function, name, error):
-        os.chmod(os.path.dirname(name), 0o700)
-        if os.path.isdir(name) and not os.path.islink(name):
-            os.chmod(name, 0o700)
-        function(name)
-    shutil.rmtree(path, onexc=writable)
+    # Opens every directory first instead of rmtree(onexc=...), which needs Python 3.12; the host minimum is 3.11.
+    for root, directories, _ in os.walk(path):
+        os.chmod(root, 0o700)
+        for name in directories:
+            if not os.path.islink(os.path.join(root, name)):
+                os.chmod(os.path.join(root, name), 0o700)
+    shutil.rmtree(path)
 
 
 def tree_modes(root):
@@ -957,6 +959,7 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
             'duplicate engine bundle entry': engine_bundle(self.engine_base / 'duplicate',
                                                            extra=[('state.db', b'another database')]),
             'differ from their manifest  ': engine_bundle(self.engine_base / 'writable', [helpers], mode=0o644),
+            'no owner.json': engine_bundle(self.engine_base / 'ownerless', [helpers], versioned=True, owner=False),
         }
         database = self.engine_base / 'database'
         database.write_bytes(b'fixture engine database')
