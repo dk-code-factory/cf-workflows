@@ -434,8 +434,8 @@ def writer_lease(root, logical_run, claim, *, acquire=False, release=False):
                 database.execute("DELETE FROM writer WHERE singleton=1")
         elif acquire:
             database.execute("INSERT OR IGNORE INTO writer VALUES(1,?,?)", (logical_run, claim))
-        elif old:
-            raise ValueError("unfinished original writer owns the workspace; resume its originating execution")
+        # A remaining lease here is this exact claim's own and never fences it: a lease
+        # acquired before its claim row was lost is settled only by resuming that claim.
         database.commit()
     except BaseException:
         database.rollback()

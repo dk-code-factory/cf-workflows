@@ -117,6 +117,18 @@ class CoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exhausted"):
                 ledger.reserve("reviews", "replacement", 1)
 
+    def test_writer_lease_whose_claim_row_was_lost_resumes_only_under_its_own_claim(self):
+        # code-scan #8: the lease commits before the run ledger's claim transaction.
+        core.Ledger(self.root, "run", PR).close()
+        core.writer_lease(self.root, "run", "claim_lost", acquire=True)
+        with self.assertRaisesRegex(ValueError, "unfinished original writer"):
+            core.writer_lease(self.root, "run", "claim_other")
+        core.writer_lease(self.root, "run", "claim_lost")
+        core.writer_lease(self.root, "run", "claim_lost", acquire=True)
+        core.verify_writer_lease(self.root, "run", "claim_lost")
+        core.writer_lease(self.root, "run", "claim_lost", release=True)
+        core.writer_lease(self.root, "run", "claim_other")
+
     def test_reservation_response_loss_replays_after_restart_without_consuming_twice(self):
         with core.Ledger(self.root, "retained", PR) as ledger:
             self.assertEqual(ledger.reserve("reviews", "original", 1), 1)
