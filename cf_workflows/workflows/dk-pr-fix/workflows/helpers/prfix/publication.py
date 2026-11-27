@@ -446,6 +446,13 @@ class Publication:
     def _request(self, method, path, payload=None):
         return self.provider.request(method, path, payload)
 
+    def _descends(self, commit, ancestor):
+        """Read-only: whether ``commit`` strictly follows ``ancestor`` in the repository history."""
+        if not (isinstance(commit, str) and _SHA.fullmatch(commit)):
+            return False
+        compared = self._request("GET", f"{self.repo}/compare/{ancestor}...{commit}")
+        return isinstance(compared, dict) and compared.get("status") == "ahead" and compared.get("behind_by") == 0
+
     def _capture(self):
         ev = self.provider.capture(self.pr)
         meta = ev.get("metadata", {})
@@ -1427,8 +1434,11 @@ class Publication:
             merge_sha = meta.get("merge_commit_sha")
             if merged and meta.get("head", {}).get("sha") == intent["head"] and meta.get("merged_by", {}).get("id") == intent["actor_id"] and isinstance(merge_sha, str) and _SHA.fullmatch(merge_sha):
                 commit = self._request("GET", f"{self.repo}/git/commits/{merge_sha}")
-                wanted = [intent["target"]] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
-                found = commit.get("sha") == merge_sha and [p.get("sha") for p in commit.get("parents", [])] == wanted
+                parents = [p.get("sha") for p in commit.get("parents", [])]
+                wanted = [parents[0] if parents else None] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
+                # The PUT pins only the head: a base that advanced before the merge is its first parent.
+                found = commit.get("sha") == merge_sha and parents == wanted and (
+                    parents[0] == intent["target"] or self._descends(parents[0], intent["target"]))
                 # Only stable fields: later comments, labels or edits change the PR metadata.
                 result = {"pr": {"number": meta.get("number"), "state": meta.get("state"), "merged": True,
                                  "merge_commit_sha": merge_sha, "head": {"sha": intent["head"]},

@@ -155,7 +155,9 @@ authority or permission drift blocks it. A request added after that final read
 is not visible to the helper; the merge call still pins the head.
 
 A merge whose response is lost stays `pending`. Reconciliation only looks for
-the exact merge commit. An open PR, restarted helpers, a lost checkpoint and
+the exact merge commit. Its first parent is the prepared target or, when the
+base branch advanced before the merge, a commit that GitHub's compare reports
+strictly ahead of it. An open PR, restarted helpers, a lost checkpoint and
 unavailable request data never cause a second merge request.
 
 ## Journal

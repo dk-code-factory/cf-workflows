@@ -297,6 +297,30 @@ class HttpKinds(Fixture):
                 self.assertTrue(publisher.validate(proposal["id"], receipt))
                 self.assertEqual(publisher.execute(proposal["id"], self.audience(publisher.prepare(proposal))), receipt)
 
+    def test_merge_onto_an_advanced_base_is_recognised(self):
+        # code-scan #20: the base gained a commit between the gate and the PUT.
+        advanced = "e" * 40
+        for status, outcome in (("ahead", "applied"), ("diverged", "pending")):
+            with self.subTest(status=status):
+                publisher, provider, ledger = self.world()
+                provider.parents = [advanced, HEAD]
+                original = provider.request
+
+                def request(method, path, payload=None, original=original, status=status):
+                    if method == "GET" and path == f"repos/o/r/compare/{BASE}...{advanced}":
+                        return {"status": status, "behind_by": 0 if status == "ahead" else 1}
+                    return original(method, path, payload)
+                provider.request = request
+                prepared = publisher.prepare(self.proposal("merge", {"merge_method": "merge"}))
+                if outcome == "applied":
+                    receipt = publisher.execute(prepared["id"], self.audience(prepared))
+                    self.assertEqual(receipt["result"]["commit"]["parents"], [{"sha": advanced}, {"sha": HEAD}])
+                else:
+                    with self.assertRaises(UncertainEffect):
+                        publisher.execute(prepared["id"], self.audience(prepared))
+                self.assertEqual(self.state(ledger, prepared["id"]), outcome)
+                self.assertEqual(len(provider.writes), 1)
+
     def test_restart_keeps_original_intent_and_audience_without_replay(self):
         publisher, provider, ledger = self.world()
         prepared = publisher.prepare(self.proposal("submit_review", copy.deepcopy(REVIEW)))
