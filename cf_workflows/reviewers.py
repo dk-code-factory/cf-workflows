@@ -154,6 +154,7 @@ def preflight(name, *, request, configuration=None, invocation=None, deployment,
         for key in ('tasks', 'finalizers', 'reviewers'):
             require(key not in selected, 'invocation.options.' + key,
                     'the entry preset fixes tasks and finalizers; select reviewers with the entry options')
+        require(isinstance(selected.get('limits', {}), dict), 'invocation.options.limits', 'must be an object')
     except AdmissionError as error:
         return _rejected(error.path, error.message)
     values = {key: value['value'] for key, value in entry_options.items()}

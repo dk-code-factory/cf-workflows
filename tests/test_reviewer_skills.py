@@ -158,6 +158,12 @@ class ReviewerPreflight(ReviewerFixture):
                 result = self.entry('dk-pr-reviewers-run', configuration=configured, options=options)
                 self.assertEqual((result['preflight'], result['error']['path']), ('rejected', path))
                 self.assertEqual(self.transport.calls['capabilities'], 0)
+        for limits in (5, ['max_parallel_reviewers'], 'none', None):
+            with self.subTest(limits=limits):
+                result = self.entry('dk-pr-reviewers-run', configuration=configured, options={'max_parallel': 2},
+                                    invocation={'options': {'limits': limits}})
+                self.assertEqual((result['preflight'], result['error']['path']),
+                                 ('rejected', 'invocation.options.limits'))
 
     def test_unsupported_controls_and_authority_reject_before_the_engine(self):
         cases = [
