@@ -83,7 +83,9 @@ def adapters():
     return result
 
 
-class Helpers(unittest.TestCase):
+class Fixture(unittest.TestCase):
+    """A disposable PR checkout, the fail-closed GitHub transport and helpers to run native occurrences."""
+
     def setUp(self):
         git_fixture.isolate(self)
         temp = tempfile.TemporaryDirectory(prefix="cfw incoming review ")
@@ -160,6 +162,8 @@ class Helpers(unittest.TestCase):
     def finding(self, key="f1"):
         return {"id": key, "text": "value changed without a test", "sources": ["source"]}
 
+
+class Helpers(Fixture):
     # -- preparation -------------------------------------------------------------
 
     def test_review_mode_reads_another_authors_pr_and_never_fixes(self):
