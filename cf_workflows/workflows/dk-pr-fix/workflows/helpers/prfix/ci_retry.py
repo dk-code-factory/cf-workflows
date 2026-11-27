@@ -218,6 +218,9 @@ def check(report, assignment):
     for run in diagnosis["runs"]:
         if not isinstance(run, dict) or set(run) != {"run_id", "attempt", "jobs"}:
             raise Blocked("each run is exactly {run_id, attempt, jobs}")
+        # Exact integers: true == 1 or 7.0 == 7 must not stand in for a handed-off identity.
+        if type(run["run_id"]) is not int or type(run["attempt"]) is not int:
+            raise Blocked("run_id and attempt must be the handed-off integers")
         key = (run["run_id"], run["attempt"])
         if key not in expected or key in seen:
             raise Blocked(f"run {run['run_id']} attempt {run['attempt']} is not one handed-off failed attempt")
@@ -231,6 +234,8 @@ def check(report, assignment):
                                                           "change_comparison", "log_evidence"}:
                 raise Blocked("each job is exactly {job_id, verdict, retryable, reason, change_comparison, "
                               "log_evidence}")
+            if type(job["job_id"]) is not int:
+                raise Blocked(f"run {run['run_id']}: job_id must be a handed-off integer")
             where = f"run {run['run_id']} job {job['job_id']}"
             if job["job_id"] not in logs or job["job_id"] in named:
                 raise Blocked(where + " is not one handed-off failed job")
