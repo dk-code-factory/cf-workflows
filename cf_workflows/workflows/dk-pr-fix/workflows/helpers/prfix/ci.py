@@ -320,6 +320,8 @@ def _affirmative_issue(issue, candidate):
             declaration = bounded_json(block)
         except (ValueError, TypeError):
             continue
+        if not isinstance(declaration, dict):
+            continue
         if all(declaration.get(k) == candidate[k] for k in keys):
             return declaration.get("flaky") is True
     if any("`" + candidate[k] + "`" not in content for k in keys):
