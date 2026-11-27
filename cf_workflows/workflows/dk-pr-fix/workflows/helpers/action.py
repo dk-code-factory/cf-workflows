@@ -13,6 +13,10 @@ from prfix.core import (MAX_JSON, FORMAT, Ledger, artifact, bounded_json,
 from prfix.capture import GitHub
 
 
+# Operations that only read: an interrupted or failed one has no effect to reconcile.
+READ_ONLY = frozenset({"completion", "alignment_gate", "check_prepare", "task_status", "responses_status"})
+
+
 def verify_closure(root, plan, execution_fingerprint):
     # Recovery runs retained helpers and agent definitions from engine snapshots.
     # Workspace copies may have evolved since admission; do not reload them.
@@ -161,7 +165,7 @@ def _execute(operation, root, provider, ledger, plan, inputs, ident, fingerprint
     if saved and saved["state"] == "complete":
         result = _retained_result(root, saved["result"])["result"]
         return {"result": result}
-    if saved:
+    if saved and operation not in READ_ONLY:
         # Recheck service proof at execution time. Reconciliation hooks
         # remain read-only, and unknown effects never authorize replay.
         observed = None
@@ -170,11 +174,18 @@ def _execute(operation, root, provider, ledger, plan, inputs, ident, fingerprint
             observed = reconcile_operation(root, provider, ledger, plan, inputs)
         if not observed or observed.get("outcome") != "no_effect":
             raise ValueError("interrupted helper effect remains unresolved; reconcile original operation")
-    else:
+    elif not saved:
         with ledger.transaction():
             ledger.db.execute("INSERT INTO operations(id,kind,input,state) VALUES(?,?,?,?)",
                               (ident, operation, fingerprint, "uncertain"))
-    output = dispatch(operation, root, provider, ledger, plan, {**inputs, "_operation": ident})
+    try:
+        output = dispatch(operation, root, provider, ledger, plan, {**inputs, "_operation": ident})
+    except Exception:
+        if operation in READ_ONLY:
+            # No effect to resolve: a failed read leaves its key free to retry.
+            with ledger.transaction():
+                ledger.db.execute("DELETE FROM operations WHERE id=? AND state='uncertain'", (ident,))
+        raise
     result = {"output": output, "evidence": {"operation": ident, "input": fingerprint}}
     reference = artifact(root, {"operation": ident, "input": fingerprint, "result": result})
     result["evidence"]["artifact"] = reference
@@ -199,6 +210,8 @@ def _reconcile(operation, root, provider, ledger, plan, inputs, ident, fingerpri
         return observed
     if saved is None:
         return {"outcome": "no_effect", "proof": {"absent_application_operation": ident}}
+    if operation in READ_ONLY:
+        return {"outcome": "no_effect", "proof": {"read_only_application_operation": ident}}
     return {"outcome": "unknown", "proof": {"unresolved_application_operation": ident}}
 
 
