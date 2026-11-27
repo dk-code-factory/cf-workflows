@@ -21,12 +21,12 @@ The three configuration rows (#26) are listed in the plugin descriptor with
 their own installed presets, `onboard.yml`, `config.yml` and `preferences.yml`,
 over the shared session graph `configure.yml` ([configuration skills](configuration-skills.md#installed-workflow)).
 They stay `not_implemented` until they run as engine-managed sessions through a
-released engine. The two prose rows (#33, [prose cleanup](prose.md)) and the four
-alternatives rows (#27, [alternatives](alternatives.md)) stay `not_implemented`
-for the same reason.
-`dk-pr-decisions` (#28, [decisions](decisions.md)) has an installed preset and
-is listed in the plugin descriptor, but it stays `not_implemented` until it runs
-as an engine-managed session through a released engine.
+released engine. The two prose rows (#33, [prose cleanup](prose.md)) stay
+`not_implemented` for the same reason.
+`dk-pr-decisions` (#28, [decisions](decisions.md)) and the four alternatives
+rows (#27, [alternatives](alternatives.md#installed-workflow)) have installed
+presets and are listed in the plugin descriptor, but they stay `not_implemented`
+until they run as engine-managed sessions through a released engine.
 
 The two publication rows (#31, [publication entries](publication-skills.md))
 are listed in the plugin descriptor with their own installed entry workflows,

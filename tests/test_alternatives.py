@@ -351,13 +351,23 @@ class Presets(Fixture):
         self.assertNotEqual(rejected['status'], 'complete')
         self.assertEqual(self.fake.calls['native_session'], 0)
 
-    def test_installed_workflow_never_runs_alternatives_as_a_generic_task(self):
-        for adapter in ('issue-alternatives', 'pr-alternatives'):
+    def test_installed_workflow_composes_only_its_own_scope(self):
+        # dk-pr-fix composes whole-problem analysis and dk-pr-review branch analysis, each through the
+        # staged procedure (workflows/alternatives.yml); the other scope belongs to the entries.
+        for mode, adapter in (('fix', 'pr-alternatives'), ('review', 'issue-alternatives')):
             rejected = dk_pr_fix.preflight(
                 request={'pr': PR, 'instructions': 'Fix it.'}, configuration=None, transport=self.transport({}),
-                invocation={'options': {'tasks': [adapter, 'address-feedback'], 'finalizers': []}},
-                deployment=self.deployment, repository=self.repo, home=self.state)
-            self.assertEqual((rejected['preflight'], rejected['error']['path']), ('rejected', 'options.tasks'))
+                invocation={'options': {'tasks': [adapter, 'address-feedback' if mode == 'fix' else 'read-feedback'],
+                                        'finalizers': []}},
+                deployment=self.deployment, repository=self.repo, home=self.state, mode=mode)
+            self.assertEqual((rejected['preflight'], rejected['error']['path']), ('rejected', 'options.tasks'),
+                             rejected)
+        admitted = dk_pr_fix.preflight(
+            request={'pr': PR, 'instructions': 'Fix it.'}, configuration=None, transport=self.transport({}),
+            invocation={'options': {'tasks': ['issue-alternatives', 'address-feedback'], 'finalizers': []}},
+            deployment=self.deployment, repository=self.repo, home=self.state)
+        self.assertEqual(admitted['preflight'], 'admitted', admitted.get('error'))
+        self.assertEqual(admitted['inputs']['adapters']['issue-alternatives']['kind'], 'alternatives')
 
 
 # -- Whole problem versus branch ------------------------------------------------------------------------
@@ -427,7 +437,7 @@ class Scope(Fixture):
         self.assertFalse(self.state.exists())
 
     def test_changed_paths_and_guidance_stay_readable_past_the_bound(self):
-        with patch.object(alternatives, 'MAX_READABLE', 1):
+        with patch.object(alternatives._H, 'MAX_READABLE', 1):
             result = self.pr_run('dk-pr-alternatives', branch_script())
         self.assertEqual(set(self.fake.tasks[0]['readable']), {'git:src/queue.py', 'git:src/retry.py', 'git:AGENTS.md'})
         self.assertEqual(result['gaps'][0]['subject'], 'readable')

@@ -177,6 +177,12 @@ SPLITTING_ENTRIES = {
     "dk-commit-split": ("inspect-commits", ("push",), ("rewrite_commits",)),
     "dk-pr-split": ("assess-scope", ("create_pr", "push"), ("create_draft_prs", "push_commits")),
 }
+# Alternatives entries (#27; docs/alternatives.md): each runs exactly one alternatives
+# occurrence through its staged procedure (workflows/alternatives.yml), in review mode
+# (read-only, never maintaining the PR) with no reviewer stage and no other task,
+# finalizer, permission or authorization (alternatives.py).
+ALTERNATIVES_ENTRIES = ("dk-issue-alternatives", "dk-pr-alternatives", "dk-alternatives-review",
+                        "dk-pr-review-alternatives")
 # Actions that other entries own; no publication entry dispatches them.
 ENTRY_OWNERS = {
     "create_issue": "issue creation belongs to cf-workflows:dk-issue (#32)",
@@ -378,6 +384,12 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         if request.get("authorizations") or request.get("maintain_other"):
             raise ValueError("cf-workflows:dk-ci observes only; reruns publish through cf-workflows:dk-pr-publish "
                              "(rerun_ci)")
+    elif entry in ALTERNATIVES_ENTRIES:
+        # Read-only analysis of any PR, like incoming review: it never maintains the PR.
+        if mode != "review":
+            raise ValueError("cf-workflows:" + entry + " runs in review mode only")
+        if request.get("authorizations") or request.get("maintain_other"):
+            raise ValueError("cf-workflows:" + entry + " is read-only analysis; it has no publication authority")
     elif isinstance(requested, dict) and set(requested) & set(ISSUE_ACTIONS):
         action = sorted(set(requested) & set(ISSUE_ACTIONS))[0]
         raise ValueError(action + ": " + ENTRY_OWNERS[action])
@@ -479,7 +491,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         else:
             raise ValueError("unavailable selected adapter: " + name)
         kind = adapter.get("kind", fallback or "task")
-        if kind not in {"review", "inspection", "decisions", "fix", "scope", "description", "cleanup", "synchronization", "reply", "task"}:
+        if kind not in {"review", "inspection", "decisions", "fix", "scope", "description", "cleanup", "synchronization", "reply", "task", "alternatives"}:
             raise ValueError("unsupported adapter kind")
         if (kind == "reply") != (context == "responses"):
             raise ValueError("reply adapters run only inside the response stage")
@@ -505,6 +517,8 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             raise ValueError("the response stage cannot write")
         if task["writes"] and mode == "review":
             raise ValueError("incoming review tasks cannot write")
+        if kind == "alternatives" and (task["writes"] or role != "leaf" or phase != "tasks"):
+            raise ValueError("an alternatives occurrence is a read-only leaf task of the tasks phase")
         tasks.append(task)
         return task["id"]
 
@@ -553,6 +567,13 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                      "groups": [{"id": "group_1", "tasks": [{"id": key} for key in keys], "concurrency": len(keys)}],
                      "review": any(next(t for t in tasks if t["id"] == key)["kind"] == "review" for key in keys),
                      "fix": mode == "fix"}
+            analyzed = [key for key in keys if next(t for t in tasks if t["id"] == key)["kind"] == "alternatives"]
+            if analyzed:
+                if len(keys) > 1:
+                    raise ValueError("an alternatives occurrence runs its staged procedure alone in its stage")
+                # alternatives.yml: one native session per stage, checked and recorded by the helpers.
+                stage["kind"] = "alternatives"
+                stage["alternatives"] = analyzed[0]
             reconciled = [key for key in keys if next(t for t in tasks if t["id"] == key)["kind"] == "decisions"]
             if reconciled:
                 # reconciliation.yml: clarify unresolved decisions before dependent work.
@@ -561,7 +582,38 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
 
     if sum(task["kind"] == "decisions" for task in tasks) > 1:
         raise ValueError("a plan reconciles decisions in exactly one occurrence")
-    if mode == "review" and not any(stage["kind"] == "reviews" for stage in stages):
+    from . import alternatives
+    analyzed = [task for task in tasks if alternatives.role(task)]
+    if len(analyzed) > 1:
+        raise ValueError("a plan runs the alternatives procedure in exactly one occurrence")
+    raw_alternatives = controls.get("settings", {}).get("alternatives")
+    if analyzed:
+        try:
+            analyzed[0]["alternatives"] = alternatives.settings(raw_alternatives, entry=entry if entry in
+                                                                ALTERNATIVES_ENTRIES else "", mode=mode,
+                                                                adapter=analyzed[0]["skill"], request=request)
+        except alternatives.StageError as error:
+            raise ValueError(str(error)) from None
+    elif raw_alternatives is not None or entry in ALTERNATIVES_ENTRIES:
+        raise ValueError("settings.alternatives and the alternatives entries need one alternatives occurrence")
+    reconciling = [task for task in tasks if task["kind"] == "decisions"]
+    if analyzed and reconciling:
+        # The composed inventory consumes the reconciled decisions (alternatives._handoff), so the
+        # reconciliation runs first and never takes back, as a source or in its binding, the choices
+        # of the record this occurrence writes: they were made against it (decisions.binding).
+        def staged(task_id):
+            return next(index for index, stage in enumerate(stages) if task_id in (
+                stage.get("alternatives"), stage.get("decisions")))
+        if staged(analyzed[0]["id"]) < staged(reconciling[0]["id"]):
+            raise ValueError("the alternatives inventory consumes the reconciled decisions; "
+                             "stage reconcile-decisions before the alternatives occurrence")
+        reconciling[0]["alternatives_consumer"] = analyzed[0]["alternatives"]["scope"]
+    if entry in ALTERNATIVES_ENTRIES and ([(stage["kind"], stage["phase"]) for stage in stages]
+                                         != [("alternatives", "tasks")]
+                                         or len(tasks) != 1 or any(permissions.values())):
+        raise ValueError("cf-workflows:" + entry + " runs exactly one alternatives occurrence with no other task, "
+                         "finalizer or permission")
+    if mode == "review" and entry not in ALTERNATIVES_ENTRIES and not any(stage["kind"] == "reviews" for stage in stages):
         raise ValueError("incoming review requires a selected reviewer stage")
     if entry in REVIEW_ENTRIES:
         reviewed = [task for task in tasks if task["kind"] == "review"]
@@ -643,6 +695,11 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         for stage in stages:
             if stage["kind"] == "ci":
                 stage["recovery"] = True
+    if analyzed and analyzed[0]["alternatives"]["through"] == "alignment":
+        # A composed dk-pr-fix run hands its fix occurrences the settled choices and alignment.
+        for task in tasks:
+            if task["kind"] == "fix" and task["id"] != "ci_repair":
+                task["alternatives_handoff"] = analyzed[0]["id"]
     options_of({"settings": controls.get("settings", {})})
     plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),
@@ -670,7 +727,7 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
     # Bound selected plan size separately from the runtime worker budget.
     # Conditional CI repairs and publication audiences do not reserve workers here.
     selection_weight_per_cycle = sum(sum(len(group["tasks"]) for group in stage["groups"]) + (2 if stage["review"] else 0)
-                           if stage["kind"] in {"tasks", "reviews"} else
+                           if stage["kind"] in {"tasks", "reviews", "alternatives"} else
                            1 if stage["kind"] == "ci" else 0 for stage in stages) + len(responder)
     selection_weight = selection_weight_per_cycle * limits["review_cycles"] + (1 if "merge" in authorizations else 0)
     if len(tasks) > 40 or selection_weight > 64:

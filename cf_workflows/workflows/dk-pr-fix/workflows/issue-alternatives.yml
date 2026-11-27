@@ -1,0 +1,100 @@
+# Authored for cf-workflows (#27); no upstream counterpart. See docs/alternatives.md.
+# Whole-problem alternatives: a preset over the shared workflow. One read-only
+# issue-alternatives occurrence through the staged procedure (alternatives.yml);
+# no finalizers, no reviewers and no permission input. The issue requirements
+# come as settings.alternatives.requirements.
+name: cf-workflows:dk-issue-alternatives
+'on':
+  workflow_call:
+    inputs:
+      request:
+        # State-namespace path of the staged private request: requests/<sha256>.json.
+        type: string
+        required: true
+      tasks:
+        type: array
+        default:
+        - issue-alternatives
+      finalizers:
+        type: array
+        default: []
+      reviewers:
+        type: array
+        default: []
+      adapters:
+        type: object
+        default:
+          issue-alternatives:
+            kind: alternatives
+            writes: false
+            definition: leaf
+            assignment: "Perform only the assigned alternatives stage for the whole problem stated by the issue requirements, with an existing pull request as an optional candidate. Estimate every option against the pinned target revision. Return the stage contract with source evidence; do not edit, commit or publish."
+            checklist:
+            - id: assignment
+              text: "Perform the assigned stage only, from the issue requirements."
+            - id: evidence
+              text: "Cite requirement sources and repository files for every claim."
+            - id: scope
+              text: "A selection grants no edit or publication permission."
+      limits:
+        type: object
+        default:
+          review_cycles: 5
+          retries_per_task: 1
+          ci_repairs_per_cycle: 5
+          ci_reruns_per_head: 3
+          max_parallel_reviewers: 0
+      permissions:
+        type: object
+        default: {}
+      ci:
+        type: object
+        default:
+          timeout_seconds: 1800
+      merge_method:
+        type: string
+        default: merge
+      accounts:
+        type: array
+        default: []
+      settings:
+        # settings.alternatives: requirements, options (prfix/alternatives.py).
+        type: object
+        default: {}
+      resources:
+        type: array
+        default: []
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      complete:
+        value: ${{ jobs.alternatives.outputs.complete }}
+      ready:
+        value: ${{ jobs.alternatives.outputs.ready }}
+      provisional:
+        value: ${{ jobs.alternatives.outputs.provisional }}
+jobs:
+  alternatives:
+    uses: workflows/main.yml
+    with:
+      request: ${{ inputs.request }}
+      tasks: ${{ inputs.tasks }}
+      finalizers: ${{ inputs.finalizers }}
+      reviewers: ${{ inputs.reviewers }}
+      adapters: ${{ inputs.adapters }}
+      limits: ${{ inputs.limits }}
+      permissions: ${{ inputs.permissions }}
+      ci: ${{ inputs.ci }}
+      merge_method: ${{ inputs.merge_method }}
+      accounts: ${{ inputs.accounts }}
+      settings: ${{ inputs.settings }}
+      resources: ${{ inputs.resources }}
+      turns: ${{ inputs.turns }}
+      mode: review
+      entry: dk-issue-alternatives
+    secrets:
+      github_token: ${{ secrets.github_token }}

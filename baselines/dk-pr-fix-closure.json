@@ -552,6 +552,50 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/flakes.py",
       "reason": "Installed dk-ci-flakes evidence collection and report check (#35), a verbatim copy of the library checks; no upstream counterpart (docs/ci-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py",
+      "reason": "Staged alternatives procedure (#27): stage checks, totals, selection policy and the stage walk, shared with cf_workflows/alternatives.py and installed so helper containers run it; no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml",
+      "reason": "Staged alternatives procedure of one occurrence (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml",
+      "reason": "One native alternatives stage session or selection gate (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/issue-alternatives.yml",
+      "reason": "Whole-problem alternatives preset over main.yml (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/pr-alternatives.yml",
+      "reason": "Branch alternatives preset over main.yml (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-review.yml",
+      "reason": "Alternatives compatibility preset over main.yml (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/pr-review-alternatives.yml",
+      "reason": "Manual alternatives review preset over main.yml (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-issue-alternatives/SKILL.md",
+      "reason": "Whole-problem alternatives skill entry point (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-alternatives/SKILL.md",
+      "reason": "Branch alternatives skill entry point (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-alternatives-review/SKILL.md",
+      "reason": "Alternatives compatibility skill entry point (#27); no upstream counterpart (docs/alternatives.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-pr-review-alternatives/SKILL.md",
+      "reason": "Manual alternatives review skill entry point (#27); no upstream counterpart (docs/alternatives.md)."
     }
   ],
   "corrections": [

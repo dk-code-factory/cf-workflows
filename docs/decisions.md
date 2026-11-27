@@ -54,7 +54,9 @@ discussion order. Pending reviews are skipped. The request and the answers are
 private. The request is ordered by when it was issued: the ledger fixes the
 fingerprint of each discussion source present at the run's first reconciliation.
 The request comes after that unchanged discussion and before any later or
-since-edited source, so a later user comment or edit outranks it. Gate answers come last.
+since-edited source, so a later user comment or edit outranks it. The PR's
+advised and selected alternatives follow (`alternatives:<scope>:<decision>`,
+private, [alternatives](alternatives.md#installed-workflow)). Gate answers come last.
 
 The helper assigns authority; the session cannot raise it:
 
@@ -64,6 +66,15 @@ The helper assigns authority; the session cannot raise it:
 | `maintainer` | `OWNER`, `MEMBER` or `COLLABORATOR` association |
 | `participant` | Any other person |
 | `bot` | A `Bot` account or a `[bot]` login |
+| `advisory` | An advised or selected alternative of the PR's alternatives analysis |
+
+An advisory source never settles, excludes or resolves a decision by itself.
+The installed helper reads it from the PR's alignment records, and a new or
+refreshed choice changes the occurrence's binding, so the reconciliation runs
+again. The record of an alternatives occurrence composed in the same plan is not
+a source: its inventory consumes this reconciliation
+([composition](alternatives.md#installed-workflow)). The library takes it as `reconcile(..., alternatives=...)`
+(`cf_workflows.alternatives.decision_sources`).
 
 The PR body's current decision section is a record, not a source. It is given to
 the session, but it cannot settle, restore or revise a decision, and it is not
@@ -252,8 +263,7 @@ session. It covers:
   `input/wait` gate needs the engine's durable external input. No release has
   them (the latest is v0.2.1; the descriptor pins 0.2.2). No local controller
   or launcher stands in. The inventory row stays `not_implemented`.
-- The installed helper does not capture linked issues. Advised and selected
-  alternatives (#27) are not yet a source kind.
+- The installed helper does not capture linked issues.
 - The helper checks recency and authority, not meaning. Real native-session
   judgment, a user-supplied skill (#16, Agent Workflow
   [#139](https://github.com/dk-code-factory/agent-workflow/issues/139)) and

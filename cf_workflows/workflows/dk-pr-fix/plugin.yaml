@@ -82,6 +82,18 @@ skills:
   - name: dk-ci-flakes
     path: skills/dk-ci-flakes/SKILL.md
     workflow: workflows/flakes.yml
+  - name: dk-issue-alternatives
+    path: skills/dk-issue-alternatives/SKILL.md
+    workflow: workflows/issue-alternatives.yml
+  - name: dk-pr-alternatives
+    path: skills/dk-pr-alternatives/SKILL.md
+    workflow: workflows/pr-alternatives.yml
+  - name: dk-alternatives-review
+    path: skills/dk-alternatives-review/SKILL.md
+    workflow: workflows/alternatives-review.yml
+  - name: dk-pr-review-alternatives
+    path: skills/dk-pr-review-alternatives/SKILL.md
+    workflow: workflows/pr-review-alternatives.yml
 resources:
   - LICENSE
   - agents.yml

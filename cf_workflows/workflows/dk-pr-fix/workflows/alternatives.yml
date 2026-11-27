@@ -1,0 +1,47 @@
+# Authored for cf-workflows (#27); no upstream counterpart. See ../../../../docs/alternatives.md.
+# The staged alternatives procedure of one occurrence: one native session or selection
+# gate per iteration until the procedure settles, then the occurrence's status.
+name: The staged alternatives procedure of one occurrence
+'on':
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      task:
+        type: string
+        required: true
+      turns:
+        type: number
+        default: 8
+    secrets:
+      github_token:
+        required: true
+    outputs:
+      status:
+        value: ${{ jobs.status.outputs.result.status }}
+jobs:
+  stages:
+    # Bounded: the record's retained allowances bound native attempts, and a rejected
+    # result stops the procedure for this run.
+    uses: workflows/alternatives-stage.yml
+    with:
+      plan: ${{ inputs.plan }}
+      task: ${{ inputs.task }}
+      turns: ${{ inputs.turns }}
+    secrets:
+      github_token: ${{ secrets.github_token }}
+    repeat:
+      max-attempts: 64
+      until: ${{ iteration.outputs.settled }}
+  status:
+    # Completes the occurrence once its procedure settled; any other outcome fails the stage.
+    needs: stages
+    uses: workflows/helper.yml
+    with:
+      operation: alternatives_status
+      payload:
+        plan: ${{ inputs.plan }}
+        task: ${{ inputs.task }}
+    secrets:
+      github_token: ${{ secrets.github_token }}

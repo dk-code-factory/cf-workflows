@@ -296,7 +296,7 @@ def _authority(author, association, accounts, host):
     return 'maintainer' if association in MAINTAINERS else 'participant'
 
 
-def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
+def collect(admitted, capture, *, issues=(), answers=(), baseline=None, alternatives=()):
     """Sources with durable identities, helper-assigned authority and discussion order.
 
     capture is the shared PR capture (metadata, comments, reviews, inline); issues
@@ -306,7 +306,9 @@ def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
     reconciled, as {identity: fingerprint}: the request comes after those and
     before any later or since-edited discussion, so a later user comment or a
     later edit outranks it (None: all discussion precedes it).
-    Gate answers come last. The
+    alternatives are the PR's advised and selected alternatives as advisory
+    sources (cf_workflows.alternatives.decision_sources); they follow the
+    discussion, and gate answers come last. The
     current decision section of the PR body is a record, never a source: it cannot
     settle, restore or revise a decision.
     """
@@ -353,7 +355,7 @@ def collect(admitted, capture, *, issues=(), answers=(), baseline=None):
     later = [item for item in discussion if baseline is not None and baseline.get(item['id']) != fingerprint(item)]
     sources = earlier + [{'id': 'instruction:request', 'kind': 'instruction', 'public': False, 'url': None,
                              'text': snapshot['request']['original_instructions'], 'author': None,
-                             'authority': 'user', 'created_at': None}] + later
+                             'authority': 'user', 'created_at': None}] + later + [dict(item) for item in alternatives]
     for answer in answers:
         value = answer['value']
         sources.append({'id': 'answer:' + answer['answer_id'], 'kind': 'answer', 'public': False, 'url': None,
@@ -723,7 +725,7 @@ def handoff(report):
             'dependent_work': report['dependent_work']}
 
 
-def reconcile(admitted, *, capture, ledger, transport, issues=()):
+def reconcile(admitted, *, capture, ledger, transport, issues=(), alternatives=()):
     """Run (or reuse) one reconciliation of the adapter occurrence and return its private report.
 
     admitted is this entry's preflight result or a dk-pr-fix preflight whose plan
@@ -731,6 +733,9 @@ def reconcile(admitted, *, capture, ledger, transport, issues=()):
     and open_input_gate(request). Unchanged sources, answers and governing inputs
     reuse the retained result with no session. A waiting gate returns with no
     session. A lost session response is reconciled through its claim.
+    alternatives are the PR's advised and selected alternatives
+    (cf_workflows.alternatives.decision_sources); a refreshed choice refreshes
+    only the decisions and contradictions that cite it.
     """
     try:
         require(admitted.get('preflight') == 'admitted', 'admission', 'reconciliation needs an admitted run')
@@ -752,10 +757,11 @@ def reconcile(admitted, *, capture, ledger, transport, issues=()):
     answers = [{'gate_id': gate['gate_id'], 'answer_id': gate['answer']['answer_id'],
                 'value': gate['answer']['value']} for gate in gates]
     try:
-        sources, published = collect(admitted, capture, issues=issues, answers=answers)
+        sources, published = collect(admitted, capture, issues=issues, answers=answers, alternatives=alternatives)
         baseline = ledger.baseline((item['id'], fingerprint(item)) for item in sources
-                                   if item['kind'] not in ('instruction', 'answer'))
-        sources, published = collect(admitted, capture, issues=issues, answers=answers, baseline=baseline)
+                                   if item['kind'] not in ('instruction', 'answer', 'alternatives'))
+        sources, published = collect(admitted, capture, issues=issues, answers=answers, baseline=baseline,
+                                     alternatives=alternatives)
     except (AdmissionError, configuration.Blocked, TypeError, KeyError, AttributeError) as error:
         return {'skill': SKILL, 'status': 'blocked', 'error': _failure(error)}
     context = _context(admitted, task, governing)

@@ -284,9 +284,10 @@ publication helpers list only verified findings and the final merge there.
   and helpers, not the engine's conditional calls or session adherence. Like
   review.yml, it needs Agent Workflow #129 and #130 in a release.
 - The installed review reads retained alternatives analysis through the
-  [alignment gate](alignment.md#installed-gate), but only the library
-  [alternatives entries](alternatives.md) run its stages. The installed review
-  workflow rejects their adapters (#27).
+  [alignment gate](alignment.md#installed-gate). A plan may compose one
+  `pr-alternatives` occurrence, which runs the
+  [staged procedure](alternatives.md#installed-workflow) through verification
+  and the gate; it has never run through a released engine.
 - A profile built from an installed code-review-ad package uses custom adapters.
   `dk-pr-review` preflight routes them through semantic assessment and maps them
   once accepted, but through a real engine the validator task blocks until the

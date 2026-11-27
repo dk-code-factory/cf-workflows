@@ -14,11 +14,11 @@ The suite state home is `$XDG_STATE_HOME/cf-workflows` (fallback
 | --- | --- | --- |
 | `configuration` | `configuration.sqlite3` | dk-config, dk-preferences, prose entries |
 | `prose` | `prose/<id>.sqlite3` | dk-plain-english, dk-asd-ste100 |
-| `run` | `repositories/<id>/runs/<run>.sqlite` | dk-pr-fix, dk-pr-review, dk-pr-iter and every row that runs over the shared workflow or publishes |
+| `run` | `repositories/<id>/runs/<run>.sqlite` | dk-pr-fix, dk-pr-review, dk-pr-iter and every row that runs over the shared workflow or publishes, including the four alternatives entries |
 | `feedback` | `…/runs/<run>.feedback.sqlite` | dk-pr-fix, the feedback entries |
 | `decisions` | `…/runs/<run>.decisions.sqlite` | dk-pr-decisions (library procedure) |
 | `reconciliation` | `…/runs/<run>.reconciliation.sqlite` | dk-pr-decisions, dk-pr-fix, dk-pr-iter (installed workflow) |
-| `alignment` | `…/runs/<run>[.whole-problem].alignment.sqlite` | the four alternatives entries; dk-pr-fix, dk-pr-review, dk-pr-iter (read by the installed gate) |
+| `alignment` | `…/runs/<run>[.whole-problem].alignment.sqlite` | the four alternatives entries (with their installed gate answers); dk-pr-fix, dk-pr-review, dk-pr-iter (read by the installed gate); dk-pr-decisions (advised and selected alternatives as sources) |
 | `drafting` | `…/runs/<run>.drafting.sqlite` | dk-pr-description, dk-commit-message, dk-issue, dk-commit-split |
 | `splitting` | `…/runs/<run>.splitting.sqlite` | dk-commit-split, dk-pr-split (library procedure) |
 | `split_operations` | `…/runs/<run>.split-operations.sqlite` | dk-commit-split, dk-pr-split (installed workflow) |

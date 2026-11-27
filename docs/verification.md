@@ -148,7 +148,9 @@ through the run ledger and the controlled Git helper with scripted session edits
 disposable repository and state namespace and a fake engine with durable gates
 and claim-reconciled native sessions scripted per stage. They count new sessions
 per stage across settled reuse, fresh direct requests, interruptions and
-exhausted allowances.
+exhausted allowances. `tests/test_dk_pr_fix_alternatives.py` drives the same
+procedure through the installed helpers in-process, counting every native
+stage dispatch and gate.
 [Feedback entry](feedback-skills.md#verification) tests
 (`tests/test_feedback_skills.py`) drive dk-pr-feedback-read, -address and -reply
 from their preflight inputs through the installed helpers. They use a paginated

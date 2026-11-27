@@ -192,10 +192,14 @@ def _constraints(result, mode, workflow):
                                  'and cf-workflows:dk-preferences')
     # Prose finalizers (plain-english, asd-ste100) run as ordinary task occurrences; the installed
     # helpers bound their sessions to changed prose and check their edits (helpers/prfix/prose.py).
-    if any(task['kind'] == admission.ALTERNATIVES_KIND for task in snapshot['plan']['tasks']):
-        # A single generic task would conceal the staged procedure (cf_workflows.alternatives).
-        return 'options.tasks', ('alternatives adapters run only through their staged procedure; '
-                                 'the installed workflow does not run alternatives stages yet')
+    analyzed = [task['adapter'] for task in snapshot['plan']['tasks'] if task['kind'] == admission.ALTERNATIVES_KIND]
+    # dk-pr-fix composes whole-problem analysis on its PR and dk-pr-review branch analysis; the
+    # installed workflow runs it through its staged procedure (workflows/alternatives.yml).
+    composed = {'fix': 'issue-alternatives', 'review': 'pr-alternatives'}[mode]
+    if any(adapter != composed for adapter in analyzed) or len(analyzed) > 1:
+        return 'options.tasks', (('cf-workflows:dk-pr-fix composes only issue-alternatives' if mode == 'fix' else
+                                  'cf-workflows:dk-pr-review composes only pr-alternatives')
+                                 + ', once; the alternatives entries run the other scope')
     entry_only = [task['adapter'] for task in snapshot['plan']['tasks']
                   if task['adapter'] in ENTRY_ONLY and ENTRY_ONLY[task['adapter']] != workflow]
     if entry_only:

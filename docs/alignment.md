@@ -8,10 +8,12 @@ rules of the [invocation](contracts/v1/invocation.md) and
 [dk-workflows#241](https://github.com/dk-code-factory/dk-workflows/issues/241).
 Provisional PR identity is [provisional.md](provisional.md).
 
-The [alternatives entries](alternatives.md) (#27) drive its stages as library
-procedures. The installed `dk-pr-fix` and `dk-pr-review` workflows read the
-result through the [installed gate](#installed-gate) before review. They never
-run a stage. Native sessions for these stages need Agent Workflow #129 and #130.
+The [alternatives entries](alternatives.md) (#27) drive its stages, as library
+procedures and through the installed
+[staged procedure](alternatives.md#installed-workflow). The installed
+`dk-pr-fix` and `dk-pr-review` workflows also read the result through the
+[installed gate](#installed-gate) before review. Native sessions for these
+stages need Agent Workflow #129 and #130 in a release.
 
 ## Stages
 
@@ -97,11 +99,13 @@ through a caller that supplies `inputs`.
 
 ## Installed gate
 
-The gate and the record's reads are one implementation:
+The gate, the record's reads and its writing `Ledger` are one implementation:
 [`prfix/alignment.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py)
 in the installed helpers. It uses only the standard library.
-`cf_workflows/alignment.py` loads it and builds its writing `Ledger` on its
-`Records`.
+`cf_workflows/alignment.py` loads it and re-exports them; the installed
+alternatives procedure writes the record through the same `Ledger`. The writer
+adds an `answers` table for the installed selection gates
+([alternatives](alternatives.md#installed-workflow)); readers never need it.
 
 `main.yml` runs the `alignment_gate` helper operation after `prepare` and before
 the cycles. Coverage reads the gate again each cycle at the analyzed revision.
@@ -122,9 +126,9 @@ alternatives entries keep for each PR.
   this unready result and does not fail, as it does for provisional analysis.
   `readiness` reports the outcome as a blocker.
 
-The installed run never starts, repeats or authorizes a stage, and never writes
-the record. A later head needs only a refreshed alignment from the alternatives
-entries. It needs no rejection receipt, and settled stages and allowances are
+The gate never starts, repeats or authorizes a stage, and never writes the
+record; a plan's alternatives occurrence does that through its staged procedure.
+A later head needs only a refreshed alignment from the alternatives entries. It needs no rejection receipt, and settled stages and allowances are
 kept. Recovery backs up the `alignment` store with dk-pr-fix, dk-pr-review and
 dk-pr-iter runs ([recovery](recovery.md)).
 
@@ -151,7 +155,9 @@ withholds an eligible finding nor makes the review clean. The result is always
 
 Each logical run has its own record, `runs/<sha256(logical_run)>.alignment.sqlite`
 in the [state namespace](dk-pr-fix.md#state-namespace), next to the run ledger.
-It holds attempts, direct requests, reservations and grants.
+It holds attempts, direct requests, reservations and grants, and the answers
+to the installed selection gates (an `answers` table the writer adds to a
+version 1 record that lacks it).
 `PRAGMA user_version = 1` and a `meta` table bind the suite, kind, logical run
 and PR. Any other version, database or binding is refused. Whole-problem
 analysis (`scope='whole-problem'`) has its own record,
@@ -213,14 +219,11 @@ or verifier session and no clean review or readiness.
 ## What remains
 
 - Running these stages as engine-managed native sessions needs Agent Workflow
-  #129 and #130. The alternatives entries and the direct manual entry drive them
-  as library procedures ([alternatives](alternatives.md)).
-- The installed workflows gate review on retained analysis but do not run the
-  architectural stages. They reject the alternatives adapters
-  ([alternatives](alternatives.md#what-remains), #27). A gated run needs the
-  library alternatives entries to refresh alignment. The installed gate has never
-  run through a released engine: Agent Workflow #129, #130 and #139 are on its
-  `main` but in no release.
+  #129 and #130 in a release. The installed alternatives entries and a composed
+  `pr-alternatives` or `issue-alternatives` occurrence run them through the
+  [staged procedure](alternatives.md#installed-workflow), and the installed gate
+  reads the result, but neither has run through a released engine: Agent
+  Workflow #129, #130 and #139 are on its `main` but in no release.
 - Posting an eligible finding goes through [exact-intent
   publication](publication.md). Incoming review applies the same rules in its
   [finding publication](review.md#finding-publication); it does not call this

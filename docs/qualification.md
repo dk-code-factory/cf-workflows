@@ -71,15 +71,15 @@ native execution and live acceptance are `pending` and every parity status is
 | Skill | Composition | Native execution | Delivery | Plugin descriptor | Direct / composed / recovery |
 | --- | --- | --- | --- | --- | --- |
 | `cf-workflows:dk-pr-iter` | shared_workflow | pending | #24, #25 | listed | 4 / 2 / 4 |
-| `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16, #23 | listed | 4 / 2 / 5 |
-| `cf-workflows:dk-pr-review` | shared_workflow | pending | #23, #24, #25 | listed | 3 / 3 / 5 |
+| `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16, #23, #27 | listed | 4 / 3 / 5 |
+| `cf-workflows:dk-pr-review` | shared_workflow | pending | #23, #24, #25, #27 | listed | 3 / 4 / 5 |
 | `cf-workflows:dk-repo-onboard` | shared_workflow | pending | #26 | listed | 4 / 2 / 5 |
 | `cf-workflows:dk-config` | boundary | pending | #26 | listed | 5 / 2 / 7 |
 | `cf-workflows:dk-preferences` | shared_workflow | pending | #26 | listed | 4 / 3 / 4 |
-| `cf-workflows:dk-issue-alternatives` | shared_workflow | pending | #27 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-pr-alternatives` | shared_workflow | pending | #27 | not listed | 3 / 1 / 3 |
-| `cf-workflows:dk-alternatives-review` | delegate | pending | #27 | not listed | 2 / 1 / 1 |
-| `cf-workflows:dk-pr-review-alternatives` | boundary | pending | #27 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-issue-alternatives` | shared_workflow | pending | #27 | listed | 4 / 3 / 3 |
+| `cf-workflows:dk-pr-alternatives` | shared_workflow | pending | #27 | listed | 6 / 3 / 5 |
+| `cf-workflows:dk-alternatives-review` | delegate | pending | #27 | listed | 4 / 1 / 1 |
+| `cf-workflows:dk-pr-review-alternatives` | boundary | pending | #27 | listed | 3 / 2 / 2 |
 | `cf-workflows:dk-plain-english` | shared_workflow | pending | #33 | listed | 5 / 4 / 4 |
 | `cf-workflows:dk-asd-ste100` | shared_workflow | pending | #33 | listed | 4 / 2 / 3 |
 | `cf-workflows:dk-code-simplify` | shared_workflow | pending | #29 | listed | 3 / 2 / 3 |
@@ -90,7 +90,7 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-feedback-reply` | shared_workflow | pending | #30 | listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-review-post` | shared_workflow | pending | #31 | listed | 4 / 1 / 3 |
 | `cf-workflows:dk-pr-description` | shared_workflow | pending | #32 | listed | 5 / 2 / 5 |
-| `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #28 | listed | 4 / 3 / 5 |
+| `cf-workflows:dk-pr-decisions` | shared_workflow | pending | #27, #28 | listed | 4 / 4 / 5 |
 | `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 6 |
 | `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 5 |
 | `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |

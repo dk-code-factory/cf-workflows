@@ -47,7 +47,8 @@
         14,
         15,
         16,
-        23
+        23,
+        27
       ],
       "behavior": [
         "cf_workflows/dk_pr_fix.py",
@@ -64,7 +65,8 @@
       ],
       "composed": [
         "test_dk_pr_fix_responses.BeforeReview.test_dk_workflows_255_replies_settle_before_a_failing_review_and_survive_resume",
-        "test_publication_skills.Publish.test_composed_dk_pr_fix_publication_shares_the_journal_and_never_duplicates"
+        "test_publication_skills.Publish.test_composed_dk_pr_fix_publication_shares_the_journal_and_never_duplicates",
+        "test_dk_pr_fix_alternatives.Composition.test_fix_route_hands_settled_choices_to_its_fix_occurrences"
       ],
       "recovery": [
         "test_dk_pr_fix_continuation.Continuation.test_partial_parallel_failure_keeps_sibling_and_needs_explicit_continuation",
@@ -87,12 +89,14 @@
       "delivery_issues": [
         23,
         24,
-        25
+        25,
+        27
       ],
       "behavior": [
         "cf_workflows/dk_pr_review.py",
         "cf_workflows/workflows/dk-pr-fix/workflows/review.yml",
-        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py"
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py"
       ],
       "documentation": "docs/review.md",
       "composition": "shared_workflow",
@@ -104,7 +108,8 @@
       "composed": [
         "test_dk_pr_review_findings.BodyAndInline.test_mixed_findings_keep_honest_anchors_and_never_duplicate",
         "test_publication_skills.ReviewPost.test_direct_post_reuses_composed_review_and_composed_rerun_adds_nothing",
-        "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_239_later_head_recovers_without_a_rejection_receipt"
+        "test_dk_pr_fix_alignment.InstalledGate.test_dk_workflows_239_later_head_recovers_without_a_rejection_receipt",
+        "test_dk_pr_fix_alternatives.Boundary.test_new_requirements_refresh_only_current_alignment_in_composed_review"
       ],
       "recovery": [
         "test_dk_pr_review_findings.RerunsAndRecovery.test_lost_response_after_the_effect_settles_by_reconciliation",
@@ -251,18 +256,24 @@
         27
       ],
       "behavior": [
-        "cf_workflows/alternatives.py"
+        "cf_workflows/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/issue-alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml"
       ],
       "documentation": "docs/alternatives.md",
       "composition": "shared_workflow",
       "direct": [
         "test_alternatives.Scope.test_issue_only_analysis_persists_nothing_and_invents_no_pr",
         "test_alternatives.Scope.test_issue_only_question_is_asked_once_and_its_answer_is_used",
-        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance"
+        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance",
+        "test_dk_pr_fix_alternatives.Entries.test_whole_problem_entry_keeps_its_own_record_and_needs_issue_requirements"
       ],
       "composed": [
         "test_alternatives.Composition.test_fix_route_hands_settled_choices_and_required_changes_to_implementation",
-        "test_alternatives.Composition.test_unresolved_reconciliation_blocks_the_fix_handoff_but_not_the_analysis"
+        "test_alternatives.Composition.test_unresolved_reconciliation_blocks_the_fix_handoff_but_not_the_analysis",
+        "test_dk_pr_fix_alternatives.Composition.test_fix_route_hands_settled_choices_to_its_fix_occurrences"
       ],
       "recovery": [
         "test_alternatives.Scope.test_issue_only_rejection_is_retried_without_a_record",
@@ -272,11 +283,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; issue-only analysis without a PR stays library-level because installed plans bind a PR; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-alternatives",
@@ -285,7 +296,12 @@
       ],
       "behavior": [
         "cf_workflows/alternatives.py",
-        "cf_workflows/alignment.py"
+        "cf_workflows/alignment.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/pr-alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml"
       ],
       "documentation": "docs/alternatives.md",
       "composition": "shared_workflow",
@@ -293,25 +309,30 @@
         "test_alternatives.Selection.test_manual_choice_is_asked_once_resumed_and_sourced",
         "test_alternatives.Scope.test_inherited_decisions_are_inventoried_and_compared",
         "test_alternatives.Boundary.test_analysis_settles_once_per_pr_across_requirements_guidance_heads_and_routes",
-        "test_alternatives.Scope.test_whole_problem_and_branch_records_share_one_assessment"
+        "test_alternatives.Scope.test_whole_problem_and_branch_records_share_one_assessment",
+        "test_dk_pr_fix_alternatives.Entries.test_direct_branch_entry_runs_each_stage_as_its_own_checked_native_session",
+        "test_dk_pr_fix_alternatives.Selection.test_semi_manual_question_is_asked_once_and_its_answer_settles_the_choice"
       ],
       "composed": [
         "test_alternatives.Composition.test_coordinators_compose_only_their_scope",
-        "test_alternatives.Scope.test_reconciled_decisions_feed_the_inventory_and_bind_current_alignment"
+        "test_alternatives.Scope.test_reconciled_decisions_feed_the_inventory_and_bind_current_alignment",
+        "test_dk_pr_fix_alternatives.Composition.test_coordinators_compose_only_their_scope"
       ],
       "recovery": [
         "test_alternatives.Boundary.test_interrupted_analysis_resumes_its_claim_without_a_second_session",
         "test_alternatives.Boundary.test_retained_allowance_is_never_renewed",
-        "test_recovery.AlignmentRecovery.test_settled_stages_reuse_and_the_open_stage_resumes_after_restore"
+        "test_recovery.AlignmentRecovery.test_settled_stages_reuse_and_the_open_stage_resumes_after_restore",
+        "test_dk_pr_fix_alternatives.Boundary.test_interrupted_stage_resumes_its_open_claim",
+        "test_dk_pr_fix_alternatives.Boundary.test_rejected_output_closes_its_attempt_and_the_next_run_starts_a_new_one"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-alternatives-review",
@@ -319,14 +340,19 @@
         27
       ],
       "behavior": [
-        "cf_workflows/alternatives.py"
+        "cf_workflows/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-review.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml"
       ],
       "documentation": "docs/alternatives.md",
       "composition": "delegate",
       "direct": [
         "test_alternatives.Compatibility.test_routes_run_the_delegate_under_its_own_identity_with_the_original_instruction",
         "test_alternatives.Compatibility.test_unsupported_routes_and_legacy_assignments_are_never_concealed",
-        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance"
+        "test_alternatives.SavedOptions.test_saved_entry_options_apply_under_invocation_options_with_provenance",
+        "test_dk_pr_fix_alternatives.Compatibility.test_routes_run_the_delegate_under_the_entry_identity_and_legacy_is_refused"
       ],
       "composed": [
         "test_alternatives.Compatibility.test_compatibility_reuses_settled_analysis_and_cannot_authorize_a_fresh_one"
@@ -337,11 +363,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A compatibility entry whose delegate runs under the entry identity; it does not establish its delegate. A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "A compatibility entry whose delegate runs under the entry identity; it does not establish its delegate. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/alternatives-review.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-review-alternatives",
@@ -350,16 +376,23 @@
       ],
       "behavior": [
         "cf_workflows/alternatives.py",
-        "cf_workflows/alignment.py"
+        "cf_workflows/alignment.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/pr-review-alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml"
       ],
       "documentation": "docs/alternatives.md",
       "composition": "boundary",
       "direct": [
         "test_alternatives.Boundary.test_explicit_fresh_comparison_refreshes_requested_analysis_once_per_request",
-        "test_alternatives.Boundary.test_interrupted_fresh_request_resumes_without_repeating_siblings"
+        "test_alternatives.Boundary.test_interrupted_fresh_request_resumes_without_repeating_siblings",
+        "test_dk_pr_fix_alternatives.Boundary.test_manual_entry_refreshes_once_per_direct_request_and_stops_at_the_gate"
       ],
       "composed": [
-        "test_alternatives.Boundary.test_only_a_distinct_direct_user_request_authorizes_a_fresh_comparison"
+        "test_alternatives.Boundary.test_only_a_distinct_direct_user_request_authorizes_a_fresh_comparison",
+        "test_dk_pr_fix_alternatives.Boundary.test_new_requirements_refresh_only_current_alignment_in_composed_review"
       ],
       "recovery": [
         "test_alternatives.Boundary.test_automatic_route_never_supersedes_an_interrupted_direct_request",
@@ -368,11 +401,11 @@
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Only a distinct direct user request authorizes its fresh comparison, so composed and delegated requests are refused (composition boundary). A library entry procedure with no installed workflow or descriptor listing. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Only a distinct direct user request authorizes its fresh comparison, so composed and delegated requests are refused (composition boundary). Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-review-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-plain-english",
@@ -735,6 +768,7 @@
     {
       "skill": "dk-pr-decisions",
       "delivery_issues": [
+        27,
         28
       ],
       "behavior": [
@@ -754,7 +788,8 @@
       "composed": [
         "test_decisions.Composed.test_dk_pr_fix_occurrence_uses_the_same_procedure",
         "test_dk_pr_fix_decisions.Reconcile.test_a_dependent_occurrence_covers_the_reconciliation_it_was_handed",
-        "test_dk_pr_fix_decisions.Publish.test_a_description_body_edit_carries_the_section_in_one_intent"
+        "test_dk_pr_fix_decisions.Publish.test_a_description_body_edit_carries_the_section_in_one_intent",
+        "test_dk_pr_fix_alternatives.Sources.test_advised_and_selected_alternatives_are_advisory_decision_sources"
       ],
       "recovery": [
         "test_decisions.Reconcile.test_lost_session_response_reconciles_to_the_original_claim",
@@ -770,7 +805,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/decisions.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); linked-issue sources and advised alternatives (#27) are not collected by the installed helper; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/decisions.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); linked-issue sources are not collected by the installed helper; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-split",

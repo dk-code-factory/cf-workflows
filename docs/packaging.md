@@ -48,9 +48,14 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   `dk-pr-split` (`workflows/commit-split.yml` and `pr-split.yml`), the
   [configuration presets](configuration-skills.md#installed-workflow)
   `dk-repo-onboard`, `dk-config` and `dk-preferences` (`workflows/onboard.yml`,
-  `config.yml` and `preferences.yml`, over `workflows/configure.yml`), and the
+  `config.yml` and `preferences.yml`, over `workflows/configure.yml`), the
   [CI entries](ci-skills.md#installed-entries) `dk-ci`, `dk-ci-approve` and
-  `dk-ci-flakes` (`workflows/ci.yml`, `ci-approve.yml` and `flakes.yml`).
+  `dk-ci-flakes` (`workflows/ci.yml`, `ci-approve.yml` and `flakes.yml`), and the
+  [alternatives presets](alternatives.md#installed-workflow)
+  `dk-issue-alternatives`, `dk-pr-alternatives`, `dk-alternatives-review` and
+  `dk-pr-review-alternatives` (`workflows/issue-alternatives.yml`,
+  `pr-alternatives.yml`, `alternatives-review.yml` and
+  `pr-review-alternatives.yml`).
   Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
