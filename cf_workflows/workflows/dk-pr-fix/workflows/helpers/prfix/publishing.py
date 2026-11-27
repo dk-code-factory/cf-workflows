@@ -280,7 +280,9 @@ def publication_prepare(root, provider, ledger, plan, inputs):
         if final["invoke"] and proposal == final["proposal"]:
             prepared = _publication(root, provider, ledger, plan).prepare(proposal)
             return {**{key: prepared[key] for key in ("id", "fingerprint", "intent")}, "invoke": prepared["state"] == "prepared"}
-    if not any(value == proposal for value in listed):
+    # A merge or approval other than the final helper's is never prepared from a listing,
+    # which may still carry a native report's own merge; only a retained original is reconciled.
+    if proposal.get("kind") in ("merge", "approve_pr") or not any(value == proposal for value in listed):
         # An applied or pending original may outlive source freshness after
         # its own publication. Its immutable ID/payload can be inspected and
         # reconciled, but this path cannot dispatch a replacement proposal.

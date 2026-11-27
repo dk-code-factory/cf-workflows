@@ -290,6 +290,18 @@ class PublishingTests(unittest.TestCase):
             self.assertFalse(stale["ready"])
             self.assertTrue(any("another head" in item for item in stale["blockers"]))
 
+    def test_native_report_merge_is_listed_but_never_prepared(self):
+        # code-scan #12: merge comes only from merge_proposal, never from an accepted report.
+        native = {"kind": "merge", "head": HEAD, "target": BASE, "payload": {"merge_method": "squash"}}
+        self.accepted("description", self.report(operations=[native]))
+        self.plan["options"]["permissions"]["merge"] = True
+        listed = publishing.publication_list(self.root, self.provider, self.ledger, self.plan, {"kind": "merge"})["items"]
+        self.assertEqual([item["kind"] for item in listed], ["merge"])
+        with self.assertRaises(PublicationError):
+            publishing.publication_prepare(self.root, self.provider, self.ledger, self.plan, {"proposal": listed[0]})
+        self.assertEqual(self.ledger.db.execute("SELECT count(*) FROM publication_intents").fetchone()[0], 0)
+        self.assertEqual(self.provider.writes, [])
+
     def test_readiness_checks_graphql_requirements_without_publication(self):
         self.accepted("description")
         self.accepted("review")
