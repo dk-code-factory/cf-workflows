@@ -304,8 +304,18 @@ upstream #138 fixtures for the guard itself.
 
 ## What remains
 
-- Running the workflow, and so real dispatch through the engine, needs Agent
-  Workflow #129 and #130.
+- Running the workflow, and so real dispatch through the engine, needs a
+  released engine with Agent Workflow #129 and #130. Both are merged upstream,
+  but no release contains them (newest tag `v0.2.1`; the plugin pins `0.2.2`).
+- The installed `publish` job and the `publication_recover` helper are
+  separate container launches. The ledger that retains the original dispatch
+  and its rejection evidence lives in the
+  [state namespace](dk-pr-fix.md#state-namespace) at `/cf-workflows-state`,
+  which no engine container can mount yet (Agent Workflow #149). Until then
+  settlement after a lost response, and the `not_applied` recovery of a
+  pending-review rejection, are shown only by the fixtures above.
+- No packaged smoke run of `publication.yml` exists: `plugin test` rejects its
+  container job (Agent Workflow #150).
 - The pending-review classifier matches the exact 422 body reported
   in dk-workflows#260. Live conformance of that body needs separate
   authorization.
