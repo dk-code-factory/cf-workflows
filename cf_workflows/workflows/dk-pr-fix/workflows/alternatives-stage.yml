@@ -72,10 +72,12 @@ jobs:
       report: ${{ steps.stage.outputs.structured }}
       status: ${{ steps.stage.status }}
   accept:
+    # Whatever the session's status: a session that ended without a result closes its
+    # attempt instead of the next iteration dispatching the same open claim again.
     needs:
     - next
     - native
-    if: ${{ needs.next.outputs.result.invoke and needs.native.status == 'succeeded' }}
+    if: ${{ needs.next.outputs.result.invoke }}
     uses: workflows/helper.yml
     with:
       operation: alternatives_accept

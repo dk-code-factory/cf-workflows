@@ -71,7 +71,9 @@ The helper assigns authority; the session cannot raise it:
 An advisory source never settles, excludes or resolves a decision by itself.
 The installed helper reads it from the PR's alignment records, and a new or
 refreshed choice changes the occurrence's binding, so the reconciliation runs
-again; the library takes it as `reconcile(..., alternatives=...)`
+again. The record of an alternatives occurrence composed in the same plan is not
+a source: its inventory consumes this reconciliation
+([composition](alternatives.md#installed-workflow)). The library takes it as `reconcile(..., alternatives=...)`
 (`cf_workflows.alternatives.decision_sources`).
 
 The PR body's current decision section is a record, not a source. It is given to

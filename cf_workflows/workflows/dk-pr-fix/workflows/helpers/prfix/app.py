@@ -311,7 +311,7 @@ def _fingerprint(snapshot, task, ledger=None):
             result = digest([result, {"decisions": handed}])
     if ledger is not None and task.get("alternatives_handoff"):
         # A composed fix occurrence covers the alternatives handoff it was handed (alternatives.py).
-        result = digest([result, {"alternatives": alternatives.reference(ledger, task)}])
+        result = digest([result, {"alternatives": alternatives.reference(ledger, task, snapshot)}])
     return result
 
 

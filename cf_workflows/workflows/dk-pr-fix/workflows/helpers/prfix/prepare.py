@@ -596,6 +596,18 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             raise ValueError(str(error)) from None
     elif raw_alternatives is not None or entry in ALTERNATIVES_ENTRIES:
         raise ValueError("settings.alternatives and the alternatives entries need one alternatives occurrence")
+    reconciling = [task for task in tasks if task["kind"] == "decisions"]
+    if analyzed and reconciling:
+        # The composed inventory consumes the reconciled decisions (alternatives._handoff), so the
+        # reconciliation runs first and never takes back, as a source or in its binding, the choices
+        # of the record this occurrence writes: they were made against it (decisions.binding).
+        def staged(task_id):
+            return next(index for index, stage in enumerate(stages) if task_id in (
+                stage.get("alternatives"), stage.get("decisions")))
+        if staged(analyzed[0]["id"]) < staged(reconciling[0]["id"]):
+            raise ValueError("the alternatives inventory consumes the reconciled decisions; "
+                             "stage reconcile-decisions before the alternatives occurrence")
+        reconciling[0]["alternatives_consumer"] = analyzed[0]["alternatives"]["scope"]
     if entry in ALTERNATIVES_ENTRIES and ([(stage["kind"], stage["phase"]) for stage in stages]
                                          != [("alternatives", "tasks")]
                                          or len(tasks) != 1 or any(permissions.values())):

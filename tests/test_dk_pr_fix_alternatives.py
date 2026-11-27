@@ -116,7 +116,8 @@ class Installed(Fixture):
     def plan(self, tasks, *, entry='', mode=None, settings=None, instructions='Compare the value design.',
              run='alternatives_fixture', permissions=None):
         mode = mode or ('review' if entry else 'fix')  # The entries run read-only in review mode.
-        bundled = {name: dict(admission.BUNDLED_ADAPTERS[name]) for name in ('issue-alternatives', 'pr-alternatives')}
+        bundled = {name: dict(admission.BUNDLED_ADAPTERS[name]) for name in ('issue-alternatives', 'pr-alternatives',
+                                                                                     'reconcile-decisions')}
         controls = {'tasks': tasks, 'finalizers': [], 'reviewers': ['review'], 'accounts': [],
                     'adapters': {**adapters(), **bundled}, 'settings': settings or {}, 'resources': [], 'turns': 8,
                     'mode': mode, 'entry': entry, 'permissions': permissions or {}}
@@ -439,6 +440,32 @@ class Composition(Installed):
         handed = claim['task_input']['alternatives']
         self.assertEqual((handed['handoff']['required_changes'], handed['selections']['whole']['choice']),
                          (CHANGES, 'smallest'))
+
+    def test_composed_reconciliation_and_analysis_settle_in_one_cycle(self):
+        # The inventory consumes the reconciliation, which never takes back this record's choices.
+        tasks = [['reconcile-decisions'], 'issue-alternatives', 'address-feedback']
+        plan = self.plan(tasks, settings={'alternatives': {'requirements': ISSUE}})
+        reconciling = decisions.occurrence(plan)
+        self.assertEqual(reconciling['alternatives_consumer'], 'whole-problem')
+        ledger = self.ledger(plan)
+        snapshot = app._snapshot(self.root, self.github, plan)
+        alone = {key: value for key, value in reconciling.items() if key != 'alternatives_consumer'}
+        before = (app._fingerprint(snapshot, reconciling, ledger), decisions.binding(snapshot, alone, ledger))
+        self.assertEqual(self.drive(plan, ledger)['status'], 'complete')
+        self.assertEqual(app._fingerprint(snapshot, reconciling, ledger), before[0])
+        self.assertEqual(decisions._alternatives(self.root, plan['pr'], reconciling), [])
+        # Without a consuming occurrence the new choice is a source and reconciles again.
+        self.assertNotEqual(decisions.binding(snapshot, alone, ledger), before[1])
+        self.assertEqual([item['id'] for item in decisions._alternatives(self.root, plan['pr'], alone)],
+                         ['alternatives:whole-problem:whole'])
+        # A fix fingerprint binds only a current analysis report.
+        status = self.status(plan, ledger)
+        address = next(task for task in plan['tasks'] if task['skill'] == 'address-feedback')
+        self.assertEqual(alternatives.reference(ledger, address, snapshot), status['report'])
+        self.assertIsNone(alternatives.reference(ledger, address, {**snapshot, 'head': 'f' * 40}))
+        with self.assertRaisesRegex(ValueError, 'stage reconcile-decisions before'):
+            self.plan(['issue-alternatives', ['reconcile-decisions'], 'address-feedback'],
+                      settings={'alternatives': {'requirements': ISSUE}})
 
     def test_coordinators_compose_only_their_scope(self):
         with self.assertRaisesRegex(ValueError, 'composes only issue-alternatives'):

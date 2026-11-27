@@ -306,7 +306,10 @@ may select `pr-alternatives`, each once and alone in its stage; preflight
 rejects the other scope. A composed `dk-pr-fix` run walks through current
 alignment and hands its fix occurrences the report (`assignment.alternatives`:
 settled choices, alignment and required changes). Their fingerprints bind that
-report, and a writer does not start before the procedure settled. A composed
+report, but only while its coverage is current, and a writer does not start
+before the procedure settled. When the run also selects `reconcile-decisions`,
+that stage must come first: the inventory consumes the reconciled decisions, and
+preflight rejects the reverse order. A composed
 `dk-pr-review` run walks through verification and the gate, and the installed
 [alignment gate](alignment.md#installed-gate) then reads the same record.
 
@@ -319,7 +322,12 @@ chosen, the selected option and its approach. Each becomes one private source,
 discussion and the request and comes before recorded answers. A settled decision
 cannot rest on it alone, and only a later user source resolves a contradiction
 with it. A new or refreshed choice changes the installed reconciliation's
-binding, so `dk-pr-decisions` reconciles again.
+binding, so `dk-pr-decisions` reconciles again. The one exception is the record
+of an alternatives occurrence composed in the same plan: its inventory consumes
+that reconciliation and its choices were made against it, so they are not a
+source of it (`alternatives_consumer`). Otherwise each binding would make the
+other stale, and the run would reconcile, align and fix again in the next
+cycle; both now settle in the cycle where the analysis first settles.
 
 ## Verification
 
@@ -394,10 +402,15 @@ would return and counts every dispatch per stage:
   on an automatic route.
 - **Compatibility and composition.** The explicit route under the entry's
   identity, a refused legacy assignment, the delegate reusing what the route
-  settled, the fix handoff reaching a fix occurrence, and each coordinator's
-  scope.
+  settled, the fix handoff reaching a fix occurrence, a composed reconciliation
+  whose binding the analysis it feeds leaves unchanged (and the reverse order
+  rejected), a stale analysis report never bound by a fix fingerprint, and each
+  coordinator's scope.
 - **Sources.** Advised and selected alternatives as advisory decision sources,
   in the library and the helper; one shared procedure for both.
+  [`tests/test_decisions.py`](../tests/test_decisions.py) runs the library's
+  `reconcile(..., alternatives=...)`: an alternative alone never settles a
+  decision, and a refreshed choice refreshes only the decisions that cite it.
 
 ## What remains
 

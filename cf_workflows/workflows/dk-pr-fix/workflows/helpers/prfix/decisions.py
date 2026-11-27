@@ -500,19 +500,29 @@ def binding(snapshot, task, ledger=None, plan=None):
     answers = _answered(ledger, plan or {'logical_run': ledger.logical_run, 'pr': snapshot['pr']}) if ledger else []
     value = {'snapshot': selected, 'task': {key: value for key, value in task.items() if key != 'required'},
              'answers': [[item['answer_id'], item['evidence_id'], item['value']] for item in answers]}
-    advised = _alternatives(ledger.root, snapshot['pr']) if ledger else []
+    advised = _alternatives(ledger.root, snapshot['pr'], task) if ledger else []
     if advised:
-        # A new or refreshed choice of the PR's alternatives analysis reconciles again (decision_sources).
+        # A new or refreshed choice of the PR's alternatives analysis reconciles again (decision_sources),
+        # except the choices of a composed alternatives occurrence that consumes this reconciliation.
         value['alternatives'] = [fingerprint({**item, 'sha256': hashlib.sha256(item['text'].encode()).hexdigest()})
                                  for item in advised]
     return digest(value)
 
 
-def _alternatives(root, pr):
-    """The PR's advised and selected alternatives as advisory sources; none before any analysis."""
+def _alternatives(root, pr, task=None):
+    """The PR's advised and selected alternatives as advisory sources; none before any analysis.
+
+    A plan's alternatives occurrence that consumes this reconciliation (prepare.py:
+    ``alternatives_consumer``, its record's scope) made its choices against it, so that
+    record is not a source: taking it back would make each binding stale the other.
+    """
     from . import alternatives
     directory = state_directory(root, missing_ok=True)
-    return alternatives.decision_sources(alternatives.selections(directory, pr)) if directory is not None else []
+    if directory is None:
+        return []
+    consumer = (task or {}).get('alternatives_consumer')
+    return alternatives.decision_sources([item for item in alternatives.selections(directory, pr)
+                                          if item['scope'] != consumer])
 
 
 def reference(ledger):
@@ -591,7 +601,7 @@ def context(root, provider, ledger, plan, task):
     try:
         answers = record.answers()
         heading = values['section_heading']
-        advised = _alternatives(root, plan['pr'])
+        advised = _alternatives(root, plan['pr'], task)
         sources, _ = collect(plan, discussion, heading=heading, answers=answers, alternatives=advised)
         baseline = record.baseline({item['id']: fingerprint(item) for item in sources
                                     if item['kind'] not in ('instruction', 'answer', 'alternatives')})

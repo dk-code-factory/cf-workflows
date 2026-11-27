@@ -277,6 +277,39 @@ class Reconcile(Fixture):
         self.assertEqual(sum(self.engine.sessions.values()), 2)
         self.assertEqual(len(ledger.history()), 2, 'history is retained, never rewritten')
 
+    def test_advised_and_selected_alternatives_are_advisory_sources_that_refresh_only_their_citations(self):
+        def advised(selected):
+            body = {'scope': 'branch', 'decision': 'store', 'advised': ['sqlite'], 'selected': selected,
+                    'approach': 'The ' + selected + ' approach.', 'comparison': 'cmp-1', 'reference': 'sel-' + selected}
+            return {'id': 'alternatives:branch:store', 'kind': 'alternatives', 'public': False, 'url': None,
+                    'text': json.dumps(body, sort_keys=True), 'author': None, 'authority': 'advisory',
+                    'created_at': None}
+        admitted = self.admit()
+        ledger = self.ledger(admitted)
+
+        def reconcile(source, *sessions):
+            transport = self.transport(*sessions)
+            return decisions.reconcile(admitted, capture=self.github.capture(None), ledger=ledger,
+                                       transport=transport, alternatives=[source])
+        # An alternative alone never settles a decision: it is advisory.
+        alone = reconcile(advised('sqlite'), session(result(decision('alt-store', ['alternatives:branch:store']))))
+        self.assertEqual(alone['status'], 'blocked', alone)
+        self.assertIn('result.decisions[0].sources', json.dumps(alone['error']))
+        followed = decision('alt-store', ['alternatives:branch:store'], status='proposal')
+        first = reconcile(advised('sqlite'), session(result(API, STORE, followed)))
+        self.assertEqual(first['status'], 'complete', first)
+        [task] = self.fake.tasks
+        sources = [item['id'] for item in task['context']['sources']]
+        self.assertEqual(sources[-2:], ['instruction:request', 'alternatives:branch:store'])
+        self.assertEqual(reconcile(advised('sqlite'))['session'], False, 'an unchanged choice reuses the result')
+        # A refreshed choice refreshes only the decisions that cite it.
+        second = reconcile(advised('memory'), session(result(API, STORE, followed)))
+        self.assertEqual(second['status'], 'complete', second)
+        [task] = self.fake.tasks
+        self.assertEqual((task['context']['subjects']['sources'], task['context']['subjects']['decisions']),
+                         (['alternatives:branch:store'], ['alt-store']))
+        self.assertEqual(self.ids(task['context']['retained']['decisions']), ['api-compat', 'state-store'])
+
     def test_unsupported_results_are_never_recorded(self):
         self.github.ev['comments'].append(comment(104, BOB, 'Drop v1 API compatibility.', 4, 'MEMBER'))
         stale = dict(CONFLICT, resolution={'direction': 'Keep v1.', 'sources': ['comment:101']})

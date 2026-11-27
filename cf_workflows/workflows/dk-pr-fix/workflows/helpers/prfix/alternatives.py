@@ -1307,8 +1307,16 @@ def handed(root, ledger, plan, snapshot):
     return {'report': current['report'], 'handoff': value.get('handoff'), 'selections': value['selections']}
 
 
-def reference(ledger, task):
-    """The alternatives report a composed fix occurrence was handed; None before the procedure settled."""
-    row = ledger.db.execute("SELECT report FROM claims WHERE task=? AND state='complete' ORDER BY rowid DESC LIMIT 1",
-                            (task["alternatives_handoff"],)).fetchone()
-    return row[0] if row else None
+def reference(ledger, task, snapshot):
+    """The alternatives report a composed fix occurrence is handed; None unless the procedure's coverage is current.
+
+    Like handed(): a claim whose coverage the current head, guidance, reconciliation or
+    record stages no longer match is never bound, so a fix fingerprint never binds a stale report.
+    """
+    from .core import read_artifact
+    row = ledger.db.execute("SELECT report,assignment,coverage FROM claims WHERE task=? AND state='complete' "
+                            "ORDER BY rowid DESC LIMIT 1", (task["alternatives_handoff"],)).fetchone()
+    if row is None:
+        return None
+    occurrence_ = read_artifact(ledger.root, row[1])['task']
+    return row[0] if row[2] == binding(ledger, snapshot, occurrence_) else None
