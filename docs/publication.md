@@ -187,6 +187,9 @@ reviewer logins and team slugs match without regard to case.
 A reply receipt stays valid after the reply itself changes. Validation compares
 the reply's ID, body, author and parent, not reactions or `updated_at`. The
 discussion baseline also uses those fields to strip the run's own replies.
+Likewise, `ci_rerun`, `approve_fork_ci`, `merge` and `split_pr` receipts keep
+only the stable fields of the run or PR, so later status, comments or
+`updated_at` changes do not invalidate them.
 
 While an intent is `pending`, no other write of the run can dispatch. There is
 no automatic override.

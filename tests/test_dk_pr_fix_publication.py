@@ -285,6 +285,18 @@ class HttpKinds(Fixture):
         self.settled(publisher, provider, ledger,
                      self.proposal("request_review", {"reviewers": ["Alice"], "team_reviewers": ["Core-Team"]}))
 
+    def test_applied_rerun_and_merge_receipts_survive_later_object_changes(self):
+        # code-scan #19: receipts keep only stable fields of the run and the merged PR.
+        for kind, change in (("ci_rerun", lambda provider: provider.run.update(status="in_progress", updated_at="later")),
+                             ("merge", lambda provider: provider.ev["metadata"].update(comments=3, updated_at="later"))):
+            with self.subTest(kind=kind):
+                publisher, provider, ledger = self.world()
+                proposal, _ = self.scenario(kind, publisher, provider)
+                receipt = self.settled(publisher, provider, ledger, proposal)
+                change(provider)
+                self.assertTrue(publisher.validate(proposal["id"], receipt))
+                self.assertEqual(publisher.execute(proposal["id"], self.audience(publisher.prepare(proposal))), receipt)
+
     def test_restart_keeps_original_intent_and_audience_without_replay(self):
         publisher, provider, ledger = self.world()
         prepared = publisher.prepare(self.proposal("submit_review", copy.deepcopy(REVIEW)))
@@ -774,7 +786,11 @@ class GitKinds(Fixture):
                     self.assertEqual(observed["outcome"], "completed")
                     publisher.execute(draft["id"], self.audience(draft))
                 self.assertEqual(self.state(ledger, "draft"), "applied")
-                publisher.execute(draft["id"], self.audience(draft))
+                receipt = publisher.execute(draft["id"], self.audience(draft))
+                # code-scan #19: later activity on the draft PR keeps its receipt valid.
+                provider.split_pulls[0].update(comments=2, updated_at="later")
+                self.assertTrue(publisher.validate(draft["id"], receipt))
+                self.assertEqual(publisher.execute(draft["id"], self.audience(draft)), receipt)
                 self.assertEqual((len(provider.writes), publisher.pushes), (1, 1))
 
     def test_remote_branch_drift_blocks_push_without_writing(self):

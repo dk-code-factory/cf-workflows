@@ -1382,9 +1382,11 @@ class Publication:
             found = all({v.lower() for v in values} <= actual[key] for key, values in payload.items())
             # Missing requests may have been satisfied, withdrawn or dismissed.
         elif kind == "ci_rerun":
-            result = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
-            found = result.get("head_sha") == intent["head"] and result.get("run_attempt") == payload["attempt"] + 1
+            run = self._request("GET", f"{self.repo}/actions/runs/{payload['run_id']}")
+            found = run.get("head_sha") == intent["head"] and run.get("run_attempt") == payload["attempt"] + 1
             # Same-attempt state can be a delayed request; no automatic replay.
+            # Only stable fields: the rerun's status and timings move on after it is queued.
+            result = {key: run.get(key) for key in ("id", "head_sha", "run_attempt")}
         elif kind == "approve_fork_ci":
             # GitHub names no approver: the same attempt executing jobs is the effect.
             # An advanced attempt, a still-gated or jobless run stays unknown.
@@ -1427,7 +1429,10 @@ class Publication:
                 commit = self._request("GET", f"{self.repo}/git/commits/{merge_sha}")
                 wanted = [intent["target"]] + ([intent["head"]] if payload["merge_method"] == "merge" else [])
                 found = commit.get("sha") == merge_sha and [p.get("sha") for p in commit.get("parents", [])] == wanted
-                result = {"pr": meta, "commit": commit}
+                # Only stable fields: later comments, labels or edits change the PR metadata.
+                result = {"pr": {"number": meta.get("number"), "state": meta.get("state"), "merged": True,
+                                 "merge_commit_sha": merge_sha, "head": {"sha": intent["head"]},
+                                 "merged_by": {"id": intent["actor_id"]}}, "commit": commit}
         elif kind == "split_pr":
             wanted_number = self._known(saved).get("number")
             matches = []
@@ -1449,7 +1454,13 @@ class Publication:
                        and v.get("base", {}).get("ref") == payload["base"]
                        and v.get("base", {}).get("repo", {}).get("full_name", "").lower() == f"{self.pr['owner']}/{self.pr['name']}".lower()]
             if len(matches) == 1:
-                found, result = True, matches[0]
+                # Only the matched fields: comments and updated_at change the PR object.
+                pr = matches[0]
+                found, result = True, {
+                    "number": pr.get("number"), "state": pr["state"], "draft": True, "title": pr["title"],
+                    "body": pr["body"], "user": {"id": intent["actor_id"]},
+                    **{side: {"sha": pr[side]["sha"], "ref": pr[side]["ref"],
+                              "repo": {"full_name": pr[side]["repo"]["full_name"]}} for side in ("head", "base")}}
         proof = {"intent": saved["fingerprint"], "observation": digest(result), "kind": kind}
         if found:
             return {"outcome": "completed", "proof": proof, "result": self._receipt(saved, result)}
