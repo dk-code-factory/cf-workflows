@@ -126,7 +126,7 @@ engine-managed session.
 
 | Upstream | Delivery | Deterministic coverage (merge provenance) | Live evidence still required |
 | --- | --- | --- | --- |
-| dk-workflows#244 | #4, #20, #30 | `test_feedback.RejectedSuggestions` (PR #45) | GitHub publication |
+| dk-workflows#244 | #4, #20, #30 | `test_feedback.RejectedSuggestions`, `test_feedback.MixedThreads` (PR #45) | GitHub publication |
 | dk-workflows#255 | #4, #21 | `test_dk_pr_fix_responses.BeforeReview` (PR #52) | GitHub publication, live provider |
 | dk-workflows#253 | agent-workflow#138, #5, #19 | `test_dk_pr_fix_publication.MergeGating` (PR #50) | GitHub publication |
 | dk-workflows#260 | #5, #18 | `test_dk_pr_fix_pending_review.PendingReviews` (PR #49) | GitHub publication |

@@ -1143,7 +1143,9 @@
       ],
       "tests": [
         "test_feedback.RejectedSuggestions.test_rejected_bot_and_style_suggestions_keep_their_response_obligation",
-        "test_feedback.RejectedSuggestions.test_a_reassessment_cannot_drop_an_obligation"
+        "test_feedback.RejectedSuggestions.test_a_reassessment_cannot_drop_an_obligation",
+        "test_feedback.MixedThreads.test_mixed_thread_needs_an_answer_and_the_participant_before_resolution",
+        "test_feedback.MixedThreads.test_a_question_only_for_another_participant_needs_no_reply_but_blocks_resolution"
       ],
       "live_acceptance": [
         "github_publication"
