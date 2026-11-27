@@ -17,11 +17,13 @@ upstream paths whose defaults allowed some writes. Direct and composed scenarios
 remain pending for every row; a compatibility entry must itself be exercised
 and cannot establish implementation of its delegate.
 
-The three configuration rows (#26) have entry presets, adapter procedures and
-deterministic direct and composed fixtures ([configuration skills](configuration-skills.md)).
-They stay `not_implemented` until they run as engine-managed sessions through an
-installed workflow. The same holds for the two prose rows (#33, [prose cleanup](prose.md))
-and the four alternatives rows (#27, [alternatives](alternatives.md)).
+The three configuration rows (#26) are listed in the plugin descriptor with
+their own installed presets, `onboard.yml`, `config.yml` and `preferences.yml`,
+over the shared session graph `configure.yml` ([configuration skills](configuration-skills.md#installed-workflow)).
+They stay `not_implemented` until they run as engine-managed sessions through a
+released engine. The two prose rows (#33, [prose cleanup](prose.md)) and the four
+alternatives rows (#27, [alternatives](alternatives.md)) stay `not_implemented`
+for the same reason.
 `dk-pr-decisions` (#28, [decisions](decisions.md)) has an installed preset and
 is listed in the plugin descriptor, but it stays `not_implemented` until it runs
 as an engine-managed session through a released engine.

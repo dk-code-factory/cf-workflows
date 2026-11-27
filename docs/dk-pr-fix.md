@@ -115,6 +115,15 @@ Adaptations to the example:
   [splitting](splitting.md#installed-workflow). `prfix/splitting.py`,
   `workflows/splitting.yml`, the presets `workflows/commit-split.yml` and
   `pr-split.yml` and their `SKILL.md` files are `authored`.
+- An accepted scoped preference reaches only the occurrences of its modes, and
+  each claim carries `preferences`: the scoped preferences that select the
+  captured PR paths, with those paths
+  ([per-task handoff](configuration-skills.md#per-task-preference-handoff)).
+  `prfix/preferences.py` is `authored`. The configuration entries do not run
+  through this graph: their presets `workflows/onboard.yml`, `config.yml` and
+  `preferences.yml` call `workflows/configure.yml`, which runs only their native
+  session ([configuration skills](configuration-skills.md#installed-workflow)).
+  These files and the three `SKILL.md` files are `authored`.
 
 ## Configuration split
 
@@ -145,6 +154,9 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    ([skills.md](skills.md)). A repository-only request and the configuration
    adapters of `dk-config` and `dk-preferences` reject; the read-only
    `onboard-repository` adapter may be selected ([configuration skills](configuration-skills.md)).
+   An accepted scoped preference reaches only occurrences of its modes, and
+   each claim lists the ones that select its captured paths
+   ([per-task handoff](configuration-skills.md#per-task-preference-handoff)).
    Prose finalizers (`plain-english`, `asd-ste100`) run as ordinary task
    occurrences whose sessions the installed helpers bound and check
    ([prose cleanup](prose.md#installed-workflow)).

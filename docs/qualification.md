@@ -73,9 +73,9 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-pr-iter` | shared_workflow | pending | #24, #25 | listed | 4 / 2 / 4 |
 | `cf-workflows:dk-pr-fix` | shared_workflow | pending | #14, #15, #16, #23 | listed | 4 / 2 / 5 |
 | `cf-workflows:dk-pr-review` | shared_workflow | pending | #23, #24, #25 | listed | 3 / 3 / 5 |
-| `cf-workflows:dk-repo-onboard` | shared_workflow | pending | #26 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-config` | boundary | pending | #26 | not listed | 2 / 1 / 3 |
-| `cf-workflows:dk-preferences` | shared_workflow | pending | #26 | not listed | 2 / 1 / 2 |
+| `cf-workflows:dk-repo-onboard` | shared_workflow | pending | #26 | listed | 4 / 2 / 5 |
+| `cf-workflows:dk-config` | boundary | pending | #26 | listed | 5 / 2 / 7 |
+| `cf-workflows:dk-preferences` | shared_workflow | pending | #26 | listed | 4 / 3 / 4 |
 | `cf-workflows:dk-issue-alternatives` | shared_workflow | pending | #27 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-pr-alternatives` | shared_workflow | pending | #27 | not listed | 3 / 1 / 3 |
 | `cf-workflows:dk-alternatives-review` | delegate | pending | #27 | not listed | 2 / 1 / 1 |
@@ -103,17 +103,20 @@ native execution and live acceptance are `pending` and every parity status is
 `dk-pr-iter`, `dk-pr-fix`, `dk-pr-review`, the three feedback entries,
 `dk-pr-publish`, `dk-pr-review-post`, `dk-plain-english`, `dk-asd-ste100`,
 `dk-pr-decisions`, the three reviewer entries, `dk-pr-description`,
-`dk-commit-message`, `dk-issue`, `dk-commit-split` and `dk-pr-split` are the
-rows in the plugin descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
+`dk-commit-message`, `dk-issue`, `dk-commit-split`, `dk-pr-split`,
+`dk-repo-onboard`, `dk-config` and `dk-preferences` are the rows in the plugin
+descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
 `dk-pr-review` workflow ([routing](review.md#installed-entry)). The two prose
 entries are presets over the installed workflow
 ([prose cleanup](prose.md)), `dk-pr-decisions` presets reconciliation and
 publication ([decisions](decisions.md#installed-workflow)), the three drafting
-entries preset one drafting occurrence ([drafting](drafting.md#installed-workflow))
-and the two splitting entries preset one assessment and its local operation
-([splitting](splitting.md#installed-workflow)).
+entries preset one drafting occurrence ([drafting](drafting.md#installed-workflow)),
+the two splitting entries preset one assessment and its local operation
+([splitting](splitting.md#installed-workflow)), and the three configuration
+entries are presets over `configure.yml`, which runs only their native session
+for the host-side procedure ([configuration](configuration-skills.md#installed-workflow)).
 Listing a row claims no runtime support: none of them has run through a released
-engine. The other 10 are library procedures or presets over the shared workflow.
+engine. The other 7 are library procedures or presets over the shared workflow.
 The installed workflow refuses those presets until each one runs as an
 engine-managed session.
 

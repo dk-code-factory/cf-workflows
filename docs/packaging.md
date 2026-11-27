@@ -45,7 +45,10 @@ Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
   `dk-commit-message` and `dk-issue` (`workflows/description.yml`,
   `commit-message.yml` and `issue.yml`) and the
   [splitting presets](splitting.md#installed-workflow) `dk-commit-split` and
-  `dk-pr-split` (`workflows/commit-split.yml` and `pr-split.yml`).
+  `dk-pr-split` (`workflows/commit-split.yml` and `pr-split.yml`), and the
+  [configuration presets](configuration-skills.md#installed-workflow)
+  `dk-repo-onboard`, `dk-config` and `dk-preferences` (`workflows/onboard.yml`,
+  `config.yml` and `preferences.yml`, over `workflows/configure.yml`).
   Each `SKILL.md`, such as
   [dk-pr-fix's](../cf_workflows/workflows/dk-pr-fix/skills/dk-pr-fix/SKILL.md),
   holds the developer-owned instructions. They state that the plugin is not
@@ -228,8 +231,11 @@ capabilities. Two blockers remain:
 - **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
   with a container ("fixtures do not support job containers"). Every bound
   skill's closure has them (`helper.yml`, `publication.yml`), so `plugin test`
-  cannot run any bound skill, and no deterministic packaged smoke execution
-  exists. A real `plugin run` needs Docker, the pinned helper image, provider
-  sessions and a released engine, which need separate authorization.
+  cannot run the suite (it requires a case for every bound skill), and no
+  deterministic packaged smoke execution exists. The three configuration
+  presets have no container job, but fixtures for them alone would not make
+  the suite pass, so none are added. A real `plugin run` needs Docker, the
+  pinned helper image, provider sessions and a released engine, which need
+  separate authorization.
 
 Neither needs a change to the descriptor format.

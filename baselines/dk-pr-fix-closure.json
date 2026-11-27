@@ -488,6 +488,38 @@
     {
       "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py",
       "reason": "Current-alignment gate and alignment-record reads (#23), installed so helper containers gate review on retained alternatives analysis; the library alignment module loads it; no upstream counterpart (docs/alignment.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/configure.yml",
+      "reason": "Shared session graph of the configuration entries (#26): one agent/run per mode, no helper container, PR or publication; no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/onboard.yml",
+      "reason": "dk-repo-onboard preset over configure.yml (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/config.yml",
+      "reason": "dk-config preset over configure.yml (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/preferences.yml",
+      "reason": "dk-preferences preset over configure.yml (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-repo-onboard/SKILL.md",
+      "reason": "Repository onboarding skill entry point (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-config/SKILL.md",
+      "reason": "Configuration skill entry point (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/skills/dk-preferences/SKILL.md",
+      "reason": "Preferences skill entry point (#26); no upstream counterpart (docs/configuration-skills.md)."
+    },
+    {
+      "path": "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/preferences.py",
+      "reason": "Per-task handoff of accepted scoped preferences in the installed dk-pr-fix helpers (#26); no upstream counterpart (docs/configuration-skills.md)."
     }
   ],
   "corrections": [
