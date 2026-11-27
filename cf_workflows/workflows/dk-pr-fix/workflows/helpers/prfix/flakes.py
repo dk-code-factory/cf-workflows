@@ -229,6 +229,7 @@ def check_report(output, found):
     for number, item in enumerate(output['tests']):
         where = f'report.tests[{number}]'
         fields(item, where, (*CONTEXT, 'status', 'observations'), ('issue', 'note'))
+        require(all(isinstance(item[field], str) for field in CONTEXT), where, 'workflow, job and test are text')
         key = tuple(item[field] for field in CONTEXT)
         evidence = table.get(key)
         require(evidence is not None, where, 'not an observed test context from the collected evidence')
@@ -237,11 +238,12 @@ def check_report(output, found):
         require(item['status'] == evidence['status'], where + '.status',
                 'the status is the verified evidence status; a session cannot link or unlink a test')
         require(isinstance(item['observations'], list) and item['observations']
+                and all(isinstance(ident, str) for ident in item['observations'])
                 and set(item['observations']) <= set(evidence['observations']), where + '.observations',
                 "cite the context's own observations")
         issue = item.get('issue')
         if evidence['status'] == 'linked':
-            require(issue in {link['issue'] for link in evidence['links']}, where + '.issue',
+            require(isinstance(issue, str) and issue in {link['issue'] for link in evidence['links']}, where + '.issue',
                     'cite a verified linked issue of this context')
         else:
             require(issue is None, where + '.issue', 'a candidate has no verified issue')

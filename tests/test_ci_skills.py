@@ -1427,6 +1427,11 @@ class FlakeDiscovery(unittest.TestCase):
             'invents a test': {'tests': lambda tests: tests + [dict(tests[0], test='TestInvented')]},
             'cites another observation': {'tests': lambda tests: [dict(t, observations=['99:1:1:' + t['test']])
                                                                   for t in tests]},
+            'test as an object': {'tests': lambda tests: [dict(t, test={'name': t['test']}) for t in tests]},
+            'observation as an array': {'tests': lambda tests: [dict(t, observations=[t['observations']])
+                                                                for t in tests]},
+            'issue as an object': {'tests': lambda tests: [dict(t, issue={'url': t['issue']}) if t.get('issue') else t
+                                                           for t in tests]},
         }
         for label, overrides in cases.items():
             with self.subTest(label=label):
