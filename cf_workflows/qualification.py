@@ -105,7 +105,8 @@ USES = re.compile(r'^\s*(?:- )?uses: (workflows/[A-Za-z0-9_./-]+\.ya?ml)\s*$', r
 STATE_ENV = re.compile(r'^\s*CF_WORKFLOWS_STATE:', re.M)
 CONTAINER = re.compile(r'^\s+container:', re.M)
 CITED = re.compile(r'Agent Workflow #([0-9]+)')
-RELEASE_GAP = re.compile(r'released engine|no release contains')
+# A release gap is stated as what must ship, not only as "never ran on a released engine".
+RELEASE_GAP = re.compile(r'after a released engine ships|no release contains')
 
 
 class MatrixError(ValueError):

@@ -138,14 +138,20 @@ derives them:
 | A helper step sets `CF_WORKFLOWS_STATE` | [#149](https://github.com/dk-code-factory/agent-workflow/issues/149): no engine mounts the state namespace into container helpers | all but the three configuration entries |
 | A job runs in a `container` | [#150](https://github.com/dk-code-factory/agent-workflow/issues/150): `plugin test` fixtures reject container jobs | all but the three configuration entries |
 | It calls `configure.yml` | [#151](https://github.com/dk-code-factory/agent-workflow/issues/151): no operation receipt or per-task read-only policy for native tasks | `dk-repo-onboard`, `dk-config`, `dk-preferences` |
-| It calls the reusable `native.yml` | [#152](https://github.com/dk-code-factory/agent-workflow/issues/152): supplied skill selections reject in reusable workflows | all but the configuration entries, `dk-pr-approvers` and `dk-ci-flakes` |
+| It calls the reusable `native.yml` | [#152](https://github.com/dk-code-factory/agent-workflow/issues/152): supplied skill selections reject in reusable workflows, which matters where a `native.yml` occurrence would select a supplied skill | all but the configuration entries, `dk-pr-approvers` and `dk-ci-flakes` |
 
 Each row's `remaining` must cite each of its issues as `Agent Workflow #N` and
 must not cite #149 or #150 when its graph has no such step. Agent Workflow
 [#134](https://github.com/dk-code-factory/agent-workflow/issues/134) (managed
-provider parity) is cited only by rows whose selected options need it. The
-derivation reads the installed YAML as text; it runs no engine, and it is no
-evidence that the graph runs once these issues are closed.
+provider parity) is cited only by rows whose selected options need it. #152
+follows only a call to `native.yml`, whose occurrences may select a supplied
+skill; the configuration and `dk-ci-flakes` sessions also run inside reusable
+workflows with a catalog agent, but they select no skill, so #152 does not
+block them, and the check would need to model those sessions if one ever did.
+A row names the missing release as `after a released engine ships` or `no
+release contains`; `never run through a released engine` alone does not
+qualify. The derivation reads the installed YAML as text; it runs no engine,
+and it is no evidence that the graph runs once these issues are closed.
 
 ## Inherited defects
 

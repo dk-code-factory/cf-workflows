@@ -319,9 +319,12 @@ class EngineBlockers(unittest.TestCase):
 
     def test_a_row_must_name_the_missing_release(self):
         matrix = copy.deepcopy(MATRIX)
-        row(matrix, 'dk-ci')['remaining'] = ('Blocked by Agent Workflow #149, Agent Workflow #150 and '
-                                             'Agent Workflow #152.')
-        self.rejects(matrix, 'row dk-ci: remaining must name the missing engine release')
+        for text in ('Blocked by Agent Workflow #149, Agent Workflow #150 and Agent Workflow #152.',
+                     'It has never run through a released engine; blocked by Agent Workflow #149, '
+                     'Agent Workflow #150 and Agent Workflow #152.'):
+            with self.subTest(text=text):
+                row(matrix, 'dk-ci')['remaining'] = text
+                self.rejects(matrix, 'row dk-ci: remaining must name the missing engine release')
 
     def test_blockers_follow_the_graph_not_the_row_name(self):
         with tempfile.TemporaryDirectory() as directory:

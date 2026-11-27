@@ -171,7 +171,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as onboard.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as onboard.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-config",
@@ -214,7 +214,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as config.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as config.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-preferences",
@@ -254,7 +254,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as preferences.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as preferences.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-issue-alternatives",
@@ -1052,7 +1052,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as workflows/flakes.yml for a pull request's repository, but it has never run through a released engine; repository-only scans, custom prompts and saved-observation inspection run only through the library procedure. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills) and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as workflows/flakes.yml for a pull request's repository, but it has never run through a released engine; repository-only scans, custom prompts and saved-observation inspection run only through the library procedure. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-message",
