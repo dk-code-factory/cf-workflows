@@ -50,15 +50,15 @@ library and local Git only. It rejects:
   status that the recorded evidence does not support;
 - a defect list that is not exactly the nine inherited defects, a defect test
   that does not name its defect (`dk-workflows#N` in its body or docstrings, or
-  `test_N_` in its name), and a defect test that is absent from every listed
-  merge commit or whose merge commit is not an ancestor of `HEAD`;
+  `test_N_` in its name), and a defect test that is absent from its class in
+  every listed merge commit or whose merge commit is not an ancestor of `HEAD`;
 - an admission-case list that is not exactly the required cases;
-- an installed row whose `remaining` does not name the missing engine release,
-  omits an [engine blocker](#engine-blockers-per-row) its installed workflow
-  graph has, or blames the state mount or container jobs on a graph without
-  them;
-- a missing implementing path or guide, and a row table below that differs
-  from the matrix.
+- an installed, not yet implemented row whose `remaining` does not name the
+  missing engine release, omits an [engine blocker](#engine-blockers-per-row)
+  its installed workflow graph has, or blames the state mount or container jobs
+  on a graph without them;
+- a missing implementing path or guide, a path outside the repository, and a
+  row table below that differs from the matrix.
 
 With `--run`, every referenced test runs once on its own and the report names
 each failing row, defect and case. A skipped, erroring, unloadable or not-run
@@ -294,6 +294,8 @@ matrix; it is never ignored.
 A record is accepted only when:
 
 - the authorization fields are all present;
+- the host version, plugin version, target repository and `recorded_at` are
+  nonblank strings;
 - `plugin.closure_digest` equals the current package closure digest;
 - `engine.version` equals the pinned engine version, and `engine.release` is
   that version's Agent Workflow release URL;
@@ -303,7 +305,8 @@ A record is accepted only when:
 - every required scenario passed with distinct evidence references of the form
   `session:`, `claim:`, `receipt:`, `intent:`, `run:`, `gate:` or `usage:`
   followed by the original ID (empty or free-text references reject);
-- a `live_provider` record has complete measured dollar cost.
+- a `live_provider` record has complete measured dollar cost, a finite
+  nonnegative number.
 
 Evidence references point to the engine's original session and claim
 references and to GitHub receipts. They are not transcripts. An evidence

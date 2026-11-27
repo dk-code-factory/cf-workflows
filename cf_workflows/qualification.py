@@ -17,6 +17,7 @@ exact pinned engine release; deterministic success never promotes a capability.
 """
 import ast
 import json
+import math
 from pathlib import Path
 import re
 
@@ -314,9 +315,13 @@ def check_references(matrix, tests):
 
 def check_paths(matrix, repository):
     """Each row's implementing paths and documentation exist in this repository."""
+    root = Path(repository).resolve()
     for row in matrix['rows']:
         for path in [*row['behavior'], row['documentation']]:
-            require((Path(repository) / path).exists(), f'row {row["skill"]}: {path} does not exist')
+            require(not Path(path).is_absolute() and '..' not in Path(path).parts,
+                    f'row {row["skill"]}: {path} is not a path inside this repository')
+            require((root / path).exists() and (root / path).resolve().is_relative_to(root),
+                    f'row {row["skill"]}: {path} does not exist')
 
 
 def workflow_graph(root, workflow):
@@ -348,7 +353,7 @@ def engine_blockers(root, workflow):
 
 
 def check_engine_blockers(matrix, root, workflows):
-    """Each installed row's `remaining` names the release gap and exactly its graph's engine blockers.
+    """Each installed unfinished row's `remaining` names the release gap and exactly its graph's engine blockers.
 
     `workflows` maps a descriptor skill name to its workflow path under `root`.
     A cited state-mount or container-job blocker that the row's graph does not
@@ -356,7 +361,7 @@ def check_engine_blockers(matrix, root, workflows):
     """
     for row in matrix['rows']:
         workflow = workflows.get(row['skill'])
-        if workflow is None:
+        if workflow is None or row['status']['parity'] == 'implemented':  # Implemented rows have no gap.
             continue
         where, text = f'row {row["skill"]}', row['remaining']
         require(RELEASE_GAP.search(text) is not None,
@@ -369,6 +374,17 @@ def check_engine_blockers(matrix, root, workflows):
         stray = sorted((cited & set(GRAPH_ONLY_BLOCKERS)) - needed)
         require(not stray, f'{where}: remaining cites Agent Workflow '
                 + ', '.join(f'#{n}' for n in stray) + ', which its installed workflow graph does not need')
+
+
+def _defines(text, cls, name):
+    """Whether the top-level class `cls` in `text` has a method `name` in its own body."""
+    match = re.search(rf'^class {re.escape(cls)}\b.*$', text, re.M)
+    if match is None:
+        return False
+    body = text[match.end():]
+    end = re.search(r'^\S', body, re.M)  # The next nonblank line in column zero ends the class.
+    body = body[:end.start()] if end else body
+    return re.search(rf'^\s+def {re.escape(name)}\(', body, re.M) is not None
 
 
 def check_provenance(matrix, tests, git):
@@ -393,11 +409,14 @@ def check_provenance(matrix, tests, git):
                     text = git('show', f'{commit}:{test["path"]}').decode()
                 except Exception:  # noqa: BLE001
                     continue
-                if (re.search(rf'^class {re.escape(test["class"])}\b', text, re.M)
-                        and re.search(rf'^\s+def {re.escape(test["name"])}\(', text, re.M)):
+                if _defines(text, test['class'], test['name']):
                     found = True
                     break
             require(found, f'{defect["upstream"]}: {ref} is not present in any listed merge commit')
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
 
 
 def validate_record(record, procedure, *, inventory, closure_digest, engine_version):
@@ -413,6 +432,7 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
     require(all(isinstance(v, str) and v.strip() for v in authorization.values()),
             f'{where}: explicit authorization (who, when, where, scope) is required')
     _keys(record['plugin'], {'version', 'closure_digest'}, f'{where}.plugin')
+    require(_text(record['plugin']['version']), f'{where}: plugin version required')
     require(closure_digest is not None and record['plugin']['closure_digest'] == closure_digest,
             f'{where}: recorded for a different plugin closure')
     _keys(record['engine'], {'version', 'release'}, f'{where}.engine')
@@ -421,18 +441,22 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
             and release.group(1) == engine_version,
             f'{where}: must name the exact pinned engine version and its published release')
     _keys(record['host'], {'name', 'version'}, f'{where}.host')
-    require(record['host']['name'] in HOSTS and str(record['host']['version']).strip(), f'{where}: unknown host')
+    require(record['host']['name'] in HOSTS and _text(record['host']['version']), f'{where}: unknown host')
     _keys(record['provider'], {'name', 'model', 'service_tier'}, f'{where}.provider')
     require(all(isinstance(v, str) and v.strip() for v in record['provider'].values()), f'{where}: provider identity')
     _keys(record['target'], {'repository', 'disposable'}, f'{where}.target')
     require(record['target']['disposable'] is True, f'{where}: live acceptance runs only on a disposable target')
+    require(_text(record['target']['repository']), f'{where}: target repository required')
+    require(_text(record['recorded_at']), f'{where}: recorded_at required')
     names = {row['name'] for row in inventory['skills']}
     # One record covers one row: a shared run cannot verify every row it touched at once.
     require(isinstance(record['skill'], str) and record['skill'] in names,
             f'{where}: skill must be exactly one inventory row')
     scenarios = record['scenarios']
     require(isinstance(scenarios, list), f'{where}: scenarios must be a list')
-    ids = [item.get('id') for item in scenarios if isinstance(item, dict)]
+    require(all(isinstance(item, dict) and isinstance(item.get('id'), str) for item in scenarios),
+            f'{where}: each scenario needs a string id')
+    ids = [item['id'] for item in scenarios]
     require(sorted(ids) == sorted(PROCEDURES[procedure]) and len(ids) == len(scenarios),
             f'{where}: must record exactly the scenarios {list(PROCEDURES[procedure])}')
     for item in scenarios:
@@ -446,7 +470,9 @@ def validate_record(record, procedure, *, inventory, closure_digest, engine_vers
                 'receipt, intent, run, gate or usage IDs')
     _keys(record['cost'], {'complete', 'usd'}, f'{where}.cost')
     if procedure == 'live_provider':
-        require(record['cost']['complete'] is True and isinstance(record['cost']['usd'], (int, float)),
+        usd = record['cost']['usd']
+        require(record['cost']['complete'] is True and isinstance(usd, (int, float)) and not isinstance(usd, bool)
+                and math.isfinite(usd) and usd >= 0,
                 f'{where}: a live-provider record needs complete measured dollar cost')
     return record
 
@@ -469,7 +495,7 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
         require(entry['status'] == ('recorded' if entry['records'] else 'pending_authorization'),
                 f'live_acceptance.{name}: status must be pending_authorization until a record is listed')
         for path in entry['records']:
-            require(path in records, f'live_acceptance.{name}: record {path} is missing')
+            require(isinstance(path, str) and path in records, f'live_acceptance.{name}: record {path} is missing')
             record = validate_record(records[path], name, inventory=inventory,
                                      closure_digest=closure_digest, engine_version=engine_version)
             valid[path] = record
@@ -486,7 +512,7 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
     for index, combination in enumerate(combinations):
         where = f'verified_combinations[{index}]'
         _keys(combination, {'host', 'provider', 'engine_version', 'record'}, where)
-        record = valid.get(combination['record'])
+        record = valid.get(combination['record']) if isinstance(combination['record'], str) else None
         require(record is not None and record['procedure'] == 'live_provider',
                 f'{where}: needs an accepted live_provider record')
         require((combination['host'], combination['provider'], combination['engine_version'])
@@ -499,11 +525,12 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
 def read_records(matrix, repository):
     """Parse every listed record file; a missing file is left out so validation names it."""
     records = {}
-    for entry in matrix.get('live_acceptance', {}).values():
-        for path in entry.get('records', []) if isinstance(entry, dict) else []:
-            file = Path(repository) / path
-            if isinstance(path, str) and file.is_file():
-                records[path] = json.loads(file.read_text())
+    live = matrix.get('live_acceptance') if isinstance(matrix, dict) else None
+    for entry in live.values() if isinstance(live, dict) else []:
+        listed = entry.get('records') if isinstance(entry, dict) else None
+        for path in listed if isinstance(listed, list) else []:
+            if isinstance(path, str) and (Path(repository) / path).is_file():
+                records[path] = json.loads((Path(repository) / path).read_text())
     return records
 
 

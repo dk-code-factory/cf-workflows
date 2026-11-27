@@ -182,6 +182,13 @@ class RowsCannotBeStoodInFor(unittest.TestCase):
         row(matrix, 'dk-ci-flakes')['behavior'] = ['cf_workflows/missing.py']
         with self.assertRaisesRegex(qualification.MatrixError, 'does not exist'):
             qualification.check_paths(matrix, ROOT)
+        # Existing files outside the repository are not its implementing code or guide.
+        for behavior, documentation in (([str(ROOT / 'README.md')], 'docs/qualification.md'),
+                                        (['cf_workflows/package.py'], f'docs/../../{ROOT.name}/README.md')):
+            with self.subTest(behavior=behavior, documentation=documentation):
+                row(matrix, 'dk-ci-flakes').update(behavior=behavior, documentation=documentation)
+                with self.assertRaisesRegex(qualification.MatrixError, 'is not a path inside this repository'):
+                    qualification.check_paths(matrix, ROOT)
 
     def test_guide_table_must_match_the_matrix(self):
         text = (ROOT / checker.GUIDE).read_text()
@@ -255,6 +262,12 @@ class Defects(unittest.TestCase):
         git, _ = self.git({commit}, {(commit, path): 'class PendingReviews(Fixture):\n    pass\n'})
         with self.assertRaisesRegex(qualification.MatrixError, 'not present in any listed merge commit'):
             qualification.check_provenance(matrix, TESTS, git)
+        # A same-named method of another class is not the cited test.
+        elsewhere = 'class PendingReviews(Fixture):\n    pass\n\n\nclass Other(Fixture):\n' + ''.join(
+            f'    def {TESTS[ref]["name"]}(self):\n        pass\n' for ref in defect['tests'])
+        git, _ = self.git({commit}, {(commit, path): elsewhere})
+        with self.assertRaisesRegex(qualification.MatrixError, 'not present in any listed merge commit'):
+            qualification.check_provenance(matrix, TESTS, git)
 
 
 class Admission(unittest.TestCase):
@@ -325,6 +338,14 @@ class EngineBlockers(unittest.TestCase):
             with self.subTest(text=text):
                 row(matrix, 'dk-ci')['remaining'] = text
                 self.rejects(matrix, 'row dk-ci: remaining must name the missing engine release')
+
+    def test_an_implemented_row_has_no_release_gap_to_name(self):
+        matrix = copy.deepcopy(MATRIX)
+        row(matrix, 'dk-ci')['status']['parity'] = 'implemented'
+        for remaining in (None, ''):
+            with self.subTest(remaining=remaining):
+                row(matrix, 'dk-ci')['remaining'] = remaining
+                qualification.check_engine_blockers(matrix, package.ROOT, WORKFLOWS)
 
     def test_blockers_follow_the_graph_not_the_row_name(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -420,6 +441,18 @@ class LiveEvidence(unittest.TestCase):
              'evidence references must be distinct'),
             (lambda r: r.update(procedure='github_publication'), 'procedure mismatch'),
             (lambda r: r.update(transcript='...'), 'unexpected field'),
+            (lambda r: r['host'].update(version=None), 'unknown host'),
+            (lambda r: r['host'].update(version=1), 'unknown host'),
+            (lambda r: r['plugin'].update(version=''), 'plugin version required'),
+            (lambda r: r['target'].update(repository=None), 'target repository required'),
+            (lambda r: r.update(recorded_at=' '), 'recorded_at required'),
+            (lambda r: r['cost'].update(usd=True), 'complete measured dollar cost'),
+            (lambda r: r['cost'].update(usd=-1), 'complete measured dollar cost'),
+            (lambda r: r['cost'].update(usd=float('nan')), 'complete measured dollar cost'),
+            (lambda r: r['cost'].update(usd=float('inf')), 'complete measured dollar cost'),
+            (lambda r: r['scenarios'][0].pop('id'), 'each scenario needs a string id'),
+            (lambda r: r['scenarios'][0].update(id=['x']), 'each scenario needs a string id'),
+            (lambda r: r['scenarios'].append('x'), 'each scenario needs a string id'),
         )
         for change, message in cases:
             with self.subTest(message=message):
@@ -431,6 +464,28 @@ class LiveEvidence(unittest.TestCase):
         with self.assertRaisesRegex(qualification.MatrixError, 'different plugin closure'):
             qualification.validate_record(record(), 'live_provider', inventory=INVENTORY, closure_digest=None,
                                           engine_version=ENGINE)
+
+    def test_malformed_record_listings_reject_as_matrix_errors(self):
+        for name, change in (('unhashable record path', lambda m: m['live_acceptance']['live_provider'].update(
+                                 status='recorded', records=[['x']])),
+                             ('unhashable combination record', lambda m: m.update(verified_combinations=[
+                                 {'host': 'codex', 'provider': 'p', 'engine_version': ENGINE, 'record': ['x']}]))):
+            with self.subTest(name):
+                matrix = copy.deepcopy(MATRIX)
+                change(matrix)
+                with self.assertRaises(qualification.MatrixError):
+                    validate(matrix, qualification.read_records(matrix, ROOT))
+
+    def test_a_matrix_that_is_not_an_object_is_a_release_blocker(self):
+        for document in ([], 'matrix', 1, {'live_acceptance': []}, {'live_acceptance': {'x': {'records': 1}}}):
+            with self.subTest(document=document), tempfile.TemporaryDirectory() as directory:
+                self.assertEqual(qualification.read_records(document, directory), {})
+                (Path(directory) / qualification.MATRIX).parent.mkdir(parents=True)
+                (Path(directory) / qualification.MATRIX).write_text(json.dumps(document))
+                [blocker] = qualification.release_blockers(
+                    directory, inventory=INVENTORY, descriptor_skills=LISTED,
+                    closure_digest=CHECKED['closure_digest'], engine_version=ENGINE)
+                self.assertEqual(blocker['prerequisite'], 'acceptance matrix')
 
     def test_one_shared_run_cannot_verify_every_row(self):
         everything = [item['name'] for item in INVENTORY['skills']]
