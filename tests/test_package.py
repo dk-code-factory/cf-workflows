@@ -95,6 +95,7 @@ class Descriptor(unittest.TestCase):
             'one host': DESCRIPTOR.replace('[codex, claude]', '[codex]'),
             'unknown host': DESCRIPTOR.replace('[codex, claude]', '[codex, claude, cursor]'),
             'duplicate host': DESCRIPTOR.replace('[codex, claude]', '[codex, codex]'),
+            'integer host': DESCRIPTOR.replace('[codex, claude]', '[codex, 1]'),
             'escaping workflow': DESCRIPTOR.replace('workflow: workflows/main.yml', 'workflow: ../main.yml'),
             'remote workflow': DESCRIPTOR.replace('workflow: workflows/main.yml', 'workflow: o/r/main.yml@v1'),
             'skill path': DESCRIPTOR.replace('skills/dk-pr-fix/SKILL.md', 'skills/dk-pr-fix/README.md'),
@@ -206,6 +207,21 @@ class Closure(unittest.TestCase):
             text = (root / 'workflows/helper.yml').read_text().replace('  workflow_call:', '  workflow_dispatch:')
             (root / 'workflows/helper.yml').write_text(text)
 
+        def first_binding(root):
+            # A workflow bound to a skill is still checked when another skill's workflow calls it.
+            self.skill(root, 'x-helper', 'workflows/helper.yml', first=True)
+            not_reusable(root)
+
+        def skill_directory(root):
+            (root / 'skills/dk-pr-fix/SKILL.md').unlink()
+            (root / 'skills/dk-pr-fix/SKILL.md').mkdir()
+            (root / 'skills/dk-pr-fix/SKILL.md/x').write_text('x')
+
+        def workflow_directory(root):
+            (root / 'workflows/helper.yml').unlink()
+            (root / 'workflows/helper.yml').mkdir()
+            (root / 'workflows/helper.yml/x').write_text('x')
+
         def invalid_utf8(root):
             (root / 'skills/dk-pr-fix/SKILL.md').write_bytes(b'---\nname: dk-pr-fix\ndescription: \xff\n---\nx\n')
 
@@ -223,6 +239,10 @@ class Closure(unittest.TestCase):
         cases = {'flow files': (flow_files, 'workflows/ci-poll.yml:21: files must be a block list'),
                  'flow definitions': (flow_definitions, 'definitions must be a block list'),
                  'not reusable': (not_reusable, 'workflows/helper.yml: a called plugin workflow requires'),
+                 'not reusable but bound first': (first_binding,
+                                                  'workflows/helper.yml: a called plugin workflow requires'),
+                 'skill directory': (skill_directory, 'SKILL.md: requires a regular file'),
+                 'workflow directory': (workflow_directory, 'helper.yml: requires a regular file'),
                  'invalid UTF-8 skill': (invalid_utf8, 'SKILL.md: must be UTF-8'),
                  'invalid UTF-8 workflow': (invalid_workflow_utf8, 'helper.yml: must be UTF-8'),
                  'normalization collision': (normalization, 'normalizing hosts'),
@@ -238,11 +258,31 @@ class Closure(unittest.TestCase):
                 root = copy_root(self.base / name)
                 change(root)
                 if name not in ('hand-maintained manifest', 'case collision', 'bytecode', 'symlink',
-                                'normalization collision'):
+                                'normalization collision', 'skill directory', 'workflow directory'):
                     regenerate(root)  # Even a refreshed closure.json cannot admit the change.
                 with self.assertRaises(package.PackageError) as raised:
                     package.check(root)
                 self.assertIn(path, str(raised.exception))
+
+    @staticmethod
+    def skill(root, name, workflow, first=False):
+        (root / 'skills' / name).mkdir()
+        (root / 'skills' / name / 'SKILL.md').write_text(f'---\nname: {name}\ndescription: x\n---\nRun it.\n')
+        entry = f'  - name: {name}\n    path: skills/{name}/SKILL.md\n    workflow: {workflow}\n'
+        text = (root / 'plugin.yaml').read_text()
+        (root / 'plugin.yaml').write_text(text.replace('skills:\n', 'skills:\n' + entry) if first
+                                          else text.replace('resources:', entry + 'resources:'))
+
+    def test_dot_prefixed_skill_workflow_is_the_declared_file(self):
+        root = copy_root(self.base / 'root')
+        text = (root / 'plugin.yaml').read_text().replace('workflow: workflows/main.yml',
+                                                          'workflow: ./workflows/main.yml')
+        (root / 'plugin.yaml').write_text(text)
+        regenerate(root)
+        descriptor, closure = package.declared_closure(root)
+        self.assertEqual(descriptor['skills'][0]['workflow'], 'workflows/main.yml')
+        self.assertNotIn('./workflows/main.yml', closure)
+        package.check(root)
 
     def test_installed_files_must_match_their_manifest(self):
         root = copy_root(self.base / 'root')
