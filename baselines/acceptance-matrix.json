@@ -628,7 +628,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (merged on its main, unreleased) and lets its container helpers mount the state namespace that holds the run ledger and feedback record (Agent Workflow #149); plugin test rejects those container helper jobs (Agent Workflow #150), so no installed fixture run exists either. The entry loads no skill: supplied skills reject until #16, whose selection in the reusable native.yml waits for Agent Workflow #152. No host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-feedback-address",
@@ -661,7 +661,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (merged on its main, unreleased) and lets its container helpers mount the state namespace that holds the run ledger and feedback record (Agent Workflow #149); plugin test rejects those container helper jobs (Agent Workflow #150), so no installed fixture run exists either. The entry loads no skill: supplied skills reject until #16, whose selection in the reusable native.yml waits for Agent Workflow #152. No host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-feedback-reply",
@@ -693,7 +693,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. A custom reply_prompt needs semantic admission (#2) and stays rejected at preflight. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, but it has never run through a released engine. A custom reply_prompt needs semantic admission (#2) and stays rejected at preflight. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (merged on its main, unreleased) and lets its container helpers mount the state namespace that holds the run ledger and feedback record (Agent Workflow #149); plugin test rejects those container helper jobs (Agent Workflow #150), so no installed fixture run exists either. The entry loads no skill: supplied skills reject until #16, whose selection in the reusable native.yml waits for Agent Workflow #152. No host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-review-post",
@@ -1143,7 +1143,9 @@
       ],
       "tests": [
         "test_feedback.RejectedSuggestions.test_rejected_bot_and_style_suggestions_keep_their_response_obligation",
-        "test_feedback.RejectedSuggestions.test_a_reassessment_cannot_drop_an_obligation"
+        "test_feedback.RejectedSuggestions.test_a_reassessment_cannot_drop_an_obligation",
+        "test_feedback.MixedThreads.test_mixed_thread_needs_an_answer_and_the_participant_before_resolution",
+        "test_feedback.MixedThreads.test_a_question_only_for_another_participant_needs_no_reply_but_blocks_resolution"
       ],
       "live_acceptance": [
         "github_publication"

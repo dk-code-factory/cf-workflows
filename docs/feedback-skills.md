@@ -216,14 +216,25 @@ assert native dispatch, capture, page and write counts. They cover:
 
 ## What remains
 
-- The installed graph, responder, reader and fixer sessions need Agent Workflow
+- The installed graph, responder, reader and fixer sessions need a released
+  engine with Agent Workflow
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). No local
-  controller or launcher stands in. The fixtures drive only the helpers.
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). Both are
+  merged on its `main`, and no release contains them. No local controller or
+  launcher stands in. The fixtures drive only the helpers.
+- The entries' helpers keep the run ledger and feedback record in the [state
+  namespace](dk-pr-fix.md#state-namespace) at `/cf-workflows-state`. The engine
+  cannot mount it into helper containers yet ([Agent Workflow
+  #149](https://github.com/dk-code-factory/agent-workflow/issues/149)).
+  `plugin test` rejects container helper jobs ([Agent Workflow
+  #150](https://github.com/dk-code-factory/agent-workflow/issues/150)), so no
+  entry has an installed fixture run.
 - The descriptor rows and `SKILL.md` files claim no runtime support
   ([packaging](packaging.md)). The three inventory rows stay `not_implemented`.
 - A custom `reply_prompt` is custom prompt text: it needs semantic admission
-  (#2) and an installed input. Supplied skills need #16.
+  (#2) and an installed input. Supplied skills need #16, and its selection in
+  the reusable `native.yml` needs [Agent Workflow
+  #152](https://github.com/dk-code-factory/agent-workflow/issues/152).
 - That a real session runs the validation commands it reports needs a live
   provider run; the fixtures check only the reported results.
 - Real GitHub conformance needs separate authorization. One open question is the
