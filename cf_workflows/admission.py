@@ -1393,6 +1393,9 @@ def _admit(request, configuration, invocation, deployment, roles, roots, transpo
     require(isinstance(roots, dict) and 'repository' in roots, 'roots', 'repository root required')
     for name, path in roots.items():
         require(isinstance(name, str) and Path(path).is_dir(), 'roots.' + str(name), 'must be an existing directory')
+        # Readable keys are '<root>:<path>' beside 'skill:<id>/<path>', so a root name cannot be parsed apart.
+        require(name and ':' not in name and name != 'skill', 'roots.' + name,
+                "root names are nonempty, without ':' and not the reserved name skill")
     roots = {name: Path(path).resolve() for name, path in roots.items()}
     original = resolve_request(request)
     config = check_configuration(configuration)

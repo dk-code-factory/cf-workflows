@@ -476,6 +476,13 @@ class ReviewRegressions(Fixture):
         config = self.configuration(resources=[self.resource('prompts/review.md')])
         self.assertRejected(self.admit(config), 'incomplete resource closure')
 
+    def test_root_names_cannot_collide_with_readable_key_syntax(self):
+        for name in ('skill', 'a:b', ''):
+            with self.subTest(name=name):
+                result = self.admit(self.configuration(resources=[self.resource('prompts/policy.md')]),
+                                    roots={**self.roots, name: self.config_root})
+                self.assertRejected(result, 'reserved name skill')
+
     def test_nested_lists_footnotes_and_parentheses(self):
         self.assertEqual(admission.link_targets('- Rules:\n    - see [policy](policy.md)\n\n  continued [c](c.md)\n'),
                          ['policy.md', 'c.md'])
