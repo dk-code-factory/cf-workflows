@@ -179,7 +179,8 @@ def collect(github, repository, pr, head):
         raise Incomplete('the PR author has no immutable identity')
     organization = pr['repository'].split('/')[1]
     merge_base = _git(repository, 'merge-base', base, head).decode().strip()
-    paths = sorted(filter(None, _git(repository, 'diff', '--name-only', merge_base, head).decode().split('\n')))
+    changed = _git(repository, 'diff', '-z', '--name-only', merge_base, head).decode().split('\0')
+    paths = sorted(filter(None, changed))
     ownership = codeowners(repository, base, paths, organization)
     reviews = _pages(lambda page: github.reviews(pr['url'], page), 'reviews')
     users, teams, excluded = {}, {}, []

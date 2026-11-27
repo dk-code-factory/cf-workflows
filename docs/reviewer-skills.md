@@ -118,7 +118,8 @@ discovery. A malformed or duplicate override rejects.
   checkout (`.github/CODEOWNERS`, then `CODEOWNERS`, then `docs/CODEOWNERS`; the
   last matching rule wins, and a wildcard last segment such as `docs/*` matches
   only at its own depth);
-- the repository permission of each candidate.
+- the repository permission of each candidate (a custom repository role
+  counts as the base permission it inherits).
 
 Candidates are existing requested users and teams, earlier non-dismissed human
 reviewers and code owners of changed paths. The PR author (by numeric ID), bots,
