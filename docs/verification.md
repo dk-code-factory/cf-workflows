@@ -117,7 +117,10 @@ as its own occurrence in the installed helpers.
 mixed findings with summaries disabled, partial `COMMENT` reviews, unchanged
 reruns, uncertain submissions, existing pending drafts and conclusive
 rejection through the shared publication journal, counting review writes and
-native dispatches on a fail-closed fake GitHub.
+native dispatches on a fail-closed fake GitHub. Their `InstalledRoute` cases
+read the installed YAML that the fixture barrier stands in for (the `findings`
+job, its selector and gate, the barrier and the per-item publication order);
+no engine runs it.
 [Supplied-skill](skills.md) tests (`tests/test_skills.py`) build session bindings
 from admitted plans and decide coverage from records of fake Codex and Claude
 gateways. They cover the Agent Workflow #139 admission profile (SKILL.md

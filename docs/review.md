@@ -3,8 +3,9 @@
 `cf-workflows:dk-pr-review` reviews another author's PR without fixing it.
 `cf-workflows:dk-pr-iter` decides, from verified identities, whether a PR goes
 to fixing or to incoming review. None of them is runnable yet: like
-[dk-pr-fix](dk-pr-fix.md), the installed workflow needs Agent Workflow #129 and
-#130 (see [What remains](#what-remains)).
+[dk-pr-fix](dk-pr-fix.md), the installed workflow needs a released engine with
+Agent Workflow #129 and #130, and a state mount for its helpers (see
+[What remains](#what-remains)).
 
 ## Routing
 
@@ -275,7 +276,16 @@ publication helpers list only verified findings and the final merge there.
   finding is listed or prepared while provisional, the reconciled run reuses
   the reviewer and verifier results with no new session, a renewed lag before
   dispatch withholds everything again, and the eventual `COMMENT` establishes
-  no clean review, approval or readiness.
+  no clean review, approval or readiness. `InstalledRoute` reads the installed
+  YAML that the fixture's barrier stands in for: `review.yml` reaches
+  `main.yml` in review mode with `post_findings` off by default, only the
+  `findings` job lists with the `findings` selector, after the cycles and only
+  when `prepare` reports `findings_authorized`, the barrier lists through
+  `publication_list` and publishes one item at a time, and each item prepares,
+  runs its audience session only on `invoke` and writes only on `invoke` after
+  that session succeeds. After a succeeded `prepare` it reconciles through
+  `publication_recover` unless the write failed or needs attention. No engine
+  parses or runs it.
 - [`tests/test_dk_pr_fix_alignment.py`](../tests/test_dk_pr_fix_alignment.py)
   checks the [installed alignment gate](alignment.md#verification) on the same
   fixtures. Retained alternatives analysis that does not release review keeps
@@ -316,8 +326,10 @@ publication helpers list only verified findings and the final merge there.
 
 ## What remains
 
-- Running review.yml with real engine-managed sessions needs Agent Workflow
-  #129 and #130. These fixtures do not prove session adherence.
+- Running review.yml with real engine-managed sessions needs a released engine.
+  Agent Workflow #129 and #130 are closed on its `main`, but no release
+  contains them (see [packaging](packaging.md#what-remains-blocked)). These
+  fixtures do not prove session adherence.
 - `iter.yml` has never run through an engine. These fixtures check its YAML
   and helpers, not the engine's conditional calls or session adherence. Like
   review.yml, it needs Agent Workflow #129 and #130 in a release.
@@ -331,11 +343,33 @@ publication helpers list only verified findings and the final merge there.
   operations ([engine binding](semantic.md#engine-binding)). A profile that
   pins the code-review-ad package files as adapter resources rejects until the
   installed workflow mounts configured resources. Supplied reviewer skills need
-  #16 and Agent Workflow #139.
-- Finding publication runs through the installed graph only once Agent
-  Workflow #129 and #130 land. The fixtures prove the helper and ledger
-  behavior, not GitHub's acceptance of these payloads (for example an empty
-  body with inline comments); that conformance needs separate authorization.
+  #16. Agent Workflow #139 is closed on its `main`, but reviewers run through
+  the reusable `native.yml` with a catalog-selected definition, where the
+  engine still rejects a supplied skill
+  ([agent-workflow#152](https://github.com/dk-code-factory/agent-workflow/issues/152)).
+- Finding publication has never run through the installed graph. Besides the
+  engine release, three upstream gaps stand in the way:
+  - The findings job's helpers keep the run's ledger, and with it the
+    reservations that stop an unchanged rerun from posting again, in the state
+    namespace at `/cf-workflows-state`. Agent Workflow mounts no persistent
+    plugin-private directory into container helpers, so under the installed
+    workflow every helper rejects the missing namespace
+    ([agent-workflow#149](https://github.com/dk-code-factory/agent-workflow/issues/149)).
+  - The barrier and `publication.yml` are container jobs, which `plugin test`
+    fixtures reject, so the findings route has no engine-level fixture
+    ([agent-workflow#150](https://github.com/dk-code-factory/agent-workflow/issues/150)).
+    `InstalledRoute` checks its YAML wiring, and `plugin check` in the
+    [build check](packaging.md#reproducible-builds-against-unreleased-source)
+    validates the graph; neither runs it.
+  - Managed provider parity
+    ([agent-workflow#134](https://github.com/dk-code-factory/agent-workflow/issues/134))
+    gates the reviewer, verifier and audience sessions only where a selected
+    path needs it.
+
+  The fixtures prove the helper and ledger behavior, not GitHub's acceptance of
+  these payloads (for example an empty body with inline comments, `LEFT`
+  anchors or the 65536-character bound); that conformance needs separate
+  authorization.
 - The standalone `cf-workflows:dk-pr-review-post` entry and approval are in
   [publication entries](publication-skills.md). Historical finding follow-ups
   (reusing an earlier equivalent thread) remain open there. Fork-CI approval is
