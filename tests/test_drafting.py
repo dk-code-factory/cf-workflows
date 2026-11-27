@@ -12,6 +12,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -530,6 +531,12 @@ class Unsupported(Fixture):
         with self.assertRaises(admission.AdmissionError):
             drafting.check_result('dk-pr-description', unknown, evidence, governing)
 
+    def test_huge_digit_runs_in_evidence_are_not_references(self):
+        evidence, _ = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'See #' + '1' * 5000,
+                                             'url': 'https://github.com/o/r/issues/3'}])
+        self.assertNotIn(int('1' * 16), evidence['references'])
+        self.assertIn(3, evidence['references'])
+
     def test_the_author_s_existing_sections_are_not_fabrication(self):
         self.github.ev['metadata']['body'] = 'Context.\n\n## Testing\n\nRan the uploader by hand.\n'
         evidence, governing = self.evidence()
@@ -583,6 +590,34 @@ class CommitMessage(Fixture):
         self.assertFalse(reused['session'])
         self.calls()
         self.assertEqual(self.state(), before)
+
+    def test_untracked_content_and_changes_past_the_patch_bound_make_the_draft_stale(self):
+        admitted, ledger = self.admitted()
+        report = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.assertEqual(report['status'], 'drafted', report)
+
+        def current():
+            return drafting.current_report('dk-commit-message', admitted, repository=self.repo, ledger=ledger)
+        self.assertEqual(current()['result_ref'], report['result_ref'])
+        self.write('notes.txt', 'other scratch\n')
+        self.assertIsNone(current(), 'an edited untracked file changes what would be committed')
+        self.write('notes.txt', 'scratch\n')
+        self.assertIsNotNone(current())
+        self.write('src/a_big.py', 'x = 1\n' * (drafting.MAX_PATCH // 6 + 1))
+        self.write('src/z_late.py', 'y = 1\n')
+        git(self.repo, 'add', 'src')
+        before = drafting.local_changes(self.repo)
+        self.write('src/z_late.py', 'y = 2\n')
+        git(self.repo, 'add', 'src')
+        after = drafting.local_changes(self.repo)
+        self.assertEqual(before['staged'], after['staged'], 'the change is past the text bound')
+        self.assertNotEqual(before['content'], after['content'])
+
+    def test_non_utf8_path_names_do_not_block_the_capture(self):
+        (self.repo / os.fsdecode(b'caf\xe9.txt')).write_bytes(b'x\n')
+        changes = drafting.local_changes(self.repo)
+        self.assertIn('caf\ufffd.txt', changes['untracked'])
+        self.assertIn('caf\ufffd.txt', changes['paths'])
 
     def test_unsupported_messages_reject(self):
         long = 'Retry transient upload failures in the uploader so flaky networks stop failing every release'
@@ -787,6 +822,17 @@ class Issue(Fixture):
         self.assertEqual((existing['title'], existing['body'], existing['labels']),
                          ('Uploads fail on transient network errors', ISSUE_BODY, [{'name': 'bug'}]))
         self.assertEqual([call[:2] for call in self.writes()], [('PATCH', 'repos/o/r/issues/100')])
+
+    def test_updating_a_linked_issue_uses_its_current_text_as_one_source(self):
+        self.github.add_issue('Uploads flaky', 'Old text.')
+        admitted, ledger = self.admitted('Update #100 with what we know.', authorize=('edit_issue',))
+        linked = {'number': 100, 'title': 'Uploads flaky', 'body': 'Captured text.',
+                  'url': 'https://github.com/o/r/issues/100'}
+        report = self.draft('dk-issue', admitted, ledger, session(issue()), facts=[OUTAGE], issue=100,
+                            issues=[linked, dict(linked)])
+        self.assertEqual(report['status'], 'drafted', report)
+        [source] = [item for item in self.fake.tasks[0]['context']['sources'] if item['id'] == 'issue:100']
+        self.assertEqual(source['text'], 'Uploads flaky\n\nOld text.')
 
     def test_an_edit_between_draft_and_publication_is_never_overwritten(self):
         existing = self.github.add_issue('Uploads flaky', 'Old text.')

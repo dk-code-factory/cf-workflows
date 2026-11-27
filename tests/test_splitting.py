@@ -582,6 +582,16 @@ class PrSplit(Fixture):
             with self.subTest(path), self.assertRaises(admission.AdmissionError) as raised:
                 splitting.check_split(body, evidence, governing)
             self.assertEqual(raised.exception.path, path)
+        for branch in ('a//b', 'a/.b', 'x.lock/y', 'a/b.'):
+            body = scope(task, branch=branch)
+            with self.subTest(branch), self.assertRaises(admission.AdmissionError) as raised:
+                splitting.check_split(body, evidence, governing)
+            self.assertEqual(raised.exception.path, 'splits[0].branch')
+        submodule = copy.deepcopy(evidence)
+        submodule['changes']['docs/notes.md'][1] = ['160000', self.target]
+        with self.assertRaisesRegex(admission.AdmissionError, 'submodule') as raised:
+            splitting.check_split(scope(task), submodule, governing)
+        self.assertEqual(raised.exception.path, 'splits[0].paths')
         disabled = splitting.effective('dk-pr-split', self.admit('dk-pr-split',
                                                                   options={'evacuate_unrelated': 'disabled'}))
         with self.assertRaisesRegex(admission.AdmissionError, 'disabled'):
@@ -619,6 +629,27 @@ class PrSplit(Fixture):
         self.assertEqual((moved['status'], moved['error']['path']), ('blocked', 'collision'), moved)
         self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), self.head)
         self.assertIsNone(splitting._ref(self.repo, 'refs/heads/split/notes'))
+
+    def test_a_moved_symlink_is_compared_by_its_link_text(self):
+        (self.repo / 'docs/link.md').symlink_to('notes.md')
+        git(self.repo, 'add', 'docs/link.md')
+        git(self.repo, 'commit', '-q', '-m', 'Link the notes', date='1700000350 +0000')
+        self.head = git(self.repo, 'rev-parse', 'HEAD')
+        git(self.repo, 'push', '-q', str(self.remote), 'feature')
+        self.github.ev['metadata']['head']['sha'] = self.head
+        admitted = self.admit('dk-pr-split')
+        ledger = self.ledger(admitted)
+
+        def linked(task):
+            body = scope(task, paths=['docs/link.md', 'docs/notes.md'])
+            for item in body['assessments']:
+                if item['path'] == 'docs/link.md':
+                    item['scope'] = 'unrelated'
+            return body
+        prepared = self.partition(admitted, ledger, session(linked), rewrite=LOCAL)
+        self.assertEqual(prepared['status'], 'prepared', prepared)
+        self.assertFalse((self.repo / 'docs/link.md').is_symlink())
+        self.assertEqual(git(self.repo, 'status', '--porcelain'), '')
 
     def test_interrupted_split_reconciles_refs_and_the_moved_paths(self):
         admitted = self.admit('dk-pr-split')

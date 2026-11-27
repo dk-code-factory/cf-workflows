@@ -413,6 +413,7 @@ def check_split(output, evidence, governing):
         require(options[MODE_OPTION[item['kind']]] != 'disabled', where + '.kind',
                 MODE_OPTION[item['kind']] + ' is disabled for this pull request; that work stays')
         branch = item['branch']
+        # Git's ref rules: no empty, dot-led or .lock component, and no trailing dot.
         require(isinstance(branch, str) and _BRANCH.fullmatch(branch) and '..' not in branch
                 and not branch.endswith(('/', '.', '.lock')) and branch not in branches
                 and all(part and not part.startswith('.') and not part.endswith('.lock') for part in branch.split('/'))
@@ -422,6 +423,8 @@ def check_split(output, evidence, governing):
         require(isinstance(item['paths'], list) and item['paths'], where + '.paths', 'name the moved paths')
         for path in item['paths']:
             require(path in changes and path not in moved, where + '.paths', f'{path} is not a changed path or moves twice')
+            require(all(state is None or state[0] != '160000' for state in changes[path]), where + '.paths',
+                    f'{path} is a submodule; splits move files')
             require(scopes[path] == item['kind'], where + '.paths', f'{path} is assessed as {scopes[path]} work')
             touching = [record for record in records if path in record['paths']]
             require(all(_owned(record, owners) for record in touching), where + '.paths',

@@ -35,6 +35,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import subprocess
 
 from . import admission, configuration, decisions, dk_pr_fix, prose, semantic
@@ -104,9 +105,9 @@ _LABEL = re.compile(r'^\s*(?:[-*]\s+)?\**([A-Za-z][A-Za-z ]{0,30}?)\**\s*:', re.
 VALIDATION = re.compile(r'(?:test(?:s|ing|ed| plan)?|validation|validated|verification|verified|how to test|'
                         r'checks? run)$', re.I)
 REPRODUCTION = re.compile(r'(?:steps to reproduce|reproduction(?: steps)?|to reproduce|repro(?:duce)?)$', re.I)
-_REF = re.compile(r'(?<![\w/&#])#([1-9][0-9]*)\b')
+_REF = re.compile(r'(?<![\w/&#])#([1-9][0-9]{0,15})\b')  # Bounded: int() rejects huge digit runs.
 _URL_REF = re.compile(r'https://([A-Za-z0-9.-]+)/([\w.-]+)/([\w.-]+)/(?:issues|pull)/([1-9][0-9]*)')
-_CLOSING = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#([1-9][0-9]*)\b', re.I)
+_CLOSING = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#([1-9][0-9]{0,15})\b', re.I)
 _CODE_LINK = re.compile(r'https://[A-Za-z0-9.-]+/[\w.-]+/[\w.-]+/(blob|tree)/([^/\s)>\]]+)')
 _PATH_LINE = re.compile(r'(?<![\w/.:#-])(?:[\w.-]+/)*[\w-]+\.[A-Za-z0-9]{1,8}:[1-9][0-9]*\b')
 _ATTRIBUTION = re.compile(r'generated (?:by|with)\b|\U0001F916|co-authored-by:[^\n]*\b(?:claude|codex|chatgpt|'
@@ -458,8 +459,34 @@ def _facts(facts):
     return result
 
 
+def _untracked_digest(repository, names):
+    """The content of untracked paths (raw Git names): file bytes, link targets, or the kind of anything else."""
+    total = hashlib.sha256()
+    root = os.fsencode(str(repository))
+    for raw in names:
+        path = os.path.join(root, raw)
+        item = hashlib.sha256()
+        try:
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode):
+                item.update(b'link\0' + os.readlink(path))
+            elif stat.S_ISREG(mode):
+                with open(path, 'rb') as handle:
+                    for chunk in iter(lambda: handle.read(1 << 20), b''):
+                        item.update(chunk)
+            else:
+                item.update(b'other')
+        except OSError as error:
+            item.update(b'unreadable\0' + type(error).__name__.encode())
+        total.update(raw + b'\0' + item.digest())
+    return total.hexdigest()
+
+
 def local_changes(repository):
-    """Read-only capture of HEAD, staged and unstaged patches and untracked paths; never refreshes the index."""
+    """Read-only capture of HEAD, staged and unstaged patches and untracked paths; never refreshes the index.
+
+    content binds the whole patches and the untracked files' content, past the text bounds.
+    """
     head = git(repository, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}', check=False).decode().strip() or None
     require(not git(repository, 'ls-files', '--unmerged'), 'changes', 'the index has unresolved conflicts')
     diff = ('diff', '--no-ext-diff', '--no-textconv', '--no-color', '--find-renames')
@@ -467,14 +494,18 @@ def local_changes(repository):
     unstaged = git(repository, *diff)
     names = set()
     for args in (('--cached',), ()):
-        listed = git(repository, 'diff', '--no-ext-diff', '--name-only', '-z', *args).decode().split('\x00')
-        names.update(item for item in listed if item)
-    untracked = sorted(item for item in git(repository, 'ls-files', '--others', '--exclude-standard', '-z')
-                       .decode().split('\x00') if item)
+        # Git names are raw bytes: a non-UTF-8 name is shown with replacement characters.
+        listed = git(repository, 'diff', '--no-ext-diff', '--name-only', '-z', *args).decode(errors='replace')
+        names.update(item for item in listed.split('\x00') if item)
+    raw = sorted(item for item in git(repository, 'ls-files', '--others', '--exclude-standard', '-z')
+                 .split(b'\x00') if item)
+    untracked = sorted(item.decode(errors='replace') for item in raw)
     staged_text, staged_cut = _bounded(staged, MAX_PATCH)
     unstaged_text, unstaged_cut = _bounded(unstaged, MAX_PATCH)
+    content = digest({'staged': hashlib.sha256(staged).hexdigest(), 'unstaged': hashlib.sha256(unstaged).hexdigest(),
+                      'untracked': _untracked_digest(repository, raw)})
     return {'head': head, 'staged': staged_text, 'unstaged': unstaged_text, 'untracked': untracked,
-            'paths': sorted(names | set(untracked)), 'truncated': staged_cut or unstaged_cut}
+            'paths': sorted(names | set(untracked)), 'truncated': staged_cut or unstaged_cut, 'content': content}
 
 
 def _identity(repository):
@@ -528,6 +559,8 @@ def collect(name, admitted, *, repository, capture=None, github=None, facts=(), 
     for item in issues:
         require(type(item.get('number')) is int and isinstance(item.get('body', ''), (str, type(None))),
                 'issues', 'every linked issue needs a number')
+        if item['number'] in evidence['linked']:
+            continue  # The same linked issue captured twice is one source.
         body = f"{item.get('title') or ''}\n\n{item.get('body') or ''}"
         sources.append(_source(f"issue:{item['number']}", 'issue', body, public=True, url=item.get('url')))
         evidence['linked'].add(item['number'])
@@ -614,6 +647,8 @@ def collect(name, admitted, *, repository, capture=None, github=None, facts=(), 
             evidence['number'] = issue
             evidence['references'].add(issue)
             body = '{title}\n\n{body}'.format(**evidence['current'])
+            # The edited issue may also be linked: its current text replaces the linked capture.
+            sources = [item for item in sources if item['id'] != f'issue:{issue}']
             sources.append(_source(f'issue:{issue}', 'issue', body, public=True, url=current.get('html_url')))
     require(len(sources) <= MAX_ITEMS, 'sources', 'evidence exceeds the bounded source count')
     require(len({item['id'] for item in sources}) == len(sources), 'sources', 'duplicate source identity')

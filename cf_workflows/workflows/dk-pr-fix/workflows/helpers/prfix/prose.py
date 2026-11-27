@@ -204,6 +204,8 @@ def _python_prose(source):
         for line in range(token.start[0] - 1, token.end[0])}
     lines = {token.start[0] - 1 for token in tokens
              if token.type == tokenize.COMMENT and not token.string.startswith('#!')} - code
+    if '\r' in source.replace('\r\n', ''):
+        return set()  # A lone CR is a line break to ast but not to the LF-only line indexes.
     rows = source.split('\n')
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:

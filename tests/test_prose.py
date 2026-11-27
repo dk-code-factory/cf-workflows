@@ -9,6 +9,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -377,6 +378,109 @@ class Direct(Fixture):
                                ledger=self.prose_ledger, base='0' * 40)
         self.assertEqual((result['status'], result['error']['path']), ('rejected', 'base'))
         self.calls(capabilities=1)
+
+
+class Recovery(Fixture):
+    """Odd tree entries, staged or renamed session edits, mode changes and interrupted commits."""
+
+    def commit(self, message='more changes'):
+        git(self.repo, 'commit', '-q', '-m', message)
+        self.pr_head = git(self.repo, 'rev-parse', 'HEAD')
+
+    def test_submodule_and_symlink_changes_are_not_candidates(self):
+        (self.repo / 'sub').mkdir()
+        git(self.repo, 'update-index', '--add', '--cacheinfo', f'160000,{self.pr_base},sub')
+        (self.repo / 'docs/link.md').symlink_to('guide.md')
+        git(self.repo, 'add', 'docs/link.md')
+        self.commit()
+        result = self.clean_up('dk-plain-english', edit(GOOD))
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(set(result['units']), {'docs/guide.md', 'src/mod.py'})
+
+    def test_a_pruned_accepted_output_plans_the_file_from_base(self):
+        base_blob = git(self.repo, 'rev-parse', f'{self.pr_base}:docs/guide.md')
+        units = {'docs/guide.md': {'contract': 'c', 'base_blob': base_blob, 'binding': 'b', 'output_blob': '1' * 40,
+                                   'claim': 'old'}}
+        plan, _ = prose.candidates(self.repo, self.pr_base, self.pr_head, units, 'c', {
+            'docs/guide.md': 'b', 'src/mod.py': 'b'})
+        self.assertEqual(plan['docs/guide.md']['mode'], 'full')
+
+    def test_a_non_utf8_file_name_is_skipped(self):
+        self.write(os.fsdecode(b'docs/caf\xe9.md'), 'In order to make use of it, it is necessary to read it.\n')
+        git(self.repo, 'add', '-A')
+        self.commit()
+        result = self.clean_up('dk-plain-english', edit(GOOD))
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertIn({'path': 'docs/caf\ufffd.md', 'reason': 'file name is not UTF-8'}, result['skipped'])
+
+    def test_staged_new_files_and_renames_are_restored_and_rejected(self):
+        def added(task, repo):
+            response = edit(GOOD)(task, repo)
+            (repo / 'docs/new.md').write_text('New.\n')
+            (repo / 'docs/nested').mkdir()
+            (repo / 'docs/nested/deep.md').write_text('Deep.\n')
+            git(repo, 'add', 'docs/new.md')
+            return response
+
+        def renamed(task, repo):
+            response = edit(GOOD)(task, repo)
+            git(repo, 'mv', 'docs/guide.md', 'docs/moved.md')
+            return response
+        for label, session in {'added': added, 'renamed': renamed}.items():
+            with self.subTest(label):
+                self.prose_ledger.db.execute('DELETE FROM passes')
+                self.engine.claims.clear()
+                result = self.clean_up('dk-plain-english', session)
+                self.assertEqual((result['status'], result['error']['path']), ('blocked', 'checkout'), result)
+                self.clean()
+                [state] = [row['state'] for row in self.prose_ledger.db.execute('SELECT state FROM passes')]
+                self.assertEqual(state, 'rejected')
+
+    def test_a_mode_change_by_the_session_is_rejected_and_restored(self):
+        def chmod(task, repo):
+            response = edit(GOOD)(task, repo)
+            (repo / 'docs/guide.md').chmod(0o755)
+            return response
+        result = self.clean_up('dk-plain-english', chmod)
+        self.assertEqual((result['status'], result['error']), (
+            'blocked', {'path': 'docs/guide.md', 'message': 'the session changed the file mode'}), result)
+        self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), self.pr_head)
+        self.clean()
+
+    def test_a_crash_after_the_head_moved_settles_the_original_pass(self):
+        original = prose.git
+
+        def crash(repository, *args, **kwargs):
+            if args[0] == 'reset':
+                raise RuntimeError('helper died')
+            return original(repository, *args, **kwargs)
+        with patch.object(prose, 'git', crash), self.assertRaises(RuntimeError):
+            self.clean_up('dk-plain-english', edit(GOOD))
+        self.assertNotEqual(git(self.repo, 'rev-parse', 'HEAD'), self.pr_head)
+        result = self.clean_up('dk-plain-english')
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), result['commit'])
+        self.assertEqual(git(self.repo, 'rev-parse', 'HEAD^'), self.pr_head)
+        self.assertEqual(self.engine.sessions, Counter({'plain-english': 1}))
+        self.clean()
+        self.assertEqual(self.clean_up('dk-plain-english')['status'], 'reused')
+
+    def test_a_crash_before_acceptance_settles_without_a_second_session(self):
+        with patch.object(prose.Ledger, 'accept', side_effect=RuntimeError('helper died')), \
+                self.assertRaises(RuntimeError):
+            self.clean_up('dk-plain-english', edit(GOOD))
+        result = self.clean_up('dk-plain-english')
+        self.assertEqual(result['status'], 'complete', result)
+        self.assertEqual(git(self.repo, 'rev-parse', 'HEAD^'), self.pr_head)
+        self.assertEqual(self.engine.sessions, Counter({'plain-english': 1}))
+        self.assertEqual(self.clean_up('dk-plain-english')['status'], 'reused')
+
+    def test_line_indexes_split_on_line_feeds_only(self):
+        lines = prose._lines('int x;\x0c\nint y;\x0cint z;\n// A comment.\n'.encode())
+        self.assertEqual(lines[2], '// A comment.\n')
+        self.assertEqual(prose.prose_lines('a.c', lines), {2})
+        lines = prose._lines('x = 1\x0c\n# A comment.\u2028still\ny = 2\n'.encode())
+        self.assertEqual(prose.prose_lines('a.py', lines), {1})
 
 
 class SourceAndCodeBlocks(Fixture):

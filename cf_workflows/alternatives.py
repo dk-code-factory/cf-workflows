@@ -38,7 +38,9 @@ licenses/dk-workflows-MIT.txt), identical for both skills.
 """
 import copy
 import hashlib
+import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import tempfile
 import types
@@ -224,7 +226,7 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
         require(through == 'analysis' or pr is not None, 'request.pr', 'current alignment needs a pull request')
     except (AdmissionError, StageError) as error:
         return {'status': 'rejected', 'error': _failure(error), 'admission': admitted}
-    except (subprocess.CalledProcessError, OSError) as error:
+    except (subprocess.CalledProcessError, OSError, UnicodeError) as error:
         return {'status': 'rejected', 'error': {'path': 'repository', 'message': 'checkout unreadable: '
                                                 + type(error).__name__}, 'admission': admitted}
     base = {'entry': entries.ENTRIES[name]['skill'], 'delegate': entries.ENTRIES[delegate]['skill'], 'scope': scope,
@@ -251,10 +253,11 @@ def _execute(name, *, delegate, scope, request, deployment, repository, transpor
             if pr is None:
                 ledger, persisted = _H.issue_ledger(temporary, repository_id), False
             else:
-                require(state is not None, 'state', 'PR analysis needs the suite state namespace')
+                require(isinstance(state, (str, os.PathLike)), 'state', 'PR analysis needs the suite state namespace')
                 ledger, persisted = _pr_ledger(state, scope, pr), True
-        except (AdmissionError, alignment.AlignmentError) as error:
-            return {**base, 'status': 'blocked', 'error': {'path': 'ledger', 'message': str(error)}}
+        except (AdmissionError, alignment.AlignmentError, OSError, sqlite3.Error) as error:
+            return {**base, 'status': 'blocked', 'error': {'path': 'ledger', 'message': str(error)
+                                                           or type(error).__name__}}
         try:
             walk = _H.Walk(ledger=ledger, scope=scope, pins_=pinned, requirements=reqs, evidence=evidence,
                            sessions=_Sessions(transport), request=direct, identity=identity, values=values,
@@ -318,7 +321,7 @@ def manual_review(*, request, direct, deployment, repository, transport, target,
         alignment.direct_request(direct)
         require(isinstance(request, dict) and direct['instruction'] == request.get('instructions'),
                 'request.instructions', 'the direct request binds this invocation\'s exact instruction')
-    except alignment.AuthorizationRequired as error:
+    except alignment.AlignmentError as error:
         return {'status': 'rejected', 'error': {'path': 'direct', 'message': str(error)}}
     except AdmissionError as error:
         return {'status': 'rejected', 'error': _failure(error)}
