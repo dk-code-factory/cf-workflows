@@ -95,12 +95,15 @@ No release has them yet.
 | `status()` | The controller is `stopped` only when the workspace's `.agent-workflow/owner.lock` is free. `backup`, `bundle` and `restore` take the same lock. The version is from `agent-workflow version`. |
 | `stop()` | `agent-workflow stop`, then it waits until the lock is released. |
 | `backup(path)`, `bundle(path)` | `agent-workflow backup PATH`, `agent-workflow bundle PATH`. |
-| `retained(bundle)` | It reads the bundle's `assets/<origin>/<id>/` trees. Each tree must hold exactly the files its `bundle.json` lists, with their sizes and digests. A tree's `helpers/` files give the same helper-manifest digest that an admitted plan records. |
-| `restore(database, bundle)` | It checks the whole bundle first, and then puts its `workspaces/`, `providers/`, `invocations/` and `assets/` trees back. Then it runs `agent-workflow restore DATABASE`. It refuses an existing entry at a bundle path, before it changes anything. |
+| `retained(bundle)` | It reads the bundle's `assets/<origin>/<id>/` trees. Each tree must hold exactly the files its `bundle.json` lists, with their sizes, digests and the modes the engine materializes (`0444`, or `0555` when executable). A tree's `helpers/` files give the same helper-manifest digest that an admitted plan records. |
+| `restore(database, bundle)` | It checks the whole bundle first, and then puts its `workspaces/`, `providers/`, `invocations/` and `assets/` trees back. Then it runs `agent-workflow restore DATABASE`. Every entry keeps its exact permission bits from the bundle, because the engine verifies the modes of a retained asset tree (`0444`/`0555` files, `0555` directories) on resume, on use and on the next `bundle`; only setuid, setgid and sticky bits are dropped. It refuses an existing entry at a bundle path, before it changes anything. If extraction or `agent-workflow restore` fails, it removes every entry it created, so a retry starts again. |
 | `resume(run, retry_uncertain=...)` | `agent-workflow resume --detach`. This restarts the controller. |
 
 A bundle entry outside these trees refuses. So do a duplicate entry, a path
-that escapes, and a link that is outside `workspaces/` or points out of it. The engine itself restores the database. It puts
+that escapes, and a link that is outside `workspaces/` or points out of it. An
+absolute link refuses too, even one that points inside `workspaces/`: the engine
+exports such links verbatim, but they name the old state path, so this fails
+closed instead of restoring a link to another place. The engine itself restores the database. It puts
 every unfinished run into `needs_attention` with `restore_uncertainty`. The
 controller then refuses to resume that run until `retry_uncertain=True`
 acknowledges that an uncertain effect can repeat. The engine checks a retained
@@ -214,8 +217,11 @@ adapters record native dispatches. The cases cover the following:
 - **Engine binding.** `recovery.Engine` runs against a fail-closed fake of the
   8758775 maintenance CLI. Synthetic bundles use the engine's own layout (both
   retained-asset formats). The installed helpers in a tree map to the installed
-  helper digest. Tampered, unlisted, orphaned, stray, foreign, duplicate,
-  escaping and linked entries refuse before any change. A held owner lock refuses backup and
+  helper digest. Tampered, unlisted, wrongly-moded, orphaned, stray, foreign,
+  duplicate, escaping and linked entries refuse before any change. A restored
+  tree keeps the engine's exact modes (`0444`/`0555` files, `0555` directories
+  under `files/`, `0700` above). A failed `agent-workflow restore` removes the
+  extracted entries, and a retry then succeeds. A held owner lock refuses backup and
   restore, and `stop()` waits for its release. Backup, total loss and restore
   call `version`, `backup`, `bundle` and `restore` once each. A second restore
   over restored engine state refuses. Resume needs the acknowledgement. After a
@@ -239,6 +245,10 @@ adapters record native dispatches. The cases cover the following:
   which has no release). `recovery.Engine` is bound to unreleased `main`
   (`8758775`). The opt-in integration test runs only on a source build, so no
   engine version is supported or verified.
+- The bundles with retained asset trees are synthetic: the tests build them in
+  the layout and modes of `pkg/workflows/bundle.go` at `8758775`. No bundle that
+  the real engine exported with an asset tree has been read or restored; the
+  opt-in integration bundle has none.
 - No command or installed workflow calls these operations yet. No provider
   session or host restart has been exercised. The installed dk-pr-fix workflow
   has not been recovered on the engine either: its helpers run as `action-v1`

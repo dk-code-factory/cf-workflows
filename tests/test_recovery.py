@@ -19,6 +19,7 @@ from pathlib import Path
 import pickle
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -701,7 +702,7 @@ class PluginReplacement(HelperFixture):
         destination = self.root.parent / 'backup'
         recovery.backup(self.home, destination, engine=engine, install=install)
         shutil.rmtree(self.home / recovery.SUITE_DIR)
-        shutil.rmtree(self.workspace / recovery.ENGINE_STATE)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
         report = recovery.restore(destination, self.home, engine=engine, install=install)
         run = NAMESPACE.split('/')[1] + '/' + plan['logical_run']
         self.assertEqual(report['runs'][run]['assets'], {plan['execution_fingerprint']: 'retained'})
@@ -722,7 +723,7 @@ class PluginReplacement(HelperFixture):
         other = self.root.parent / 'replacement backup'
         recovery.backup(self.home, other, engine=engine, install=install)
         shutil.rmtree(self.home / recovery.SUITE_DIR)
-        shutil.rmtree(self.workspace / recovery.ENGINE_STATE)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
         report = recovery.restore(other, self.home, engine=engine, install=install)
         self.assertEqual(report['runs'][run]['assets'], {plan['execution_fingerprint']: 'missing'})
         self.assertEqual(report['blocked'], [run])
@@ -765,6 +766,8 @@ if verb == 'bundle':
     Path(args[0]).write_bytes(Path(os.environ['FAKE_BUNDLE']).read_bytes())
     emit({'bundle': args[0], 'scope': 'engine-owned recovery data; native credential stores excluded'})
 if verb == 'restore':
+    if Path(os.environ['FAKE_FAIL']).exists():
+        sys.exit('restore: fixture failure')
     emit({'restored': args[0], 'retained_database': '',
           'recovery': 'restored runnable work requires explicit uncertain-retry acknowledgement'})
 if verb == 'stop':
@@ -785,37 +788,53 @@ time.sleep(60)
 '''
 
 
+def materialized(name):
+    """The engine's materialized mode of a retained file: 0555 when executable (here: a .sh), else 0444."""
+    return 0o555 if name.endswith('.sh') else 0o444
+
+
 def asset_tree(files, versioned):
-    """bundle.json of a retained asset tree in the engine's helper-bundle or versioned asset-bundle format."""
-    entries = [{'path': path, 'mode': 0o444, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
-               for path, data in sorted(files.items())]
+    """bundle.json of a retained asset tree in the engine's helper-bundle or versioned asset-bundle format.
+
+    A historical helper bundle records the materialized mode; a versioned one the
+    original source mode (0755 or 0644 here), which the engine materializes.
+    """
+    entries = [{'path': path, 'mode': materialized(path), 'size': len(data),
+                'sha256': hashlib.sha256(data).hexdigest()} for path, data in sorted(files.items())]
     ident = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
     if versioned:
-        entries = [{**entry, 'kind': 'file'} for entry in entries]
+        entries = [{**entry, 'kind': 'file', 'mode': entry['mode'] | 0o200} for entry in entries]
         return ident, {'version': 1, 'origin_run_id': ORIGIN, 'id': ident, 'entries': entries}
     return ident, {'origin_run_id': ORIGIN, 'id': ident, 'files': entries}
 
 
-def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None):
-    """A recovery bundle laid out as `agent-workflow bundle` writes it (pkg/workflows/bundle.go at 8758775).
+def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None, mode=None):
+    """A synthetic recovery bundle in the layout `agent-workflow bundle` writes (pkg/workflows/bundle.go at 8758775).
 
-    trees are {path: bytes} retained asset trees; extra are (name, bytes or None
-    for a directory, or ('link', target)) entries added as they are; tamper
-    rewrites one retained file's bytes after its manifest is written.
+    It is built here, not exported by the engine. trees are {path: bytes}
+    retained asset trees, with every directory entry and the materialized modes
+    the engine exports (0700 above files/, 0555 directories and 0444/0555 files
+    in it); extra are (name, bytes or None for a directory, or ('link', target))
+    entries added as they are; tamper rewrites one retained file's bytes, and
+    mode its mode, after its manifest is written.
     """
     import io
     import tarfile
+    added = set()
 
-    def add(archive, name, data=None, link=None):
+    def add(archive, name, data=None, link=None, mode=None):
+        if name in added and data is None and link is None:
+            return
+        added.add(name)
         info = tarfile.TarInfo(name)
         if link is not None:
             info.type, info.linkname = tarfile.SYMTYPE, link
             archive.addfile(info)
         elif data is None:
-            info.type, info.mode = tarfile.DIRTYPE, 0o755
+            info.type, info.mode = tarfile.DIRTYPE, 0o755 if mode is None else mode
             archive.addfile(info)
         else:
-            info.size, info.mode = len(data), 0o444
+            info.size, info.mode = len(data), 0o444 if mode is None else mode
             archive.addfile(info, io.BytesIO(data))
     with tarfile.open(path, 'w:gz') as archive:
         add(archive, 'manifest.json', json.dumps({'format': 1, 'scope': 'engine-owned recovery state'}).encode())
@@ -825,17 +844,40 @@ def engine_bundle(path, trees=(), versioned=False, extra=(), tamper=None):
         for files in trees:
             ident, manifest = asset_tree(files, versioned)
             base = f'assets/{ORIGIN}/{ident}/'
-            add(archive, base + 'owner.json', json.dumps({'origin_run_id': ORIGIN, 'stage_id': 'c' * 32}).encode())
-            add(archive, base + 'bundle.json', json.dumps(manifest).encode())
+            for directory in ('assets', f'assets/{ORIGIN}', base[:-1]):
+                add(archive, directory, mode=0o700)
+            add(archive, base + 'bundle.json', json.dumps(manifest).encode(), mode=0o444)
+            add(archive, base + 'files', mode=0o555)
             for name, data in sorted(files.items()):
-                add(archive, base + 'files/' + name, tamper if tamper is not None and name == sorted(files)[0]
-                    else data)
+                parts = name.split('/')
+                for depth in range(1, len(parts)):
+                    add(archive, base + 'files/' + '/'.join(parts[:depth]), mode=0o555)
+                first = name == sorted(files)[0]
+                add(archive, base + 'files/' + name, tamper if tamper is not None and first else data,
+                    mode=mode if mode is not None and first else materialized(name))
+            add(archive, base + 'owner.json', json.dumps({'origin_run_id': ORIGIN, 'stage_id': 'c' * 32}).encode(),
+                mode=0o600)
         for name, data in extra:
             if isinstance(data, tuple):
                 add(archive, name, link=data[1])
             else:
                 add(archive, name, data)
     return path
+
+
+def remove_tree(path):
+    """Remove a restored engine state, whose retained asset trees are read-only as the engine keeps them."""
+    def writable(function, name, error):
+        os.chmod(os.path.dirname(name), 0o700)
+        if os.path.isdir(name) and not os.path.islink(name):
+            os.chmod(name, 0o700)
+        function(name)
+    shutil.rmtree(path, onexc=writable)
+
+
+def tree_modes(root):
+    """{relative path: permission bits} of every entry under root."""
+    return {path.relative_to(root).as_posix(): stat.S_IMODE(path.lstat().st_mode) for path in root.rglob('*')}
 
 
 def installed_helpers(install=dk_pr_fix.INSTALL):
@@ -860,7 +902,8 @@ class CliEngineFixture:
         self.log = self.engine_base / 'calls.jsonl'
         self.bundle_source = self.engine_base / 'prepared bundle'
         self.environment = {'PATH': os.environ['PATH'], 'FAKE_LOG': str(self.log),
-                            'FAKE_BUNDLE': str(self.bundle_source), 'FAKE_OWNER': str(self.engine_base / 'owner')}
+                            'FAKE_BUNDLE': str(self.bundle_source), 'FAKE_FAIL': str(self.engine_base / 'fail'),
+                            'FAKE_OWNER': str(self.engine_base / 'owner')}
         return recovery.Engine(self.cli, self.workspace, environment=self.environment, timeout=60)
 
     def calls(self):
@@ -913,6 +956,7 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
                                                         extra=[('workspaces/w/escape', ('link', '../../assets'))]),
             'duplicate engine bundle entry': engine_bundle(self.engine_base / 'duplicate',
                                                            extra=[('state.db', b'another database')]),
+            'differ from their manifest  ': engine_bundle(self.engine_base / 'writable', [helpers], mode=0o644),
         }
         database = self.engine_base / 'database'
         database.write_bytes(b'fixture engine database')
@@ -943,7 +987,7 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
         self.assertEqual(self.calls(), ['version', 'version', 'stop', 'version'])
 
     def test_backup_restore_and_resume_go_through_the_cli_and_never_merge(self):
-        helpers = installed_helpers()
+        helpers = {**installed_helpers(), 'bin/run.sh': b'#!/bin/sh\n'}
         engine_bundle(self.bundle_source, [helpers], versioned=True)
         destination = self.engine_base / 'backup'
         manifest = recovery.backup(self.home, destination, engine=self.engine)
@@ -951,7 +995,7 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
         self.assertEqual(manifest['engine']['bundle'], hashlib.sha256(self.bundle_source.read_bytes()).hexdigest())
         # Total loss of the suite state and of the engine's own state, then restore.
         shutil.rmtree(self.home / recovery.SUITE_DIR)
-        shutil.rmtree(self.workspace / recovery.ENGINE_STATE)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
         report = recovery.restore(destination, self.home, engine=self.engine)
         [tree] = recovery.bundle_assets(self.bundle_source)
         self.assertEqual(report['engine'], {
@@ -959,6 +1003,12 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
             'recovery': 'restored runnable work requires explicit uncertain-retry acknowledgement'})
         restored = self.workspace / recovery.ENGINE_STATE / 'assets' / tree / 'files'
         self.assertEqual({name: (restored / name).read_bytes() for name in helpers}, helpers)
+        # Exact permissions, as the engine verifies them on resume, on use and on the next bundle.
+        modes = tree_modes(restored)
+        self.assertEqual({name: modes.pop(name) for name in helpers}, {name: materialized(name) for name in helpers})
+        self.assertEqual(set(modes.values()), {0o555})  # Every directory under files/.
+        self.assertEqual(stat.S_IMODE(restored.stat().st_mode), 0o555)
+        self.assertEqual(stat.S_IMODE(restored.parent.stat().st_mode), 0o700)
         self.assertFalse((self.workspace / recovery.ENGINE_STATE / 'state.db').exists())  # Only through the CLI.
         self.assertEqual(self.calls(), ['version', 'backup', 'bundle', 'restore'])
         # Restoring again over the restored engine state refuses before calling the CLI.
@@ -971,6 +1021,23 @@ class EngineBinding(CliEngineFixture, unittest.TestCase):
         with self.assertRaisesRegex(recovery.RecoveryError, 'retry_uncertain acknowledgement'):
             self.engine.resume('e' * 32)
         self.assertEqual(self.engine.resume('e' * 32, retry_uncertain=True), {'id': 'e' * 32, 'status': 'queued'})
+
+    def test_failed_engine_restore_removes_the_extracted_trees_so_a_retry_can_run(self):
+        engine_bundle(self.bundle_source, [installed_helpers()], extra=[
+            ('workspaces', None), ('workspaces/w', None), ('workspaces/w/current', ('link', 'tree'))])
+        database = self.engine_base / 'database'
+        database.write_bytes(b'fixture engine database')
+        state = self.workspace / recovery.ENGINE_STATE
+        (state / 'owner.lock').touch()  # Engine state outside the bundle paths stays.
+        (self.engine_base / 'fail').touch()
+        with self.assertRaisesRegex(recovery.RecoveryError, 'restore: fixture failure'):
+            self.engine.restore(database, self.bundle_source)
+        self.assertEqual(sorted(path.name for path in state.iterdir()), ['owner.lock'])
+        (self.engine_base / 'fail').unlink()
+        report = self.engine.restore(database, self.bundle_source)
+        self.assertEqual(report['assets'], sorted(recovery.bundle_assets(self.bundle_source)))
+        self.assertEqual(os.readlink(state / 'workspaces' / 'w' / 'current'), 'tree')
+        self.assertEqual(self.calls(), ['restore', 'restore'])
 
     def test_unconfigured_cli_operations_fail(self):
         with self.assertRaisesRegex(recovery.RecoveryError, 'unconfigured fake operation: cancel'):
@@ -1049,7 +1116,7 @@ class EngineIntegration(unittest.TestCase):
         self.assertEqual(manifest['engine']['version'], '0.2.2')
         # Total loss of the suite state and of the engine's own state, then restore.
         shutil.rmtree(self.home / recovery.SUITE_DIR)
-        shutil.rmtree(self.workspace / recovery.ENGINE_STATE)
+        remove_tree(self.workspace / recovery.ENGINE_STATE)
         report = recovery.restore(destination, self.home, engine=self.engine)
         self.assertEqual(report['engine']['recovery'],
                          'restored runnable work requires explicit uncertain-retry acknowledgement')

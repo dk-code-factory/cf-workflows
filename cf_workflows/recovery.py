@@ -376,7 +376,12 @@ SHA256 = re.compile(r'[0-9a-f]{64}')
 
 
 def _members(archive):
-    """Every member of an engine bundle; anything outside its engine-owned trees rejects."""
+    """Every member of an engine bundle; anything outside its engine-owned trees rejects.
+
+    A workspaces/ link is kept only when its target is relative and stays in the
+    workspaces tree. The engine also exports absolute links that point into its
+    own tree; they name the old state path, so restore refuses them (fail closed).
+    """
     import posixpath
     seen = set()
     for member in archive:
@@ -417,7 +422,8 @@ def bundle_assets(bundle):
                 if rest == 'bundle.json':
                     manifests[key] = data
                 elif rest.startswith('files/'):
-                    files.setdefault(key, {})[rest[len('files/'):]] = (len(data), hashlib.sha256(data).hexdigest())
+                    files.setdefault(key, {})[rest[len('files/'):]] = (
+                        len(data), hashlib.sha256(data).hexdigest(), stat.S_IMODE(member.mode))
                 elif rest != 'owner.json':
                     raise RecoveryError('unexpected retained asset entry: ' + member.name)
     except (tarfile.TarError, OSError, EOFError) as error:
@@ -434,7 +440,8 @@ def bundle_assets(bundle):
         if not isinstance(manifest, dict) or (manifest.get('origin_run_id'), manifest.get('id')) != (origin, ident):
             raise RecoveryError('retained asset manifest names another tree: assets/' + key)
         # The historical helper bundle lists files; a versioned asset bundle lists entries with a kind.
-        entries = manifest.get('entries') if manifest.get('version') else manifest.get('files')
+        versioned = bool(manifest.get('version'))
+        entries = manifest.get('entries') if versioned else manifest.get('files')
         if not isinstance(entries, list):
             raise RecoveryError('retained asset manifest lists no files: assets/' + key)
         listed = {}
@@ -444,12 +451,14 @@ def bundle_assets(bundle):
             if entry.get('kind', 'file') == 'directory':
                 continue
             if (not isinstance(entry.get('path'), str) or not isinstance(entry.get('size'), int)
-                    or not SHA256.fullmatch(str(entry.get('sha256')))):
+                    or not isinstance(entry.get('mode'), int) or not SHA256.fullmatch(str(entry.get('sha256')))):
                 raise RecoveryError('invalid retained asset file entry: assets/' + key)
-            listed[entry['path']] = (entry['size'], entry['sha256'])
+            # The engine checks each retained file's exact permissions (materializedAssetMode, VerifyHelperBundle).
+            mode = (0o555 if entry['mode'] & 0o111 else 0o444) if versioned else entry['mode']
+            listed[entry['path']] = (entry['size'], entry['sha256'], mode)
         if files.get(key, {}) != listed:
             raise RecoveryError('retained asset files differ from their manifest: assets/' + key)
-        result[key] = {path: digest for path, (_, digest) in sorted(listed.items())}
+        result[key] = {path: digest for path, (_, digest, _) in sorted(listed.items())}
     return result
 
 
@@ -458,6 +467,31 @@ def helper_digest(files):
     helpers = {path[len(HELPERS):]: digest for path, digest in files.items() if path.startswith(HELPERS)
                and '__pycache__' not in path.split('/') and not path.endswith('.pyc')}
     return admission.digest(helpers) if helpers else None
+
+
+def _exact_modes(member, path):
+    """tarfile's 'data' safety checks, keeping the member's exact permission bits."""
+    checked = tarfile.data_filter(member, path)
+    if member.issym():
+        return checked
+    return checked.replace(mode=stat.S_IMODE(member.mode) & 0o777, deep=False)
+
+
+def _remove(root, names):
+    """Remove the bundle entries one restore created, children first, read-only directories included."""
+    for name in names:
+        path = root / name
+        if path.is_dir() and not path.is_symlink():
+            os.chmod(path, 0o700)
+    for name in sorted(names, reverse=True):
+        path = root / name
+        try:
+            if path.is_dir() and not path.is_symlink():
+                path.rmdir()
+            else:
+                path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 class Engine:
@@ -532,7 +566,12 @@ class Engine:
         """Put the bundle's engine-owned trees back, then the database through `agent-workflow restore`.
 
         Nothing is merged: an existing entry at a bundle path refuses before any
-        change. The engine quarantines every unfinished run as
+        change. Entries keep their exact tar permission bits, since the engine
+        verifies the modes of retained asset trees (0444/0555 files, 0555
+        directories) on resume, on use and on the next bundle; only the setuid,
+        setgid and sticky bits are dropped. If extraction or `agent-workflow
+        restore` fails, every entry this call created is removed again, so a
+        retry starts from the same state. The engine quarantines every unfinished run as
         `restore_uncertainty`; resuming it needs resume(run, retry_uncertain=True).
         """
         if self.owned():
@@ -546,9 +585,17 @@ class Engine:
             if existing:
                 raise RecoveryError('engine state exists at bundle paths; restore never merges: '
                                     + ', '.join(sorted(existing)[:8]))
+            # Every entry and implied parent directory that does not exist yet, so a failure can remove them.
+            names = {'/'.join(member.name.split('/')[:depth]) for member in members
+                     for depth in range(1, member.name.count('/') + 2)}
+            created = [name for name in names if not os.path.lexists(self.state / name)]
             self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
-            archive.extractall(self.state, members=members, filter='data')
-        return {**self.command('restore', database), 'assets': sorted(assets)}
+            try:
+                archive.extractall(self.state, members=members, filter=_exact_modes)
+                return {**self.command('restore', database), 'assets': sorted(assets)}
+            except BaseException:
+                _remove(self.state, created)
+                raise
 
     def resume(self, run, *, retry_uncertain=False):
         """Resume an engine run through a (re)started controller; restored work needs retry_uncertain."""
