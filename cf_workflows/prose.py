@@ -159,7 +159,8 @@ def _object(repository, oid):
 
 
 def _lines(data):
-    return data.decode('utf-8').splitlines(keepends=True)
+    # Lines end at \n only, as the comment lexer and tokenize count them (not at \f, \x85 or U+2028).
+    return re.findall(r'[^\n]*\n|[^\n]+\Z', data.decode('utf-8'))
 
 
 # -- Entry admission ---------------------------------------------------------------------------
@@ -379,7 +380,7 @@ def _python_prose(source):
         for line in range(token.start[0] - 1, token.end[0])}
     lines = {token.start[0] - 1 for token in tokens
              if token.type == tokenize.COMMENT and not token.string.startswith('#!')} - code
-    rows = source.splitlines()
+    rows = source.split('\n')
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             first = node.body[0]
@@ -603,7 +604,8 @@ def check_report(name, output, units, references, actual):
     for number, item in enumerate(output['changed_locations']):
         where = f'report.changed_locations[{number}]'
         fields(item, where, ('path', 'start', 'end'), ('reason',))
-        require(item['path'] in actual, where + '.path', 'reports a location the session did not change')
+        require(isinstance(item['path'], str) and item['path'] in actual, where + '.path',
+                'reports a location the session did not change')
         require(type(item['start']) is int and type(item['end']) is int and 1 <= item['start'] <= item['end'],
                 where, 'invalid line span')
         require(any(item['start'] <= end and start <= item['end'] for start, end in actual[item['path']]), where,
@@ -617,7 +619,8 @@ def check_report(name, output, units, references, actual):
         where = f'report.unresolved_ambiguities[{number}]'
         fields(item, where, ('path', 'line', 'text'))
         text(item['text'], where + '.text')
-        require(item['path'] in units and type(item['line']) is int and item['line'] >= 1, where,
+        require(isinstance(item['path'], str) and item['path'] in units
+                and type(item['line']) is int and item['line'] >= 1, where,
                 'cites a line of a candidate file')
     if any(actual.values()):
         message = text(output.get('commit_message'), 'report.commit_message', 16384)
@@ -628,7 +631,8 @@ def check_report(name, output, units, references, actual):
         if output.get('no_op') is not None:
             fields(output['no_op'], 'report.no_op', ('reason', 'sources'))
             text(output['no_op']['reason'], 'report.no_op.reason')
-            require(isinstance(output['no_op']['sources'], list) and set(output['no_op']['sources']) <= set(units),
+            sources = output['no_op']['sources']
+            require(isinstance(sources, list) and all(isinstance(item, str) and item in units for item in sources),
                     'report.no_op.sources', 'cites candidate files')
     if ste:
         # Certification needs evidence this suite cannot hold; the pass never claims it.
@@ -637,12 +641,16 @@ def check_report(name, output, units, references, actual):
         require(isinstance(checks, list) and len(checks) <= MAX_ITEMS, 'report.reference_checks', 'must be an array')
         for number, item in enumerate(checks):
             fields(item, f'report.reference_checks[{number}]', ('reference', 'subject'))
-            require(item['reference'] in references, f'report.reference_checks[{number}].reference',
+            require(isinstance(item['reference'], str) and item['reference'] in references,
+                    f'report.reference_checks[{number}].reference',
                     'cites a reference that was not supplied')
             text(item['subject'], f'report.reference_checks[{number}].subject')
-        for value in _texts({key: output.get(key) for key in (
-                'validation', 'reference_verification_limits', 'changed_locations', 'no_op',
-                'unresolved_ambiguities', 'commit_message')}):
+        # File paths are names, not report wording: a candidate such as docs/compliance.md claims nothing.
+        for value in _texts([output.get(key) for key in ('validation', 'reference_verification_limits',
+                                                          'commit_message')] + [
+                [item.get('reason') for item in output['changed_locations']],
+                (output.get('no_op') or {}).get('reason'),
+                [item['text'] for item in output['unresolved_ambiguities']]]):
             require(not CLAIM.search(DISCLAIMER.sub(' ', value)), 'report',
                     'claims ASD-STE100 compliance or certification without evidence')
             require(references or not RULE_NUMBER.search(value), 'report',

@@ -392,6 +392,7 @@ def check_selection(output, *, comparison, totals, policy, answer, citable):
     by_id = {item['id']: item for item in comparison['solutions']}
     mode = output.get('mode') if isinstance(output, dict) else None
     require(mode in ('auto', 'manual'), 'selection.mode', 'auto or manual')
+    require(answer is None or mode == 'manual', 'selection.mode', 'a recorded user answer settles the choice manually')
     if mode == 'manual':
         fields(output, 'selection', ('mode', 'choice', 'user_source', 'reason', 'evidence', 'rejection_reasons'))
         require(answer is not None and output['user_source'] == answer['answer_id'], 'selection.user_source',
@@ -1184,7 +1185,7 @@ def _decode(inputs):
         fields(report, 'report', ('stage', 'result'))
         output = json.loads(text(report['result'], 'report.result', 1 << 20))
         require(isinstance(output, dict), 'report.result', 'must encode one JSON object')
-    except (StageError, ValueError) as error:
+    except (StageError, ValueError, RecursionError) as error:
         return claim, agent, None, failure(error) if isinstance(error, StageError) else {
             'path': 'report.result', 'message': 'not JSON: ' + type(error).__name__}
     return claim, agent, (report['stage'], output), None

@@ -145,7 +145,8 @@ higher level; several such headings block. CRLF bodies are matched without their
 carriage returns; text outside the section keeps its original line endings, and
 the section uses the body's own. Each settled decision that cites a public user
 or maintainer source is rendered with its public source links and a stable
-marker. Others are withheld, so a private request cannot reach the body through
+marker; an HTML comment opener (`<!--`) in its text is escaped, so the text
+cannot forge another entry's marker. Others are withheld, so a private request cannot reach the body through
 a public question. An existing entry of a decision the user excluded or paused,
 or one that a settled decision supersedes, is removed. Contested, unmanaged and other entries are kept verbatim, and nothing
 outside the section changes.

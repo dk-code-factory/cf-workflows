@@ -102,7 +102,8 @@ The ASD-STE100 pass is best effort. Its report must state
 `compliance: "not_claimed"`. The report text, ambiguities and commit message
 may mention compliance, conformance or certification only in a fixed disclaimer
 (for example "compliance is not claimed" or "does not claim certification").
-Any other mention rejects the pass. Without a supplied reference, rule numbers
+Any other mention rejects the pass. Reported file paths are names, not report
+text, so a candidate such as `docs/compliance.md` claims nothing. Without a supplied reference, rule numbers
 anywhere in that text and `reference_checks` reject, and the helper
 adds an explicit limit naming the unchecked rules and dictionary and the
 official starting points. With references (`{id, path, sha256}`, read only when
