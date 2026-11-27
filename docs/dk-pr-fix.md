@@ -1,9 +1,9 @@
 # Installed dk-pr-fix workflow
 
 `cf-workflows:dk-pr-fix` is Agent Workflow's portable PR-fix example, extracted
-into an installed resource closure. It is not runnable yet: the engine cannot
-yet run an installed package against a separate checkout or mount the state
-namespace (see [What remains blocked](#what-remains-blocked)).
+into an installed resource closure. It is not runnable yet: no released engine
+runs an installed package against a separate checkout, and no engine mounts the
+state namespace into its helpers (see [What remains blocked](#what-remains-blocked)).
 
 ## Installed closure
 
@@ -404,6 +404,8 @@ acceptance criterion:
   ([Agent Workflow #150](https://github.com/dk-code-factory/agent-workflow/issues/150)).
   `plugin test` rejects container jobs, so the installed graph has no
   deterministic engine-side smoke run ([packaging](packaging.md#what-remains-blocked)).
+  Whether a failing mandatory helper call blocks its YAML dependents is
+  therefore not exercised on any engine.
 - **Live acceptance.** Session isolation probes, real provider sessions and
   GitHub publication each need separately authorized live evidence
   ([qualification](qualification.md)).
