@@ -89,6 +89,25 @@ EVIDENCE_REF = re.compile(r'(?:session|claim|receipt|intent|run|gate|usage):[A-Z
 RELEASE_URL = re.compile(r'https://github\.com/dk-code-factory/agent-workflow/releases/tag/v?([0-9][^/\s]*)')
 
 
+# Open Agent Workflow issues that block an installed row, each with the feature of the row's installed
+# workflow graph that needs it. A row's `remaining` must cite each one its graph has ("Agent Workflow
+# #N"), and may cite the state-mount and container-job blockers only when its graph has them.
+ENGINE_BLOCKERS = {
+    149: 'a helper step uses the state namespace, which no engine mounts into container helpers',
+    150: 'a job runs in a container, which plugin test fixtures reject',
+    151: 'its configuration session needs an operation receipt that the engine does not record for native tasks',
+    152: 'its occurrences run through the reusable native.yml, where supplied skill selections reject',
+}
+GRAPH_ONLY_BLOCKERS = (149, 150)
+NATIVE_WORKFLOW = 'workflows/native.yml'
+CONFIGURE_WORKFLOW = 'workflows/configure.yml'
+USES = re.compile(r'^\s*(?:- )?uses: (workflows/[A-Za-z0-9_./-]+\.ya?ml)\s*$', re.M)
+STATE_ENV = re.compile(r'^\s*CF_WORKFLOWS_STATE:', re.M)
+CONTAINER = re.compile(r'^\s+container:', re.M)
+CITED = re.compile(r'Agent Workflow #([0-9]+)')
+RELEASE_GAP = re.compile(r'released engine|no release contains')
+
+
 class MatrixError(ValueError):
     """The matrix, a test reference or an evidence record cannot be accepted."""
 
@@ -297,6 +316,58 @@ def check_paths(matrix, repository):
     for row in matrix['rows']:
         for path in [*row['behavior'], row['documentation']]:
             require((Path(repository) / path).exists(), f'row {row["skill"]}: {path} does not exist')
+
+
+def workflow_graph(root, workflow):
+    """The installed workflow files `workflow` reaches through local `uses:` calls, itself included."""
+    root, seen, pending = Path(root), set(), [workflow]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(USES.findall((root / current).read_text()))
+    return seen
+
+
+def engine_blockers(root, workflow):
+    """The ENGINE_BLOCKERS issue numbers the installed graph of `workflow` needs."""
+    graph = workflow_graph(root, workflow)
+    texts = [(Path(root) / path).read_text() for path in graph]
+    found = set()
+    if any(STATE_ENV.search(text) for text in texts):
+        found.add(149)
+    if any(CONTAINER.search(text) for text in texts):
+        found.add(150)
+    if CONFIGURE_WORKFLOW in graph:
+        found.add(151)
+    if NATIVE_WORKFLOW in graph:
+        found.add(152)
+    return found
+
+
+def check_engine_blockers(matrix, root, workflows):
+    """Each installed row's `remaining` names the release gap and exactly its graph's engine blockers.
+
+    `workflows` maps a descriptor skill name to its workflow path under `root`.
+    A cited state-mount or container-job blocker that the row's graph does not
+    have rejects too, so a row cannot blame an issue that does not affect it.
+    """
+    for row in matrix['rows']:
+        workflow = workflows.get(row['skill'])
+        if workflow is None:
+            continue
+        where, text = f'row {row["skill"]}', row['remaining']
+        require(RELEASE_GAP.search(text) is not None,
+                f'{where}: remaining must name the missing engine release')
+        needed = engine_blockers(root, workflow)
+        cited = {int(number) for number in CITED.findall(text)}
+        missing = sorted(needed - cited)
+        require(not missing, f'{where}: remaining must cite '
+                + '; '.join(f'Agent Workflow #{n} ({ENGINE_BLOCKERS[n]})' for n in missing))
+        stray = sorted((cited & set(GRAPH_ONLY_BLOCKERS)) - needed)
+        require(not stray, f'{where}: remaining cites Agent Workflow '
+                + ', '.join(f'#{n}' for n in stray) + ', which its installed workflow graph does not need')
 
 
 def check_provenance(matrix, tests, git):

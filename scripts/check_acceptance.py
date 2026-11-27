@@ -3,7 +3,8 @@
 
 Without --run it checks the matrix against the inventory, the plugin
 descriptor, the test sources, local Git provenance and the qualification
-guide. With --run it also runs every referenced test method on its own and
+guide, and that each installed row names the engine blockers its workflow
+graph has. With --run it also runs every referenced test method on its own and
 reports each row from its own results: a skipped, failing or missing test fails
 its row, and a passing suite elsewhere never stands in for it.
 """
@@ -95,6 +96,8 @@ def main(argv=None):
         matrix, inventory, descriptor_skills={skill['name'] for skill in descriptor['skills']}, tests=tests,
         records=records, closure_digest=checked['closure_digest'], engine_version=descriptor['engine-version'])
     qualification.check_paths(matrix, ROOT)
+    qualification.check_engine_blockers(matrix, package.ROOT,
+                                        {skill['name']: skill['workflow'] for skill in descriptor['skills']})
     qualification.check_provenance(matrix, tests, git)
     check_guide(matrix, (ROOT / GUIDE).read_text())
     cited = qualification.references(matrix)
