@@ -12,12 +12,17 @@ name: Sequential publication barrier
         default: 8
       selector:
         # ordinary proposals, findings: incoming review's verified findings (findings.py),
-        # or fork_ci: incoming review's authorized fork workflow approvals (#35).
+        # fork_ci: incoming review's authorized fork workflow approvals (#35), or ci_rerun:
+        # reruns of diagnosed unrelated retryable CI failures of a maintained PR (#35, ci_retry.py).
         type: string
         default: ordinary
     secrets:
       github_token:
         required: true
+    outputs:
+      rerun:
+        # ci_rerun only: whether the listing proposed a rerun of the current diagnosis.
+        value: ${{ jobs.list.outputs.result.rerun }}
 jobs:
   list:
     uses: workflows/helper.yml

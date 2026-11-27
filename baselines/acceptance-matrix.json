@@ -892,13 +892,16 @@
         35
       ],
       "behavior": [
-        "cf_workflows/dk_ci.py"
+        "cf_workflows/dk_ci.py",
+        "cf_workflows/dk_pr_publish.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/ci-approve.yml"
       ],
       "documentation": "docs/ci-skills.md",
       "composition": "boundary",
       "direct": [
         "test_ci_skills.ForkApproval.test_complete_review_approves_each_eligible_run_attempt_once",
-        "test_ci_skills.ForkApproval.test_no_gated_run_is_the_verified_noop"
+        "test_ci_skills.ForkApproval.test_no_gated_run_is_the_verified_noop",
+        "test_ci_skills.Entries.test_installed_entries_declare_and_route_every_preflight_input"
       ],
       "composed": [
         "test_ci_skills.ForkApproval.test_dk_pr_fix_plans_never_list_or_prepare_fork_approval",
@@ -907,16 +910,18 @@
       "recovery": [
         "test_ci_skills.ForkApproval.test_lost_responses_are_reconciled_and_an_uncertain_approval_is_never_resent",
         "test_ci_skills.ForkApproval.test_other_publication_or_merge_authority_never_implies_fork_approval",
-        "test_ci_skills.Observation.test_merge_bridge_window_belongs_to_the_exact_head_of_each_merge_request"
+        "test_ci_skills.Observation.test_merge_bridge_window_belongs_to_the_exact_head_of_each_merge_request",
+        "test_ci_skills.InstalledRouting.test_dk_ci_approve_runs_exactly_its_fork_ci_preset",
+        "test_ci_skills.InstalledRouting.test_the_merge_bridge_routes_inside_the_package"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "dk-pr-fix plans never list or prepare fork approval (composition boundary). A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "dk-pr-fix plans never list or prepare fork approval (composition boundary). Listed in the plugin descriptor as workflows/ci-approve.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci",
@@ -925,7 +930,10 @@
       ],
       "behavior": [
         "cf_workflows/dk_ci.py",
-        "cf_workflows/ci_flakes.py"
+        "cf_workflows/ci_flakes.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/ci.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/ci-pass.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci_retry.py"
       ],
       "documentation": "docs/ci-skills.md",
       "composition": "shared_workflow",
@@ -934,11 +942,16 @@
         "test_ci_skills.Observation.test_pending_only_extension_is_granted_once_and_survives_resume",
         "test_ci_skills.Observation.test_mismatched_issue_evidence_never_waives_the_failure",
         "test_ci_skills.Observation.test_fail_then_pass_at_one_commit_nominates_a_flake_for_another_pr",
-        "test_ci_skills.Observation.test_poll_interval_comes_from_the_validated_plan"
+        "test_ci_skills.Observation.test_poll_interval_comes_from_the_validated_plan",
+        "test_ci_skills.Entries.test_installed_entries_declare_and_route_every_preflight_input",
+        "test_ci_skills.InstalledRouting.test_dk_ci_runs_exactly_its_observation_preset"
       ],
       "composed": [
         "test_ci_skills.Observation.test_direct_and_composed_observation_share_one_window_and_never_renew_it",
-        "test_ci_skills.Entries.test_dk_ci_observes_only_in_the_shared_fix_run"
+        "test_ci_skills.Entries.test_dk_ci_observes_only_in_the_shared_fix_run",
+        "test_ci_recovery.Recovery.test_only_unrelated_retryable_runs_rerun_once_through_the_publisher",
+        "test_ci_recovery.Recovery.test_independent_runs_proceed_while_unreadable_or_unsupported_ones_stay_failed",
+        "test_ci_recovery.Recovery.test_ci_pass_diagnoses_reruns_and_repairs_only_when_nothing_was_rerun"
       ],
       "recovery": [
         "test_ci_skills.Observation.test_interrupted_wait_resumes_the_original_window",
@@ -946,16 +959,21 @@
         "test_ci_skills.Observation.test_absent_checks_become_no_checks_after_a_retained_grace",
         "test_ci_skills.Observation.test_classification_window_is_retained_per_failed_attempt",
         "test_ci_skills.Observation.test_readiness_keeps_an_exhausted_classification_window",
-        "test_ci_skills.Observation.test_unavailable_or_changed_history_leaves_the_failure"
+        "test_ci_skills.Observation.test_unavailable_or_changed_history_leaves_the_failure",
+        "test_ci_recovery.Recovery.test_the_session_is_held_to_the_handed_off_evidence",
+        "test_ci_recovery.Recovery.test_a_newer_observation_or_head_makes_a_prepared_rerun_stale_before_dispatch",
+        "test_ci_recovery.Recovery.test_lost_rerun_responses_are_reconciled_and_never_resent",
+        "test_ci_recovery.Recovery.test_the_per_head_allowance_is_retained_and_a_user_retry_is_one_exact_attempt",
+        "test_ci_recovery.Recovery.test_without_grant_permission_or_fix_mode_nothing_is_diagnosed_or_rerun"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A preset over the shared dk-pr-fix workflow that is not listed in the plugin descriptor. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as workflows/ci.yml, an observation preset over the shared dk-pr-fix workflow, but it has never run through a released engine. The direct entry observes only; the native failure diagnosis and automatic reruns of unrelated retryable failures run in a dk-pr-fix plan with an explicit rerun_ci grant and permission. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci-flakes",

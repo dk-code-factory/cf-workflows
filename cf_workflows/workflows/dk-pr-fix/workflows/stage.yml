@@ -94,6 +94,8 @@ jobs:
       plan: ${{ inputs.plan }}
       cycle: ${{ inputs.cycle }}
       repair: true
+      # Diagnosis and automatic reruns of unrelated retryable failures (ci_retry.py); set by prepare.
+      recovery: ${{ inputs.stage.recovery == true }}
       bound: ${{ inputs.repairs }}
       number: ${{ iteration.number }}
       turns: ${{ inputs.turns }}

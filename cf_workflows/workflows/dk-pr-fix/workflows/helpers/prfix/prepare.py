@@ -139,11 +139,20 @@ ENTRY_ACTIONS = {
                       "request_review": "changes", "create_pr": "changes", "rerun_ci": "changes",
                       "merge": "merge"},
     "dk-pr-review-post": {"post_findings": "review-post", "approve_pr": "review-post"},
+    # Fork workflow approval (#35; docs/ci-skills.md): incoming review, then the main.yml fork_ci job.
+    "dk-ci-approve": {"approve_fork_ci": "fork-ci"},
 }
 # Each preset: its mode, its stage kinds in order and the adapters of its leading task stage.
 ENTRY_PRESETS = {"changes": ("fix", ["tasks", "publication"], ["prepare-publication"]),
                  "merge": ("review", ["tasks", "reviews"], ["read-feedback"]),
-                 "review-post": ("review", ["tasks", "reviews"], ["read-feedback"])}
+                 "review-post": ("review", ["tasks", "reviews"], ["read-feedback"]),
+                 "fork-ci": ("review", ["tasks", "reviews"], ["read-feedback"])}
+# The standalone-to-merge bridge (#35): another entry's action a preset may carry beside its own
+# required action, each with its own explicit grant and permission; never implied by it.
+ENTRY_BRIDGES = {"dk-pr-publish": {"approve_fork_ci": "merge"}}
+# cf-workflows:dk-ci (#35; docs/ci-skills.md): exactly one CI stage, no task, no repair allowance,
+# no authorization and no enabled permission. It observes only.
+OBSERVE_ENTRY = "dk-ci"
 # Read-only reviewer entries (#29; docs/reviewer-skills.md): one reviewer stage in review
 # mode, no finalizers, no authorization and no enabled permission. dk-code-simplify runs
 # exactly one bundled simplification reviewer (app.SIMPLIFIERS). The plan and its
@@ -170,7 +179,6 @@ SPLITTING_ENTRIES = {
 }
 # Actions that other entries own; no publication entry dispatches them.
 ENTRY_OWNERS = {
-    "approve_fork_ci": "fork workflow approval belongs to cf-workflows:dk-ci-approve",
     "create_issue": "issue creation belongs to cf-workflows:dk-issue (#32)",
     "edit_issue": "issue edits belong to cf-workflows:dk-issue (#32)",
 }
@@ -184,7 +192,10 @@ def entry_preset(entry, authorizations):
         raise ValueError("cf-workflows:" + entry + " needs an explicit authorization for each action it publishes; "
                          "a configured permission never supplies one")
     presets = set()
+    bridged = ENTRY_BRIDGES.get(entry, {})
     for action in sorted(authorizations):
+        if action in bridged and bridged[action] in authorizations:
+            continue  # Runs inside the bridging action's preset, under its own grant and permission.
         if action in ENTRY_OWNERS:
             raise ValueError(action + ": " + ENTRY_OWNERS[action])
         owner = next((name for name, actions in ENTRY_ACTIONS.items() if action in actions), None)
@@ -361,6 +372,12 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         if not isinstance(requested, dict) or set(requested) - set(splitting_entry[1]):
             raise ValueError("cf-workflows:" + entry + " accepts only " + ", ".join(splitting_entry[1])
                              + " authorization")
+    elif entry == OBSERVE_ENTRY:
+        if mode != "fix":
+            raise ValueError("cf-workflows:dk-ci runs in fix mode only")
+        if request.get("authorizations") or request.get("maintain_other"):
+            raise ValueError("cf-workflows:dk-ci observes only; reruns publish through cf-workflows:dk-pr-publish "
+                             "(rerun_ci)")
     elif isinstance(requested, dict) and set(requested) & set(ISSUE_ACTIONS):
         action = sorted(set(requested) & set(ISSUE_ACTIONS))[0]
         raise ValueError(action + ": " + ENTRY_OWNERS[action])
@@ -555,6 +572,10 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
         from .app import SIMPLIFIERS
         if entry == "dk-code-simplify" and (len(reviewed) != 1 or reviewed[0]["skill"] not in SIMPLIFIERS):
             raise ValueError("cf-workflows:dk-code-simplify runs exactly one bundled simplification reviewer")
+    if entry == OBSERVE_ENTRY and ([(stage["kind"], stage["phase"]) for stage in stages] != [("ci", "tasks")]
+                                   or tasks or limits["ci_repairs_per_cycle"] != 0 or any(permissions.values())):
+        raise ValueError("cf-workflows:dk-ci runs exactly one CI stage with no task, finalizer, repair allowance "
+                         "or permission")
     if preset:
         _, kinds, leading = ENTRY_PRESETS[preset]
         first = [item["id"] for group in stages[0].get("groups", []) for item in group["tasks"]] if stages else []
@@ -611,6 +632,17 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
             "assignment": "Repair only the exact evidenced failed CI head/run/job/attempt in this assignment. Inspect original logs and relevant tests. Return source evidence, complete changed-file manifest and native commit message. Do not publish or commit; do not reinterpret unknown failures as flakes.",
             "required": False, "writes": True, "checklist": CHECKLIST, "options": {}, "resources": [],
             "history": False, "head_sensitive": True, "cacheable": False}, None, None, prompts, policy))
+    recovery = (mode == "fix" and any(stage["kind"] == "ci" for stage in stages) and "rerun_ci" in authorizations
+                and permissions.get("rerun_ci") is True)
+    if recovery:
+        # Automatic recovery of unrelated retryable failures (ci_retry.py): a read-only diagnosis
+        # session on the leaf role; the helper prepares reruns only from its accepted verdicts.
+        from .ci_retry import occurrence
+        tasks.append(customize({**occurrence(hashlib.sha256(definitions["leaf"]).hexdigest()),
+                                "checklist": CHECKLIST}, None, None, prompts, policy))
+        for stage in stages:
+            if stage["kind"] == "ci":
+                stage["recovery"] = True
     options_of({"settings": controls.get("settings", {})})
     plan = {"format": FORMAT, "mode": mode, "logical_run": logical_run, "pr": pr, "instructions": instructions,
             "options": options, "settings": controls.get("settings", {}),
@@ -661,4 +693,6 @@ def prepare(root, request, controls, execution_fingerprint, provider=None, defin
                                    and permissions.get("approve_pr") is True,
             # A separately authorized fork workflow approval (#35); never implied by the two above or merge.
             "fork_ci_authorized": mode == "review" and "approve_fork_ci" in authorizations
-                                  and permissions.get("approve_fork_ci") is True}
+                                  and permissions.get("approve_fork_ci") is True,
+            # Automatic reruns of diagnosed unrelated retryable failures (#35, ci-pass.yml).
+            "recovery_authorized": recovery}

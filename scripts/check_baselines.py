@@ -73,6 +73,12 @@ def check(dk, engine):
         for path, digest in paths.items():
             actual = hashlib.sha256(git(dk, 'show', f'{sha}:{path}')).hexdigest()
             require(actual == digest, f'{path}: resource digest mismatch')
+    # Baseline role prompts that a bundled occurrence uses but no SKILL.md links directly.
+    for path, prompt, digest in pinned_prompts():
+        for host in ('claude', 'codex'):
+            original = git(dk, 'show', f'{sha}:{host}/{path}')
+            require(original == prompt.encode() and hashlib.sha256(original).hexdigest() == digest,
+                    f'{host}/{path}: bundled role prompt differs from the pin')
     for source, repo in ((baseline, dk), (portable, engine)):
         require(git(repo, 'cat-file', '-t', source['commit']).strip() == b'commit', 'missing pin')
         require((ROOT / source['license']).read_bytes() ==
@@ -93,8 +99,19 @@ def check(dk, engine):
             target = (file.parent / link.split('#')[0]).resolve()
             target.relative_to(ROOT)
             require(target.is_file(), f'{file.relative_to(ROOT)}: broken link {link}')
-    print('Verified 29 distinct rows, both pinned host manifests/entries, direct resource hashes, '
+    print('Verified 29 distinct rows, both pinned host manifests/entries, direct resource hashes, the bundled '
+          'failure-diagnosis role prompt, '
           'portable source paths, the dk-pr-fix extraction and its upstream corrections, license notices and local Markdown file targets.')
+
+
+def pinned_prompts():
+    """(host-relative path, bundled text, sha256) of each extra pinned baseline role prompt."""
+    path = ROOT / 'cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/ci_retry.py'
+    tree = ast.parse(path.read_text())
+    values = {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body
+              if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+              and node.targets[0].id in ('BASELINE_PROMPT', 'ROLE_PROMPT', 'ROLE_PROMPT_SHA256')}
+    return [(values['BASELINE_PROMPT'].split('/', 1)[1], values['ROLE_PROMPT'], values['ROLE_PROMPT_SHA256'])]
 
 
 def converted_agent(source):

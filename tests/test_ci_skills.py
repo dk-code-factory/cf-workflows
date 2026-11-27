@@ -28,7 +28,7 @@ import git_fixture
 from prfix import ci, publishing
 from prfix.capture import identity
 from prfix.core import Ledger
-from prfix.prepare import prepare
+from prfix.prepare import entry_preset, prepare
 from prfix.publication import SUPPORTED, Drift, PublicationError
 from prfix.registry import Registry
 from test_publication_skills import AUDIENCE, GitHub as PublicationGitHub, Helpers, grant
@@ -108,7 +108,7 @@ class Entries(PreflightFixture):
                                         'pending_extension_seconds': 1800, 'max_pending_extensions': 1})
         self.assertFalse(any(inputs['permissions'].values()))
         self.assertEqual((result['workflow'], result['installation']['entry']), ('cf-workflows:dk-ci',
-                                                                                 'workflows/main.yml'))
+                                                                                 'workflows/ci.yml'))
         # The PR's default run: a composed dk-pr-fix observation shares its deadline and allowances.
         composed = fix_preflight.preflight(request=self.request, configuration=None, invocation=None,
                                            deployment=self.deployment, repository=self.repo, home=self.home,
@@ -178,7 +178,7 @@ class Entries(PreflightFixture):
         result = self.approve({'approve_fork_ci': grant('fork')}, {'permissions': {'approve_fork_ci': True}})
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
         self.assertEqual((result['installation']['entry'], result['entry']['mode'], result['entry']['preset']),
-                         ('workflows/review.yml', 'review', 'fork-ci'))
+                         ('workflows/ci-approve.yml', 'review', 'fork-ci'))
         self.assertEqual({k for k, v in result['inputs']['permissions'].items() if v}, {'approve_fork_ci'})
         self.assertEqual(result['state']['request_document']['logical_run'], dk_pr_review.logical_run(self.request['pr']))
         cases = [
@@ -228,6 +228,35 @@ class Entries(PreflightFixture):
         # dk-ci-approve itself still takes no other action.
         result = self.approve(both, {'permissions': {'merge': True, 'approve_fork_ci': True}})
         self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'request.authorizations.merge'))
+
+    def test_installed_entries_declare_and_route_every_preflight_input(self):
+        descriptor = (fix_preflight.INSTALL / 'plugin.yaml').read_text()
+        cases = (('dk-ci', self.observe(), 'observe', 'fix', dk_ci.PRESET),
+                 ('dk-ci-approve', self.approve({'approve_fork_ci': grant('fork')},
+                                                {'permissions': {'approve_fork_ci': True}}),
+                  'approve', 'review', dk_pr_publish.PRESETS['fork-ci']['options']))
+        for name, result, job, mode, preset in cases:
+            with self.subTest(name=name):
+                self.assertEqual(result['preflight'], 'admitted', result.get('error'))
+                entry = result['installation']['entry']
+                self.assertIn(f'  - name: {name}\n    path: skills/{name}/SKILL.md\n    workflow: {entry}\n',
+                              descriptor)
+                self.assertIn('This plugin version is not runnable.',
+                              (fix_preflight.INSTALL / 'skills' / name / 'SKILL.md').read_text())
+                body = (fix_preflight.INSTALL / entry).read_text()
+                self.assertIn(f'name: cf-workflows:{name}\n', body)
+                section = re.search(rf'\n  {job}:\n    uses: workflows/main.yml\n(.*?)(?=\n  [a-z_]+:\n|\Z)',
+                                    body, re.S).group(1)
+                self.assertIn(f'      mode: {mode}\n      entry: {name}\n', section)
+                for key in result['inputs']:
+                    self.assertRegex(body, rf'\n      {key}:\n')
+                    self.assertIn(f'{key}: ${{{{ inputs.{key} }}}}', section)
+                tasks = '\n'.join(f'        - {t}' if isinstance(t, str) else f'        - stage: {t["stage"]}'
+                                   for t in preset['tasks'])
+                self.assertRegex(body, rf'\n      tasks:\n        type: array\n        default:\n{re.escape(tasks)}\n')
+        self.assertIn('          ci_repairs_per_cycle: 0\n', (fix_preflight.INSTALL / 'workflows/ci.yml').read_text())
+        # dk-ci-flakes stays a library entry procedure; it is not listed.
+        self.assertNotIn('name: dk-ci-flakes', descriptor)
 
     def test_main_graph_runs_fork_approval_then_waits_for_ci_before_merge(self):
         body = (fix_preflight.INSTALL / 'workflows/main.yml').read_text()
@@ -1199,6 +1228,78 @@ class ForkApproval(Helpers):
         with self.assertRaisesRegex(PublicationError, 'belongs to incoming review'):
             publishing.publication_list(self.root, self.github, ledger, plan, {'kind': 'fork_ci'})
         self.assertEqual(self.github.calls['pages'], 0)
+
+
+class InstalledRouting(Helpers):
+    """The installed prepare repeats dk-ci's and dk-ci-approve's routing before any session or effect."""
+
+    def setUp(self):
+        super().setUp()
+        self.github = ForkGitHub(self.commit, self.target)
+        self.github.git_head = self.commit
+
+    def entry(self, entry, tasks, reviewers, authorizations, permissions, mode, repairs=0):
+        table = {name: dict(admission.BUNDLED_ADAPTERS[name]) for name in ('read-feedback', 'review', 'describe-pr')}
+        controls = {'tasks': tasks, 'finalizers': [], 'reviewers': reviewers, 'adapters': table, 'accounts': [],
+                    'settings': {}, 'resources': [], 'turns': 8, 'mode': mode, 'permissions': permissions,
+                    'limits': {**admission.DEFAULTS['limits'], 'ci_repairs_per_cycle': repairs}, 'entry': entry}
+        request = {'pr': 'https://github.com/owner/repo/pull/7', 'instructions': 'Run the entry.',
+                   'logical_run': 'pr_' + entry.replace('-', '_') + '_' + mode, 'authorizations': authorizations}
+        return prepare(self.root, request, controls, 'exec-1', self.github, self.definitions)
+
+    def test_dk_ci_runs_exactly_its_observation_preset(self):
+        self.github.evidence['metadata']['user'] = {'id': 1, 'login': 'maintainer'}
+        result = self.entry('dk-ci', [{'stage': 'ci'}], [], {}, {}, 'fix')
+        self.assertEqual([stage['kind'] for stage in result['stages']], ['ci'])
+        self.assertFalse(result['recovery_authorized'])
+        cases = [
+            (([{'stage': 'ci'}], [], {'rerun_ci': grant('rerun')}, {'rerun_ci': True}, 'fix'), {}, 'observes only'),
+            (([{'stage': 'ci'}], [], {}, {}, 'fix'), {'repairs': 5}, 'exactly one CI stage'),
+            ((['describe-pr', {'stage': 'ci'}], [], {}, {}, 'fix'), {}, 'exactly one CI stage'),
+            (([{'stage': 'ci'}], [], {}, {'push_commits': True}, 'fix'), {}, 'exactly one CI stage'),
+            ((['read-feedback', {'stage': 'reviews'}], ['review'], {}, {}, 'review'), {}, 'fix mode only'),
+        ]
+        for arguments, changes, message in cases:
+            with self.subTest(message=message, arguments=arguments):
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    self.entry('dk-ci', *arguments, **changes)
+        self.assertEqual((self.writes(), self.native), (0, Counter()))
+
+    def test_dk_ci_approve_runs_exactly_its_fork_ci_preset(self):
+        review = (['read-feedback', {'stage': 'reviews'}], ['review'])
+        result = self.entry('dk-ci-approve', *review, {'approve_fork_ci': grant('fork')},
+                            {'approve_fork_ci': True}, 'review')
+        self.assertTrue(result['fork_ci_authorized'])
+        self.assertFalse(result['merge_authorized'] or result['approval_authorized'] or result['findings_authorized'])
+        cases = [
+            ((*review, {}, {}, 'review'), 'explicit authorization'),
+            ((*review, {'post_findings': grant('p')}, {'post_findings': True}, 'review'),
+             'belongs to cf-workflows:dk-pr-review-post'),
+            ((*review, {'merge': grant('m')}, {'merge': True}, 'review'), 'belongs to cf-workflows:dk-pr-publish'),
+            ((*review, {'approve_fork_ci': grant('f'), 'merge': grant('m')}, {'approve_fork_ci': True}, 'review'),
+             'belongs to cf-workflows:dk-pr-publish'),
+            ((*review, {'approve_fork_ci': grant('f')}, {}, 'fix'), 'review mode only'),
+            (([{'stage': 'reviews'}], ['review'], {'approve_fork_ci': grant('f')}, {}, 'review'),
+             'exactly its fork-ci preset'),
+        ]
+        for arguments, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    self.entry('dk-ci-approve', *arguments)
+        self.assertEqual((self.writes(), self.native), (0, Counter()))
+
+    def test_the_merge_bridge_routes_inside_the_package(self):
+        both = {'merge': grant('m'), 'approve_fork_ci': grant('f')}
+        self.assertEqual(entry_preset('dk-pr-publish', both), 'merge')
+        self.assertEqual(entry_preset('dk-ci-approve', {'approve_fork_ci': grant('f')}), 'fork-ci')
+        for entry, authorizations, message in (
+                ('dk-pr-publish', {'approve_fork_ci': grant('f')}, 'belongs to cf-workflows:dk-ci-approve'),
+                ('dk-pr-publish', {**both, 'push': grant('p')}, 'separate invocations'),
+                ('dk-pr-review-post', {'approve_fork_ci': grant('f'), 'post_findings': grant('p')},
+                 'belongs to cf-workflows:dk-ci-approve')):
+            with self.subTest(entry=entry, actions=sorted(authorizations)):
+                with self.assertRaisesRegex(ValueError, re.escape(message)):
+                    entry_preset(entry, authorizations)
 
 
 # -- Flaky-test discovery -------------------------------------------------------------------------------

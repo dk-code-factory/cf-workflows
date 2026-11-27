@@ -73,6 +73,12 @@ skills:
   - name: dk-preferences
     path: skills/dk-preferences/SKILL.md
     workflow: workflows/preferences.yml
+  - name: dk-ci
+    path: skills/dk-ci/SKILL.md
+    workflow: workflows/ci.yml
+  - name: dk-ci-approve
+    path: skills/dk-ci-approve/SKILL.md
+    workflow: workflows/ci-approve.yml
 resources:
   - LICENSE
   - agents.yml

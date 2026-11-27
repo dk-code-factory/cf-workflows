@@ -728,7 +728,7 @@ def fingerprint(snapshot, task):
         selected["history"] = snapshot["history"]
     if task.get("head_sensitive") or task.get("head-sensitive"):
         selected.update({k: snapshot[k] for k in ("head", "target", "local_head")})
-    if task.get("id") == "ci_repair":
+    if task.get("id") in ("ci_repair", "ci_diagnosis"):
         selected["ci_settings"] = snapshot.get("ci_settings")
     # Whether an occurrence is required changes how its result gates the plan,
     # not the analysis, so toggling it keeps a completed result reusable.

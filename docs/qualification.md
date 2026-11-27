@@ -94,8 +94,8 @@ native execution and live acceptance are `pending` and every parity status is
 | `cf-workflows:dk-commit-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 6 |
 | `cf-workflows:dk-pr-split` | shared_workflow | pending | #34 | listed | 4 / 2 / 5 |
 | `cf-workflows:dk-pr-publish` | shared_workflow | pending | #31 | listed | 3 / 1 / 3 |
-| `cf-workflows:dk-ci-approve` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
-| `cf-workflows:dk-ci` | shared_workflow | pending | #35 | not listed | 3 / 2 / 2 |
+| `cf-workflows:dk-ci-approve` | boundary | pending | #35 | listed | 3 / 2 / 5 |
+| `cf-workflows:dk-ci` | shared_workflow | pending | #35 | listed | 7 / 5 / 11 |
 | `cf-workflows:dk-ci-flakes` | boundary | pending | #35 | not listed | 2 / 1 / 2 |
 | `cf-workflows:dk-commit-message` | shared_workflow | pending | #32 | listed | 4 / 2 / 2 |
 | `cf-workflows:dk-issue` | shared_workflow | pending | #32 | listed | 5 / 2 / 5 |
