@@ -422,6 +422,52 @@ class Recovery(Helpers):
             self.claim(plan, ledger)
         self.assertEqual(self.github.calls['logs'], 0)
 
+    def test_nothing_diagnosable_settles_without_a_session_and_leaves_the_failure_to_repair(self):
+        status = {'id': 'status:7', 'name': 'external/ci', 'status': 'completed', 'conclusion': 'failure',
+                  'url': '', 'run_id': '', 'job_id': '', 'attempt': 0}
+
+        def moved():
+            self.github.run(31, {311: ('Test', 'failure', NETWORK)})
+            self.github.runs[31]['run_attempt'] = 2  # Already rerun by someone else.
+
+        def many():
+            for ident in range(41, 41 + ci_retry.MAX_RUNS + 1):
+                self.github.run(ident, {ident * 10: ('Test', 'failure', NETWORK)})
+
+        for name, arrange, reason in (('status only', lambda: self.github.checks.append(status), 'not an Actions job'),
+                                      ('moved attempt', moved, 'no longer this failed exact attempt'),
+                                      ('too many runs', many, 'too many failed workflow runs')):
+            with self.subTest(name=name):
+                self.github.checks, self.github.runs, self.github.jobs = [], {}, {}
+                arrange()
+                _, plan, ledger = self.maintained(run='pr_' + name.replace(' ', '_'))
+                self.assertTrue(self.observe(plan, ledger)['failed'])
+                claimed = self.claim(plan, ledger)
+                self.assertEqual((claimed['invoke'], claimed['complete']), (False, False))
+                assignment = app.read_artifact(self.root, app._claim(ledger, claimed['claim'])['assignment'])
+                self.assertIn(reason, assignment['ci_diagnosis_blocked'])
+                # task.yml status succeeds with complete false, so ci-pass.yml skips recovery ...
+                status_result = app.task_status(self.root, self.github, ledger, plan, {'claim': claimed['claim']})
+                self.assertFalse(status_result['complete'])
+        # ... and the failure reaches ci_repair exactly as without the grant.
+        repair = app.prepare_claim(self.root, self.github, ledger, plan, {'task': 'ci_repair', 'cycle': 1})
+        self.assertTrue(repair['invoke'])
+        self.assertEqual(repair['task_input']['ci']['status'], 'failed')
+        self.assertEqual((self.native['diagnosis'], self.writes()), (0, 0))
+
+    def test_an_invalid_rerun_allowance_is_listed_as_a_blocker(self):
+        self.github.run(31, {311: ('Test', 'failure', NETWORK)})
+        _, plan, ledger = self.maintained()
+        self.observe(plan, ledger)
+        self.diagnose(plan, ledger)
+        for value in (True, -1, 4, '3'):
+            with self.subTest(value=value):
+                plan['options'].setdefault('limits', {})['ci_reruns_per_head'] = value
+                listing = publishing.publication_list(self.root, self.github, ledger, plan, {'kind': 'ci_rerun'})
+                self.assertEqual((listing['items'], listing['rerun'], listing['blockers']),
+                                 ([], False, ['invalid retained per-head CI rerun allowance']))
+        self.assertEqual(self.github.calls['rerun'], 0)
+
     # -- Installed graph ----------------------------------------------------------------------------
 
     def test_ci_pass_diagnoses_reruns_and_repairs_only_when_nothing_was_rerun(self):

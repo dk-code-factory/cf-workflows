@@ -173,7 +173,11 @@ In `ci-pass.yml`, a failed observation goes through three steps:
    failed-step logs. A run that is no longer that failed attempt or whose
    inventory is incomplete is listed as blocked; a failed check that is not an
    Actions job is listed as unsupported; missing logs are a gap. The handoff
-   carries a `capture` fingerprint. Acceptance requires
+   carries a `capture` fingerprint. When nothing can be diagnosed (only
+   non-Actions checks failed, every run is blocked, more than 20 failed runs or
+   oversized evidence), the claim settles the optional occurrence as failed
+   without a session: recovery is skipped and the failure reaches `repair`
+   exactly as without the grant. Acceptance requires
    `deliverables.diagnosis` to give every handed-off run and failed job exactly
    one verdict: `unrelated`, `caused_by_pr` or `ambiguous`, with a reason and a
    comparison with the PR's changes. Only an unrelated failure may be
@@ -191,7 +195,9 @@ In `ci-pass.yml`, a failed observation goes through three steps:
    exact attempt would exceed the head's allowance is listed as a blocker.
 3. **`repair`** runs only when the listing proposed no rerun. After a rerun,
    the next pass observes again: the rerun proves only that a retry occurred,
-   never that CI passed.
+   never that CI passed. A rerun pass uses one of the stage's
+   `ci_repairs_per_cycle` passes, so with one pass a PR-caused failure seen
+   after a rerun is repaired in the next cycle, not this one.
 
 Each rerun publishes through the shared journal with its own audience review.
 Dispatch rechecks that the exact attempt is still the completed failed one
@@ -406,7 +412,8 @@ and `rerun-failed-jobs`. It covers:
 
 - **Diagnosis.** A handoff with every failed job of each exact attempt,
   including one no check names; unreadable runs, expired logs and non-Actions
-  checks staying failed; and same-session corrections for an excerpt that is
+  checks staying failed; nothing diagnosable settling without a session and
+  leaving the failure to repair; and same-session corrections for an excerpt that is
   not in the logs, a retryable job without logs, a retryable PR-caused
   failure, an omitted job or run, an extra attempt, a changed capture and
   proposed operations.
@@ -416,7 +423,7 @@ and `rerun-failed-jobs`. It covers:
   effect.
 - **Allowances and authority.** The per-head allowance exhausted in this and a
   new ledger connection; a user retry beside it, bound to one exact attempt
-  per request identity; no diagnosis without the grant, the permission or fix
+  per request identity; an invalid allowance listed as a blocker; no diagnosis without the grant, the permission or fix
   mode; and the `ci-pass.yml` graph.
 
 `tests/test_ci_skills.py` also covers each installed entry's declared inputs

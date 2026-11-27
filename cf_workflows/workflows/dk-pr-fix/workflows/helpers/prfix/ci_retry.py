@@ -15,7 +15,10 @@ no skill, after an exact-head observation fails (ci-pass.yml ``diagnose``):
   (failed jobs that no displayed check names included) and each failed job's
   bounded failed-step logs. Runs that cannot be read are listed as blocked, and
   failed checks that are not Actions jobs as unsupported; both stay failed. The
-  handoff carries a ``capture`` fingerprint.
+  handoff carries a ``capture`` fingerprint. When nothing can be diagnosed (no
+  readable failed Actions attempt, too many runs or oversized evidence), the
+  claim settles the optional occurrence as failed without a session
+  (app.py), so recovery is skipped and the failure reaches ``ci_repair``.
 - ``check`` (accept) holds the session to that evidence. Every listed run and
   failed job gets exactly one verdict (``unrelated``, ``caused_by_pr`` or
   ``ambiguous``) with a reason and a comparison with the PR's changes. Only an
@@ -73,6 +76,10 @@ EVIDENCE_ERRORS = (ValueError, KeyError, TypeError, OSError, RuntimeError)
 
 class Blocked(ValueError):
     """The diagnosis or its evidence cannot be used."""
+
+
+class Undiagnosable(Blocked):
+    """The current failed observation has no failed Actions attempt that can be diagnosed."""
 
 
 def role(task):
@@ -137,7 +144,7 @@ def context(root, provider, ledger, plan, snapshot):
             continue
         attempts.setdefault((int(run_id), attempt), []).append(str(check.get("id", "")))
     if len(attempts) > MAX_RUNS:
-        raise Blocked("too many failed workflow runs to diagnose at once")
+        raise Undiagnosable("too many failed workflow runs to diagnose at once")
     runs, blocked = [], []
     for (run_id, attempt), named in sorted(attempts.items()):
         try:
@@ -173,13 +180,13 @@ def context(root, provider, ledger, plan, snapshot):
         except EVIDENCE_ERRORS as error:
             blocked.append({"run_id": run_id, "attempt": attempt, "reason": str(error)[:500] or type(error).__name__})
     if not runs:
-        raise Blocked("no failed Actions attempt of the current head can be diagnosed: "
+        raise Undiagnosable("no failed Actions attempt of the current head can be diagnosed: "
                       + "; ".join(item["reason"] for item in blocked + unsupported))
     handoff = {"head": head, "target": snapshot["target"], "runs": runs, "blocked": blocked,
                "unsupported": unsupported}
     handoff["capture"] = digest(handoff)
     if len(canonical(handoff)) > MAX_HANDOFF:
-        raise Blocked("CI diagnosis evidence exceeds its bound")
+        raise Undiagnosable("CI diagnosis evidence exceeds its bound")
     return handoff
 
 
@@ -283,6 +290,9 @@ def proposals(root, provider, ledger, plan, snapshot):
     if handoff["head"] != head:
         return {**empty, "blockers": ["the CI failure diagnosis belongs to another head"]}
     limit = plan.get("options", {}).get("limits", {}).get("ci_reruns_per_head", 3)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 3:
+        # The publisher (_reserve_rerun) refuses the same value; list no allowance it would refuse.
+        return {**empty, "blockers": ["invalid retained per-head CI rerun allowance"]}
     name = "ci-reruns:" + head
     reserved = {value[0] for value in ledger.db.execute("SELECT operation FROM reservations WHERE name=?", (name,))}
     first = ledger.db.execute("SELECT limit_value FROM reservations WHERE name=? ORDER BY rowid LIMIT 1",

@@ -472,6 +472,11 @@ def prepare_claim(root, provider, ledger, plan, inputs):
         require_current(snapshot, "CI diagnosis")
         try:
             assignment["ci_diagnosis"] = ci_retry.context(root, provider, ledger, plan, snapshot)
+        except ci_retry.Undiagnosable as error:
+            # Nothing diagnosable (only non-Actions checks, moved attempts, oversized inventories
+            # or evidence): the optional occurrence settles as failed without a session, so
+            # ci-pass.yml skips recovery and the failure reaches ci_repair as without the grant.
+            return _ci_diagnosis_blocked(root, ledger, plan, task, snapshot, key, fingerprint, str(error))
         except ci_retry.Blocked as error:
             raise ValueError(str(error)) from None
     from . import splitting
@@ -558,6 +563,19 @@ def _prose_settled(root, ledger, plan, task, snapshot, key, fingerprint, record)
                                                     reference, coverage))
     return {"claim": key, "invoke": False, "complete": True,
             "definition": task["definition"], "prompt": "", "task_input": {}, "report": reference}
+
+
+def _ci_diagnosis_blocked(root, ledger, plan, task, snapshot, key, fingerprint, reason):
+    """Settle an undiagnosable CI failure as a failed optional occurrence, with its reason and no session."""
+    assignment = artifact(root, {"format": FORMAT, "claim": key, "task": task, "snapshot": snapshot,
+                                 "instructions": plan["instructions"], "ci_diagnosis_blocked": reason[:2000]})
+    with ledger.transaction():
+        if ledger.db.execute("SELECT 1 FROM claims WHERE id=?", (key,)).fetchone():
+            raise ValueError("unfinished logical claim: resume its originating engine execution")
+        ledger.db.execute("INSERT INTO claims(id,task,fingerprint,state,assignment) VALUES(?,?,?,?,?)",
+                          (key, task["id"], fingerprint, "optional_failed", assignment))
+    return {"claim": key, "invoke": False, "complete": False,
+            "definition": task["definition"], "prompt": "", "task_input": {}, "report": ""}
 
 
 def _claim(ledger, key):
