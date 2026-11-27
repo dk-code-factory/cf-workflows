@@ -163,7 +163,7 @@ class RowsCannotBeStoodInFor(unittest.TestCase):
         cases = (({'parity': 'implemented'}, 'parity differs from the inventory'),
                  ({'native_execution': 'verified'}, 'native_execution must be pending'),
                  ({'live_acceptance': 'recorded'}, 'live_acceptance must be pending'),
-                 ({'installed_workflow': True}, 'installed_workflow must match'),
+                 ({'installed_workflow': False}, 'installed_workflow must match'),
                  ({'deterministic': 'live_verified'}, 'deterministic status'))
         for change, message in cases:
             with self.subTest(change=change):
