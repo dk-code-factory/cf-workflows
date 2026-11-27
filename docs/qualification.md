@@ -53,6 +53,10 @@ library and local Git only. It rejects:
   `test_N_` in its name), and a defect test that is absent from every listed
   merge commit or whose merge commit is not an ancestor of `HEAD`;
 - an admission-case list that is not exactly the required cases;
+- an installed row whose `remaining` does not name the missing engine release,
+  omits an [engine blocker](#engine-blockers-per-row) its installed workflow
+  graph has, or blames the state mount or container jobs on a graph without
+  them;
 - a missing implementing path or guide, and a row table below that differs
   from the matrix.
 
@@ -104,8 +108,8 @@ native execution and live acceptance are `pending` and every parity status is
 `dk-pr-publish`, `dk-pr-review-post`, `dk-plain-english`, `dk-asd-ste100`,
 `dk-pr-decisions`, the three reviewer entries, `dk-pr-description`,
 `dk-commit-message`, `dk-issue`, `dk-commit-split`, `dk-pr-split`,
-`dk-repo-onboard`, `dk-config`, `dk-preferences` and the three CI entries are
-the rows in the plugin descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
+`dk-repo-onboard`, `dk-config`, `dk-preferences`, the four alternatives entries
+and the three CI entries are the 29 rows in the plugin descriptor. `dk-pr-iter` routes to the `dk-pr-fix` or
 `dk-pr-review` workflow ([routing](review.md#installed-entry)). The two prose
 entries are presets over the installed workflow
 ([prose cleanup](prose.md)), `dk-pr-decisions` presets reconciliation and
@@ -116,11 +120,38 @@ the two splitting entries preset one assessment and its local operation
 entries are presets over `configure.yml`, which runs only their native session
 for the host-side procedure ([configuration](configuration-skills.md#installed-workflow)),
 and `dk-ci` and `dk-ci-approve` preset observation and fork approval while
-`dk-ci-flakes` runs its own evidence, report and check ([CI entries](ci-skills.md#installed-entries)).
+`dk-ci-flakes` runs its own evidence, report and check ([CI entries](ci-skills.md#installed-entries)),
+and the four alternatives entries are presets over the shared workflow
+([alternatives](alternatives.md)).
 Listing a row claims no runtime support: none of them has run through a released
-engine. The other 4 are library procedures or presets over the shared workflow.
-The installed workflow refuses those presets until each one runs as an
-engine-managed session.
+engine.
+
+### Engine blockers per row
+
+Besides the missing engine release, each installed row is blocked by the open
+Agent Workflow issues its own installed workflow graph needs. The checker
+follows the row's descriptor workflow through every local `uses:` call and
+derives them:
+
+| Graph feature | Agent Workflow issue | Rows |
+| --- | --- | --- |
+| A helper step sets `CF_WORKFLOWS_STATE` | [#149](https://github.com/dk-code-factory/agent-workflow/issues/149): no engine mounts the state namespace into container helpers | all but the three configuration entries |
+| A job runs in a `container` | [#150](https://github.com/dk-code-factory/agent-workflow/issues/150): `plugin test` fixtures reject container jobs | all but the three configuration entries |
+| It calls `configure.yml` | [#151](https://github.com/dk-code-factory/agent-workflow/issues/151): no operation receipt or per-task read-only policy for native tasks | `dk-repo-onboard`, `dk-config`, `dk-preferences` |
+| It calls the reusable `native.yml` | [#152](https://github.com/dk-code-factory/agent-workflow/issues/152): supplied skill selections reject in reusable workflows, which matters where a `native.yml` occurrence would select a supplied skill | all but the configuration entries, `dk-pr-approvers` and `dk-ci-flakes` |
+
+Each row's `remaining` must cite each of its issues as `Agent Workflow #N` and
+must not cite #149 or #150 when its graph has no such step. Agent Workflow
+[#134](https://github.com/dk-code-factory/agent-workflow/issues/134) (managed
+provider parity) is cited only by rows whose selected options need it. #152
+follows only a call to `native.yml`, whose occurrences may select a supplied
+skill; the configuration and `dk-ci-flakes` sessions also run inside reusable
+workflows with a catalog agent, but they select no skill, so #152 does not
+block them, and the check would need to model those sessions if one ever did.
+A row names the missing release as `after a released engine ships` or `no
+release contains`; `never run through a released engine` alone does not
+qualify. The derivation reads the installed YAML as text; it runs no engine,
+and it is no evidence that the graph runs once these issues are closed.
 
 ## Inherited defects
 
@@ -167,6 +198,10 @@ and fail-closed unconfigured fixture operations.
   #149) and the fixture runner's missing container-job support (#150) stay
   listed as [packaging](packaging.md#what-remains-blocked) blockers. A development check builds identical packages from the unreleased
   source; it verifies no combination.
+- Agent Workflow #151 (an operation receipt for native tasks) is open, so every
+  session of the three configuration entries blocks, and it is listed as a
+  packaging blocker too. #152 (supplied skill selections in reusable
+  workflows) is open, so supplied skills stay rejected at preflight.
 - Agent Workflow #134 (managed provider parity) is open. It gates only the
   capabilities that a selected path needs.
 
@@ -285,8 +320,9 @@ accepted records for it.
 `python3 -B -m cf_workflows.package` reports `releasable: false`. Its blockers
 come from three sources:
 
-- the missing engine release, the helpers' state mount and the fixture
-  runner's container-job gap;
+- the missing engine release, the helpers' state mount, the fixture
+  runner's container-job gap and the missing operation receipt for native
+  tasks;
 - the non-runnable suite and every listed row without parity;
 - the matrix: each live procedure without an accepted record, the absence of
   any verified combination, and the rows without native-execution evidence.
@@ -310,9 +346,11 @@ release.
 ## What remains
 
 - Every row's native execution through an installed workflow on a released
-  engine. Each needs Agent Workflow #129/#130 in a release and a state mount
-  for the helper containers (#149); supplied skills also need #139 in a release
-  and selections in reusable workflows (#152).
+  engine. Each needs Agent Workflow #129/#130 in a release and the
+  [engine blockers](#engine-blockers-per-row) of its graph: a state mount for
+  the helper containers (#149) for 26 rows, an operation receipt for native
+  tasks (#151) for the three configuration entries, and, for supplied skills,
+  #139 in a release with selections in reusable workflows (#152).
 - All three live procedures, each under its own explicit authorization.
 - A published engine release equal to the pin, and the shared toolchain's
   build, check, test and release validation from it. Reproducible packages for

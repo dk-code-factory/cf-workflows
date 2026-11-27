@@ -107,7 +107,8 @@ as JSON, and exits 1 on a diagnostic. The status:
   `not_implemented`);
 - reports `releasable: false` with its blockers: the missing engine release,
   the missing helper state mount, the fixture runner's missing container-job
-  support, the non-runnable suite,
+  support, the missing operation receipt for native tasks, the non-runnable
+  suite,
   every listed row without implemented parity, and the
   [acceptance matrix](qualification.md#release-readiness) blockers (pending live
   procedures, no verified combination, rows without native evidence). The
@@ -230,7 +231,7 @@ execution and shared verified engine setup),
 (`plugin check` and `plugin test`) and
 [#133](https://github.com/dk-code-factory/agent-workflow/issues/133) (release
 validation) are merged on its `main`, so they are no longer listed as missing
-capabilities. Three blockers remain:
+capabilities. Four blockers remain:
 
 - **Engine release.** As of 2026-11-26 no published release contains them (the
   newest tag is `v0.2.1`, which predates them), and the pinned `0.2.2` has no
@@ -246,13 +247,25 @@ capabilities. Three blockers remain:
 - **Container jobs in `plugin test`.** The upstream fixture runner rejects jobs
   with a container ("fixtures do not support job containers"); Agent Workflow
   [#150](https://github.com/dk-code-factory/agent-workflow/issues/150) tracks
-  scripting them. Every bound
-  skill's closure has them (`helper.yml`, `publication.yml`), so `plugin test`
+  scripting them. The closure of every bound skill but the three
+  configuration presets has them (`helper.yml`, `publication.yml`), so `plugin test`
   cannot run the suite (it requires a case for every bound skill), and no
   deterministic packaged smoke execution exists. The three configuration
   presets have no container job, but fixtures for them alone would not make
   the suite pass, so none are added. A real `plugin run` needs Docker, the
   pinned helper image, provider sessions and a released engine, which need
   separate authorization.
+- **Operation receipt for native tasks.** The three configuration presets
+  (`onboard.yml`, `config.yml`, `preferences.yml`) run no helper container, but
+  the engine records no operation receipt or per-task read-only policy for a
+  native task
+  ([#151](https://github.com/dk-code-factory/agent-workflow/issues/151)), so
+  each of their sessions blocks before anything is reported or written
+  ([engine binding](configuration-skills.md#engine-binding)).
+
+`scripts/check_acceptance.py` derives from each row's installed workflow graph
+which of #149, #150, #151 and #152 (supplied skill selections in the reusable
+`native.yml`) it needs, and requires the row's `remaining` to cite them
+([qualification](qualification.md#engine-blockers-per-row)).
 
 None needs a change to the descriptor format.

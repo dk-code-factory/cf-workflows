@@ -39,7 +39,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as iter.yml: the iter_route helper re-checks the routed identities, then main.yml or review.yml runs, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as iter.yml: the iter_route helper re-checks the routed identities, then main.yml or review.yml runs, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-fix",
@@ -131,7 +131,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization. A code-review-ad pass profile is admitted only as inline custom reviewer adapters; one that pins the package files as adapter resources rejects because the installed workflow mounts no configured resource. Finding publication (#25) also needs Agent Workflow #149: its helpers keep the ledger, and so the reservations that stop a rerun from posting again, in a state namespace that the engine does not mount into container helpers; Agent Workflow #150 is needed before plugin test can run its container jobs; GitHub conformance of its payloads needs separately authorized live evidence."
+      "remaining": "Listed in the plugin descriptor as the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization. A code-review-ad pass profile is admitted only as inline custom reviewer adapters; one that pins the package files as adapter resources rejects because the installed workflow mounts no configured resource. Finding publication (#25) keeps its ledger, and so the reservations that stop a rerun from posting again, in that state namespace; GitHub conformance of its payloads needs separately authorized live evidence."
     },
     {
       "skill": "dk-repo-onboard",
@@ -171,7 +171,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as onboard.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as onboard.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-config",
@@ -214,7 +214,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as config.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as config.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-preferences",
@@ -254,7 +254,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as preferences.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as preferences.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt for native tasks (Agent Workflow #151), and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-issue-alternatives",
@@ -293,7 +293,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; issue-only analysis without a PR stays library-level because installed plans bind a PR; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); per-entry native model controls wait for Agent Workflow #134; issue-only analysis without a PR stays library-level because installed plans bind a PR; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-alternatives",
@@ -338,7 +338,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-alternatives-review",
@@ -373,7 +373,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A compatibility entry whose delegate runs under the entry identity; it does not establish its delegate. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/alternatives-review.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "A compatibility entry whose delegate runs under the entry identity; it does not establish its delegate. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/alternatives-review.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-review-alternatives",
@@ -411,7 +411,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Only a distinct direct user request authorizes its fresh comparison, so composed and delegated requests are refused (composition boundary). Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-review-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Only a distinct direct user request authorizes its fresh comparison, so composed and delegated requests are refused (composition boundary). Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-review-alternatives.yml), but it has never run through a released engine. Runs only as engine-managed native sessions through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); per-entry native model controls wait for Agent Workflow #134; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-plain-english",
@@ -451,7 +451,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 with #16 for a user-supplied prose skill); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); a user-supplied prose skill also needs #16 with skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
     },
     {
       "skill": "dk-asd-ste100",
@@ -487,7 +487,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "ASD-STE100 conformance is never certified; only supplied-reference checks run, and the installed workflow supplies no references, so its passes record that rule and dictionary checks did not run. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 with #16 for a user-supplied prose skill); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
+      "remaining": "ASD-STE100 conformance is never certified; only supplied-reference checks run, and the installed workflow supplies no references, so its passes record that rule and dictionary checks did not run. Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow, whose installed helpers bound and check the prose session, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); a user-supplied prose skill also needs #16 with skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified, and live adherence and meaning-preservation evidence needs separate authorization."
     },
     {
       "skill": "dk-code-simplify",
@@ -522,7 +522,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as code-simplify.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the one-simplifier shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them, so it runs as an engine-managed native session only after such a release; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as code-simplify.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the one-simplifier shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them, so it runs as an engine-managed native session only after such a release; every helper step needs the state namespace, which no engine mounts into container helpers (Agent Workflow #149), and plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-reviewers-run",
@@ -559,7 +559,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Supplied reviewer skills reject until #16 has a runtime path for them (Agent Workflow #139 is on its main, unreleased); per-occurrence provider options and native model controls reject until the engine offers them (Agent Workflow #134). Listed in the plugin descriptor as reviewers-run.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the reviewer-stage shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Supplied reviewer skills reject until #16 has a runtime path for them (Agent Workflow #139 is on its main, unreleased, and admits no selection in the reusable native.yml that each occurrence runs through, Agent Workflow #152); per-occurrence provider options and native model controls reject until the engine offers them (Agent Workflow #134). Listed in the plugin descriptor as reviewers-run.yml, a review-mode preset over the shared dk-pr-fix workflow whose installed prepare helper enforces the reviewer-stage shape, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; every helper step needs the state namespace, which no engine mounts into container helpers (Agent Workflow #149), and plugin test rejects those container jobs (Agent Workflow #150); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-approvers",
@@ -599,7 +599,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Approver discovery is refused as a plain task in a fix plan (composition boundary). Listed in the plugin descriptor as approvers.yml: helper evidence collection, one agent/run selection session on the leaf role and helper checks, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; no host/provider/engine combination is verified, and live GitHub evidence reads and session adherence need separate authorization."
+      "remaining": "Approver discovery is refused as a plain task in a fix plan (composition boundary). Listed in the plugin descriptor as approvers.yml: helper evidence collection, one agent/run selection session on the leaf role and helper checks, but it has never run through a released engine. Agent Workflow #129/#130 are on its main but no release contains them; every helper step needs the state namespace, which no engine mounts into container helpers (Agent Workflow #149), and plugin test rejects those container jobs (Agent Workflow #150); no host/provider/engine combination is verified, and live GitHub evidence reads and session adherence need separate authorization."
     },
     {
       "skill": "dk-pr-feedback-read",
@@ -730,7 +730,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as review-post.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as review-post.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-description",
@@ -769,7 +769,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/description.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); the installed helper collects no linked issues or caller-verified validation facts; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/description.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); the installed helper collects no linked issues or caller-verified validation facts; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-decisions",
@@ -811,7 +811,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/decisions.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); linked-issue sources are not collected by the installed helper; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/decisions.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); linked-issue sources are not collected by the installed helper; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-split",
@@ -852,7 +852,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a commit policy, invocation prompts and supplied policy skills run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); a commit policy, invocation prompts and supplied policy skills run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-split",
@@ -891,7 +891,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a commit policy, invocation prompts and manual-mode approval run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/pr-split.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); a commit policy, invocation prompts and manual-mode approval run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-pr-publish",
@@ -925,7 +925,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as publish.yml (the changes preset and the merge-only path), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as publish.yml (the changes preset and the merge-only path), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci-approve",
@@ -962,7 +962,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "dk-pr-fix plans never list or prepare fork approval (composition boundary). Listed in the plugin descriptor as workflows/ci-approve.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "dk-pr-fix plans never list or prepare fork approval (composition boundary). Listed in the plugin descriptor as workflows/ci-approve.yml, the review-mode preset, but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci",
@@ -1014,7 +1014,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as workflows/ci.yml, an observation preset over the shared dk-pr-fix workflow, but it has never run through a released engine. The direct entry observes only; the native failure diagnosis and automatic reruns of unrelated retryable failures run in a dk-pr-fix plan with an explicit rerun_ci grant and permission. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as workflows/ci.yml, an observation preset over the shared dk-pr-fix workflow, but it has never run through a released engine. The direct entry observes only; the native failure diagnosis and automatic reruns of unrelated retryable failures run in a dk-pr-fix plan with an explicit rerun_ci grant and permission. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-ci-flakes",
@@ -1052,7 +1052,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as workflows/flakes.yml for a pull request's repository, but it has never run through a released engine; repository-only scans, custom prompts and saved-observation inspection run only through the library procedure. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "The flake inspection adapter is refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as workflows/flakes.yml for a pull request's repository, but it has never run through a released engine; repository-only scans, custom prompts and saved-observation inspection run only through the library procedure. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-commit-message",
@@ -1087,7 +1087,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-message.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); a repository target and commit-policy text run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/commit-message.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); a repository target and commit-policy text run only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-issue",
@@ -1126,7 +1126,7 @@
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); the installed entry files issues from a pull request run, and a repository target runs only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as a preset over the shared dk-pr-fix workflow (workflows/issue.yml), but it has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 and mounts the state namespace that every helper step needs into container helpers (Agent Workflow #149); plugin test rejects those container jobs (Agent Workflow #150); supplied skills also need skill selections in the reusable native.yml (Agent Workflow #152); the installed entry files issues from a pull request run, and a repository target runs only through the library procedure; no host/provider/engine combination is verified and live acceptance needs separate authorization."
     }
   ],
   "defects": [

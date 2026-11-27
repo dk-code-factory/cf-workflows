@@ -417,7 +417,9 @@ one with none, and no review preference.
   closed on upstream main, but no release contains them. No local controller or
   launcher stands in for either.
 - Through engine `8758775` every entry session blocks: the engine records no
-  operation receipt for native tasks (see [Engine binding](#engine-binding)).
+  operation receipt for native tasks
+  ([Agent Workflow #151](https://github.com/dk-code-factory/agent-workflow/issues/151);
+  see [Engine binding](#engine-binding)).
 - A per-run `reasoning_effort` blocks in the binding: the engine takes it only
   from an agent definition. A `model` is passed and must be reported back; no
   provider is shown to honor either.

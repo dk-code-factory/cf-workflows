@@ -268,6 +268,86 @@ class Admission(unittest.TestCase):
                 validate(matrix)
 
 
+WORKFLOWS = {skill['name']: skill['workflow'] for skill in DESCRIPTOR['skills']}
+CONFIGURATION_ROWS = ('dk-repo-onboard', 'dk-config', 'dk-preferences')
+
+
+class EngineBlockers(unittest.TestCase):
+    """Each installed row names the open Agent Workflow issues its own workflow graph needs."""
+
+    def rejects(self, matrix, message):
+        with self.assertRaisesRegex(qualification.MatrixError, message):
+            qualification.check_engine_blockers(matrix, package.ROOT, WORKFLOWS)
+
+    def test_committed_rows_cite_the_blockers_of_their_installed_graphs(self):
+        qualification.check_engine_blockers(MATRIX, package.ROOT, WORKFLOWS)
+        derived = {name: qualification.engine_blockers(package.ROOT, workflow) for name, workflow in WORKFLOWS.items()}
+        self.assertEqual(set(derived), {item['skill'] for item in MATRIX['rows']})
+        for name in CONFIGURATION_ROWS:
+            # configure.yml runs only the entry's native session: no container job, so no state mount.
+            self.assertEqual(derived[name], {151}, name)
+        for name in ('dk-pr-approvers', 'dk-ci-flakes'):
+            # Their own agent/run step, not the reusable native.yml, runs the session.
+            self.assertEqual(derived[name], {149, 150}, name)
+        for name, needed in derived.items():
+            if name not in CONFIGURATION_ROWS + ('dk-pr-approvers', 'dk-ci-flakes'):
+                self.assertEqual(needed, {149, 150, 152}, name)
+
+    def test_release_lists_each_upstream_blocker_a_listed_row_cannot_run_without(self):
+        blockers = dict(package.UPSTREAM_BLOCKERS)
+        self.assertIn('agent-workflow#149', blockers['helper state mount'])
+        self.assertIn('agent-workflow#150', blockers['plugin test container jobs'])
+        self.assertIn('agent-workflow#151', blockers['native operation receipt'])
+        for name in CONFIGURATION_ROWS:
+            self.assertIn(name, blockers['native operation receipt'])
+        status = package.inventory_status(DESCRIPTOR, ROOT, closure_digest=CHECKED['closure_digest'])
+        self.assertIn('native operation receipt', [item['prerequisite'] for item in status['blockers']])
+
+    def test_a_row_must_cite_each_blocker_of_its_graph(self):
+        for name, number in (('dk-pr-approvers', 149), ('dk-ci', 150), ('dk-pr-publish', 152), ('dk-config', 151)):
+            with self.subTest(name=name, number=number):
+                matrix = copy.deepcopy(MATRIX)
+                text = row(matrix, name)['remaining']
+                self.assertIn(f'Agent Workflow #{number}', text)
+                row(matrix, name)['remaining'] = text.replace(f'Agent Workflow #{number}', 'an upstream issue')
+                self.rejects(matrix, rf'row {name}: remaining must cite Agent Workflow #{number} ')
+
+    def test_a_row_cannot_blame_a_blocker_its_graph_does_not_have(self):
+        matrix = copy.deepcopy(MATRIX)
+        row(matrix, 'dk-preferences')['remaining'] += ' Its helpers need a state mount (Agent Workflow #149).'
+        self.rejects(matrix, r'row dk-preferences: remaining cites Agent Workflow #149, which')
+
+    def test_a_row_must_name_the_missing_release(self):
+        matrix = copy.deepcopy(MATRIX)
+        for text in ('Blocked by Agent Workflow #149, Agent Workflow #150 and Agent Workflow #152.',
+                     'It has never run through a released engine; blocked by Agent Workflow #149, '
+                     'Agent Workflow #150 and Agent Workflow #152.'):
+            with self.subTest(text=text):
+                row(matrix, 'dk-ci')['remaining'] = text
+                self.rejects(matrix, 'row dk-ci: remaining must name the missing engine release')
+
+    def test_blockers_follow_the_graph_not_the_row_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'workflows').mkdir()
+            files = {
+                'plain.yml': 'jobs:\n  session:\n    steps:\n    - uses: agent/run\n',
+                'helper.yml': 'jobs:\n  action:\n    container:\n      files:\n      - helpers/\n'
+                              '    steps:\n    - env:\n        CF_WORKFLOWS_STATE: /cf-workflows-state\n',
+                'native.yml': 'jobs:\n  session:\n    steps:\n    - uses: agent/run\n',
+                'configure.yml': 'jobs:\n  session:\n    steps:\n    - uses: agent/run\n',
+                'entry.yml': 'jobs:\n  help:\n    uses: workflows/helper.yml\n  run:\n    uses: workflows/native.yml\n',
+                'config.yml': 'jobs:\n  session:\n    uses: workflows/configure.yml\n',
+                'cycle.yml': 'jobs:\n  again:\n    uses: workflows/cycle.yml\n  help:\n    uses: workflows/helper.yml\n',
+            }
+            for name, text in files.items():
+                (root / 'workflows' / name).write_text(text)
+            self.assertEqual(qualification.engine_blockers(root, 'workflows/plain.yml'), set())
+            self.assertEqual(qualification.engine_blockers(root, 'workflows/entry.yml'), {149, 150, 152})
+            self.assertEqual(qualification.engine_blockers(root, 'workflows/config.yml'), {151})
+            self.assertEqual(qualification.engine_blockers(root, 'workflows/cycle.yml'), {149, 150})
+
+
 class LiveEvidence(unittest.TestCase):
     def test_listed_records_must_exist_and_statuses_follow_them(self):
         recorded = copy.deepcopy(MATRIX)
