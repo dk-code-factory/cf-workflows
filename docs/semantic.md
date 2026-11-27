@@ -105,8 +105,8 @@ assessed.
 [`dk_pr_fix.preflight()`](../cf_workflows/dk_pr_fix.py) calls `semantic.admit()`
 instead of structural admission alone. Before any gate read or validator task,
 the installed-workflow limits apply to the structural result and to every
-revision: a repository-only target, configuration, alternatives and entry-only
-adapters, an untargeted or repeated `behavior_replacement`, adapters, prompts
+revision: a repository-only target, configuration and entry-only adapters, an
+alternatives adapter outside the coordinator's own scope or selected twice, an untargeted or repeated `behavior_replacement`, adapters, prompts
 or preferences that declare resources (or a resource-backed prompt), and
 unsupported authorizations reject. The workflow mounts no configured resource,
 so such an input would reach its occurrence without the files it names. Only

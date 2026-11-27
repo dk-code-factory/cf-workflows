@@ -85,8 +85,8 @@ Adaptations to the example:
   [publication entries](publication-skills.md) `workflows/publish.yml`,
   `workflows/review-post.yml` and their `SKILL.md` files. A `validation_commands`
   input carries `dk-pr-feedback-address`'s `additional_validation_commands` to the
-  address session, and an `entry` input names a publication, drafting or
-  splitting entry whose preset `prepare` enforces. `accounts` are `{host, id}`
+  address session, and an `entry` input names a publication, drafting,
+  splitting or alternatives entry whose preset `prepare` enforces. `accounts` are `{host, id}`
   numeric identities, and an explicit `maintain_other` request is staged with the
   private request for another author's PR.
 - A tasks stage that holds the `reconcile-decisions` occurrence is followed by
@@ -125,6 +125,16 @@ Adaptations to the example:
   `preferences.yml` call `workflows/configure.yml`, which runs only their native
   session ([configuration skills](configuration-skills.md#installed-workflow)).
   These files and the three `SKILL.md` files are `authored`.
+- An alternatives occurrence (`issue-alternatives` composed by dk-pr-fix,
+  `pr-alternatives` composed by dk-pr-review, or the four alternatives entries)
+  gets its own `alternatives` stage. `stage.yml` runs it through
+  `workflows/alternatives.yml`, one native stage session or selection gate per
+  iteration of `alternatives-stage.yml`, checked and recorded by
+  `prfix/alternatives.py` in the PR's alignment record. A composed fix plan hands
+  its fix occurrences the settled choices and required changes. See
+  [alternatives](alternatives.md#installed-workflow). `prfix/alternatives.py`,
+  both stage workflows, the four presets and their `SKILL.md` files are
+  `authored`.
 
 ## Configuration split
 
@@ -162,7 +172,9 @@ configuration-validator task and durable input gates ([semantic assessment](sema
    Prose finalizers (`plain-english`, `asd-ste100`) run as ordinary task
    occurrences whose sessions the installed helpers bound and check
    ([prose cleanup](prose.md#installed-workflow)).
-   The staged alternatives adapters reject ([alternatives](alternatives.md)).
+   One `issue-alternatives` occurrence may be selected (`pr-alternatives` in
+   `dk-pr-review`); it runs the staged procedure, never a generic task
+   ([alternatives](alternatives.md#installed-workflow)).
    With the suite's configuration ledger, current acceptances are reused with
    no gate read or validator task. With its configuration store, unsettled
    configuration writes are read back before the saved configuration is read,

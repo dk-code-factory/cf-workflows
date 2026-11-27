@@ -6,8 +6,10 @@
 workflow (#27). [`cf_workflows/entries.py`](../cf_workflows/entries.py) defines
 their presets and [`cf_workflows/alternatives.py`](../cf_workflows/alternatives.py)
 holds their adapter procedures. The stages, settled analysis, current alignment
-and allowances are the ones of [current alignment](alignment.md). Like the other
-library operations, nothing installed runs them yet (see [What remains](#what-remains)).
+and allowances are the ones of [current alignment](alignment.md). The
+[installed workflow](#installed-workflow) runs the same procedure through
+`workflows/alternatives.yml`; it has never run through a released engine (see
+[What remains](#what-remains)).
 
 ## Entries
 
@@ -33,8 +35,9 @@ shared [semantic assessment](semantic.md). Tasks, finalizers, reviewers,
 permissions, skills, unknown options and request authorizations reject before
 the engine is contacted.
 
-The installed `dk-pr-fix` and `dk-pr-review` workflows reject the alternatives
-adapters. A single generic task would conceal the staged procedure.
+A single generic task would conceal the staged procedure, so the installed
+workflows never run an alternatives adapter as one. They run it through its
+staged procedure ([installed workflow](#installed-workflow)).
 
 ## Saved options
 
@@ -231,6 +234,93 @@ it cannot authorize a fresh comparison. A retained dk-workflows assignment
 and a new comparison never stands in for its original result. A missing or
 unknown route rejects before the engine is contacted.
 
+## Installed workflow
+
+The stage checks, totals, selection policy and the walk over the stages live in
+the installed helpers as
+[`prfix/alternatives.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alternatives.py),
+and the writing ledger in
+[`prfix/alignment.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/alignment.py).
+Both use only the standard library. `cf_workflows/alternatives.py` and
+`cf_workflows/alignment.py` load these files in memory and drive the same walk
+with the engine transport, so the library and the installed workflow run one
+implementation and write the same records.
+
+**Stage loop.** A plan's alternatives occurrence gets its own stage kind,
+`alternatives`. `stage.yml` runs it through
+[`alternatives.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/alternatives.yml),
+which repeats
+[`alternatives-stage.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/alternatives-stage.yml)
+until the procedure settles:
+
+1. `alternatives_next` walks the record at the current snapshot. It returns the
+   next stage assignment (the same typed assignment as above, with the stage
+   prompt), an input gate for a selection, or the settled outcome.
+2. For a stage, one `agent/run` step starts a native session with the `leaf`
+   definition, or `verifier` for verification. Its report is
+   `{stage, result}`, where `result` is the stage output as one JSON-encoded
+   object.
+3. `alternatives_accept` checks that result against the open claim and records
+   it. The session's identity is the engine's agent reference, so verification
+   runs in a different session from the alignment it checks. A rejected result,
+   a report for another stage or a session that ended without a result closes
+   the attempt. Its reservation stays consumed, and this run's procedure stops;
+   the next run starts a new attempt.
+4. For a selection, one `input/wait` step asks the user, with the gate request
+   as its evidence identity. `alternatives_answer` records the answer once in
+   the record's `answers` table, and only for the question the procedure is
+   asking. The next walk uses it as the selection's user source. An answer that
+   names no feasible option is never dispatched; the next round asks again.
+
+`alternatives_status` then completes the occurrence with a helper record and no
+further session, or fails the stage if the procedure did not settle (for
+example `choice_pending`, `authorization_required` or `exhausted`). The
+occurrence's coverage binds the record's settled stages, the analyzed head and
+the consumed decisions handoff, so a later head walks the procedure again:
+settled analysis is reused and only current alignment refreshes. The generic
+task path (`claim`) refuses an alternatives occurrence.
+
+**Entries.** The plugin descriptor lists the four entries. Each is a preset over
+`main.yml`: one alternatives occurrence, no finalizers, no reviewers, no
+permission input and no authorization. They run in review mode, because they
+read a PR without maintaining it, with no reviewer stage.
+
+| Entry | Workflow | Adapter | Runs to |
+| --- | --- | --- | --- |
+| `dk-issue-alternatives` | `issue-alternatives.yml` | `issue-alternatives` | Interactions |
+| `dk-pr-alternatives` | `pr-alternatives.yml` | `pr-alternatives` | Interactions |
+| `dk-alternatives-review` | `alternatives-review.yml` | The route's delegate adapter | Interactions |
+| `dk-pr-review-alternatives` | `pr-review-alternatives.yml` | `pr-alternatives` | The alignment gate |
+
+`settings.alternatives` carries `requirements` (required for the whole-problem
+scope), `options` and, for the compatibility entry only, `route`. Its adapter
+must be the route's delegate adapter. The installed workflow runs the baseline
+prompts only: a custom prompt option needs the shared semantic validator, so it
+rejects, as `dk-pr-decisions` does. A retained `legacy` assignment rejects
+before any session. The manual entry's staged request is its direct user
+request: its identity is the request's digest, and its instruction is the
+request's exact instruction. Replaying the same staged request repeats nothing.
+
+**Composition.** `dk-pr-fix` may select `issue-alternatives` and `dk-pr-review`
+may select `pr-alternatives`, each once and alone in its stage; preflight
+rejects the other scope. A composed `dk-pr-fix` run walks through current
+alignment and hands its fix occurrences the report (`assignment.alternatives`:
+settled choices, alignment and required changes). Their fingerprints bind that
+report, and a writer does not start before the procedure settled. A composed
+`dk-pr-review` run walks through verification and the gate, and the installed
+[alignment gate](alignment.md#installed-gate) then reads the same record.
+
+**Decision source.** Advised and selected alternatives are a
+[decision source kind](decisions.md#sources), `alternatives`, in the library and
+the installed helper. `selections(state, pr)` reads both scopes' records,
+read-only: for each current comparison, its recommended options and, once
+chosen, the selected option and its approach. Each becomes one private source,
+`alternatives:<scope>:<decision>`, with `advisory` authority. It follows the
+discussion and the request and comes before recorded answers. A settled decision
+cannot rest on it alone, and only a later user source resolves a contradiction
+with it. A new or refreshed choice changes the installed reconciliation's
+binding, so `dk-pr-decisions` reconciles again.
+
 ## Verification
 
 [`tests/test_alternatives.py`](../tests/test_alternatives.py) uses a disposable
@@ -248,7 +338,8 @@ asserts its transport call counts or new sessions per stage.
   an unknown key or invalid value when it is set.
 - **Presets.** Baseline role and stage prompt digests, options with provenance,
   no skill, rejected authority expansion, custom prompt options through the
-  shared validator, and the installed workflow refusing the adapters.
+  shared validator, and installed preflight composing only each coordinator's
+  own scope.
 - **Scope.** Issue-only analysis that persists nothing, invents no PR and reuses
   engine claims; separate whole-problem and branch records; each scope's
   inventory and comparison contract; inherited decisions inventoried and compared;
@@ -280,23 +371,52 @@ asserts its transport call counts or new sessions per stage.
   delegate's settled analysis, no authorization, and unsupported legacy, route
   and target cases with no transport call.
 
+[`tests/test_dk_pr_fix_alternatives.py`](../tests/test_dk_pr_fix_alternatives.py)
+drives the installed helpers in-process, the way `alternatives.yml` and
+`alternatives-stage.yml` call them, on a disposable repository, a fresh state
+namespace and the fail-closed fake GitHub transport of the incoming-review
+fixtures. A test hands `alternatives_accept` the report each native session
+would return and counts every dispatch per stage:
+
+- **Entries.** The descriptor rows and presets; each stage as its own read-only
+  `leaf` assignment with the baseline prompts and no skill; the generic claim
+  path refusing the occurrence; a later run reusing the settled analysis with
+  no session; the whole-problem record and its required requirements; rejected
+  authority, other tasks, custom prompts and invalid options before any session.
+- **Selection.** A semi-manual question asked once through one gate, an answer
+  naming no feasible option asked again, a sourced manual choice, a replayed
+  answer, a question nobody asked, and automatic mode that never asks.
+- **Boundary.** A rejected output, a report for another stage and a session
+  without a result each closing their attempt; an interrupted stage resuming
+  its claim; the manual entry refreshing everything but the shared assessment
+  once per staged request and stopping at the gate; new requirements refreshing
+  only current alignment in a composed review; settled analysis never repeated
+  on an automatic route.
+- **Compatibility and composition.** The explicit route under the entry's
+  identity, a refused legacy assignment, the delegate reusing what the route
+  settled, the fix handoff reaching a fix occurrence, and each coordinator's
+  scope.
+- **Sources.** Advised and selected alternatives as advisory decision sources,
+  in the library and the helper; one shared procedure for both.
+
 ## What remains
 
-- The installed `dk-pr-fix` and `dk-pr-review` workflows do not run the staged
-  procedure yet, so they reject its adapters. They only read its branch record
-  through the [installed alignment gate](alignment.md#installed-gate), whose
-  record reads are already in the helper closure. Installing the procedure needs
-  native stage tasks with helper checks, engine input gates for manual
-  selection, and the stage checks and ledger writes inside the helper closure,
-  which cannot import this library. Agent Workflow
+- The installed workflow has never run through an engine. Its native stage
+  sessions and `input/wait` gates need Agent Workflow
   [#129](https://github.com/dk-code-factory/agent-workflow/issues/129) and
-  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130) are on
-  its `main` but in no release, and its `plugin test` runner rejects container
-  jobs ([packaging](packaging.md#what-remains-blocked)), so no installed run can
-  be exercised by a deterministic packaged fixture yet. No local controller or
-  launcher stands in for the engine.
-- Plugin skill entries (`SKILL.md` and descriptor rows) wait for an installed
-  workflow that runs them ([packaging](packaging.md)).
+  [#130](https://github.com/dk-code-factory/agent-workflow/issues/130), which
+  are on its `main` but in no release (newest v0.2.1; the descriptor pins
+  0.2.2). Its `plugin test` runner rejects container jobs
+  ([packaging](packaging.md#what-remains-blocked)), so no packaged fixture runs
+  the YAML graph. The tests above call the helpers in-process. No local
+  controller or launcher stands in for the engine.
+- The installed helpers cannot observe which files a native session read or
+  which skills it loaded; the engine's admitted definitions bound them. The
+  library procedure checks the engine's observation of each session.
+- Issue-only analysis without a PR stays a library procedure: installed plans
+  bind one PR.
+- Custom prompt options need the shared semantic validator in the installed
+  path, as for `dk-pr-decisions`.
 - No equivalent yet: per-entry native controls for the alternatives stages. The
   configuration entries admit them at library level
   ([native controls](configuration-skills.md#native-controls)); managed control
