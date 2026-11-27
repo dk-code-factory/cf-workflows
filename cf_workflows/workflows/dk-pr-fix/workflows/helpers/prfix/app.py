@@ -439,6 +439,11 @@ def prepare_claim(root, provider, ledger, plan, inputs):
             "head revision, {kind:commit_message,commit} for a PR commit's message, or {kind:pr_title} / "
             "{kind:pr_description}. Use null for fields a kind does not use. Never name a nearby changed line "
             "instead of the real location, and keep local paths and workflow diagnostics out of finding text.")
+    from .preferences import handoff
+    handed_preferences = handoff(task, lambda: snapshot["paths"])
+    if handed_preferences is not None:
+        # Accepted scoped preferences narrowed to this occurrence's mode and captured paths (preferences.py).
+        assignment["preferences"] = handed_preferences
     from . import decisions
     if decisions.role(task):
         # Sources, retained and affected decisions, prompts and the result contract (decisions.py).

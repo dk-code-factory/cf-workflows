@@ -126,7 +126,9 @@ equal to the installed helper's.
 dk-preferences with a disposable repository, the real configuration store and
 ledger, and a fake engine with durable gates and claim-reconciled native sessions.
 They count sessions, gates and writes across clarification, lost responses and
-concurrent writers.
+concurrent writers. `tests/test_configuration_binding.py` runs the same
+procedures through their installed presets over a fake engine port and counts
+the installed-workflow runs.
 [Decision](decisions.md#verification) tests (`tests/test_decisions.py`) drive
 dk-pr-decisions directly and from a dk-pr-fix plan with the same fake engine and
 the fail-closed fake GitHub transport. They count sessions, gates and writes across

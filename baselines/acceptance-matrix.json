@@ -129,31 +129,38 @@
       ],
       "behavior": [
         "cf_workflows/configuration.py",
-        "cf_workflows/entries.py"
+        "cf_workflows/entries.py",
+        "cf_workflows/configuration_binding.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/onboard.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/configure.yml"
       ],
       "documentation": "docs/configuration-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_configuration_skills.Onboarding.test_fresh_discovery_reports_every_source_and_saves_nothing",
         "test_configuration_skills.Onboarding.test_unreadable_unsafe_and_uninspected_sources_leave_discovery_incomplete",
-        "test_configuration_skills.NativeControls.test_controls_are_admitted_assigned_and_observed"
+        "test_configuration_skills.NativeControls.test_controls_are_admitted_assigned_and_observed",
+        "test_configuration_binding.EngineBound.test_onboarding_with_a_hypothetical_receipt_reports_from_exact_bytes_and_saves_nothing"
       ],
       "composed": [
-        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow"
+        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow",
+        "test_configuration_binding.InstalledEntries.test_entries_are_listed_with_presets_over_the_shared_session_graph"
       ],
       "recovery": [
         "test_configuration_skills.Onboarding.test_entry_preset_cannot_expand_execution_or_publication_authority",
         "test_configuration_skills.Onboarding.test_session_cannot_upgrade_status_govern_with_evidence_or_act",
-        "test_configuration_skills.NativeControls.test_invalid_or_unsupported_controls_reject_before_any_session"
+        "test_configuration_skills.NativeControls.test_invalid_or_unsupported_controls_reject_before_any_session",
+        "test_configuration_binding.EngineBound.test_onboarding_blocks_without_an_operation_receipt_and_saves_nothing",
+        "test_configuration_binding.EngineBound.test_model_control_is_the_step_model_and_must_be_reported"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A library entry procedure with no installed workflow or descriptor listing; its native model and reasoning-effort controls are admitted and checked against the engine observation at library level only. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as onboard.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-config",
@@ -162,7 +169,10 @@
       ],
       "behavior": [
         "cf_workflows/configuration.py",
-        "cf_workflows/acceptance.py"
+        "cf_workflows/acceptance.py",
+        "cf_workflows/configuration_binding.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/config.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/configure.yml"
       ],
       "documentation": "docs/configuration-skills.md",
       "composition": "boundary",
@@ -170,25 +180,30 @@
         "test_configuration_skills.Config.test_saved_change_writes_the_exact_admitted_revision_and_reads_it_back",
         "test_configuration_skills.Config.test_explanation_is_transient",
         "test_configuration_skills.Config.test_resource_backed_prompt_is_pinned_admitted_and_read_back",
-        "test_configuration_skills.NativeControls.test_controls_bind_the_saved_request_and_reach_both_writers"
+        "test_configuration_skills.NativeControls.test_controls_bind_the_saved_request_and_reach_both_writers",
+        "test_configuration_binding.EngineBound.test_saved_change_runs_one_session_and_writes_once_on_the_host"
       ],
       "composed": [
-        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow"
+        "test_configuration_skills.Presets.test_composed_onboarding_task_runs_in_the_shared_pr_workflow",
+        "test_configuration_binding.InstalledEntries.test_entries_are_listed_with_presets_over_the_shared_session_graph"
       ],
       "recovery": [
         "test_configuration_skills.Config.test_lost_write_response_is_settled_by_readback_not_retried",
         "test_configuration_skills.Config.test_concurrent_writer_rejects_the_stale_proposal_and_a_fresh_one_is_assessed",
         "test_recovery.ConfigurationRecovery.test_lost_write_response_is_settled_by_readback_after_restore",
-        "test_configuration_skills.Config.test_resource_declarations_are_bounded_to_current_target_files"
+        "test_configuration_skills.Config.test_resource_declarations_are_bounded_to_current_target_files",
+        "test_configuration_binding.EngineBound.test_a_lost_response_reconciles_to_the_retained_run",
+        "test_configuration_binding.EngineBound.test_questions_open_one_engine_gate_and_the_answer_resumes_with_a_new_claim",
+        "test_configuration_binding.EngineBound.test_definition_mode_mailbox_provider_and_output_checks_block"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). A library entry procedure with no installed workflow or descriptor listing; its native model and reasoning-effort controls are admitted and checked against the engine observation at library level only. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Configuration adapters are refused inside a dk-pr-fix plan (composition boundary). Listed in the plugin descriptor as config.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-preferences",
@@ -196,30 +211,39 @@
         26
       ],
       "behavior": [
-        "cf_workflows/configuration.py"
+        "cf_workflows/configuration.py",
+        "cf_workflows/configuration_binding.py",
+        "cf_workflows/workflows/dk-pr-fix/workflows/preferences.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/configure.yml",
+        "cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/preferences.py"
       ],
       "documentation": "docs/configuration-skills.md",
       "composition": "shared_workflow",
       "direct": [
         "test_configuration_skills.Preferences.test_new_preference_gets_explicit_modes_a_stable_id_and_readback",
         "test_configuration_skills.Preferences.test_overlapping_preferences_need_the_user_not_an_invented_winner",
-        "test_configuration_skills.NativeControls.test_controls_bind_the_saved_request_and_reach_both_writers"
+        "test_configuration_skills.NativeControls.test_controls_bind_the_saved_request_and_reach_both_writers",
+        "test_configuration_binding.EngineBound.test_preferences_and_explanations_use_their_own_presets"
       ],
       "composed": [
-        "test_configuration_skills.Preferences.test_composed_pr_admission_consumes_saved_scoped_preferences"
+        "test_configuration_skills.Preferences.test_composed_pr_admission_consumes_saved_scoped_preferences",
+        "test_dk_pr_fix.RelocatedReadOnlyRun.test_scoped_preferences_reach_only_their_modes_and_paths",
+        "test_dk_pr_fix.PreferenceHandoff.test_handoff_selects_what_the_library_resolve_selects"
       ],
       "recovery": [
         "test_configuration_skills.Preferences.test_preferences_are_personal_or_for_this_repository",
-        "test_configuration_skills.Selection.test_admission_rejects_malformed_preference_scopes_and_targets"
+        "test_configuration_skills.Selection.test_admission_rejects_malformed_preference_scopes_and_targets",
+        "test_dk_pr_fix.PreferenceHandoff.test_prepared_occurrences_receive_only_their_modes",
+        "test_dk_pr_fix.PreferenceHandoff.test_installed_selectors_are_the_library_selectors_verbatim"
       ],
       "status": {
         "parity": "not_implemented",
         "deterministic": "fixture_verified",
-        "installed_workflow": false,
+        "installed_workflow": true,
         "native_execution": "pending",
         "live_acceptance": "pending"
       },
-      "remaining": "A library entry procedure with no installed workflow or descriptor listing; its native model and reasoning-effort controls are admitted and checked against the engine observation at library level only. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
+      "remaining": "Listed in the plugin descriptor as preferences.yml, a preset over configure.yml that runs only the entry's native session; the host-side procedure keeps discovery, checks, admission and the single configuration writer (configuration_binding). Through engine 8758775 every entry session blocks: the engine records no operation receipt, and a per-run reasoning effort has no engine parameter. It has never run through a released engine. Runs only as an engine-managed native session through the installed workflow after a released engine ships Agent Workflow #129/#130 (and #139 for supplied skills); no host/provider/engine combination is verified and live acceptance needs separate authorization."
     },
     {
       "skill": "dk-issue-alternatives",

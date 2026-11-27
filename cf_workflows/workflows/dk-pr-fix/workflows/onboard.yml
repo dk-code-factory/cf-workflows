@@ -1,0 +1,37 @@
+# Authored for cf-workflows (#26); no upstream counterpart. See docs/configuration-skills.md.
+# dk-repo-onboard: one read-only onboarding session over the host's current discovery.
+# It saves nothing; the host checks the report and returns it without persisting it.
+# A preset over the shared configure.yml: no helper container, PR or publication.
+name: cf-workflows:dk-repo-onboard
+'on':
+  workflow_call:
+    inputs:
+      mode:
+        # onboard.
+        type: string
+        default: onboard
+      prompt:
+        type: string
+        required: true
+      model:
+        type: string
+        default: ''
+      input:
+        type: object
+        required: true
+      turns:
+        type: number
+        default: 8
+    outputs:
+      onboard:
+        value: ${{ jobs.session.outputs.onboard }}
+jobs:
+  session:
+    if: ${{ inputs.mode == 'onboard' }}
+    uses: workflows/configure.yml
+    with:
+      mode: ${{ inputs.mode }}
+      prompt: ${{ inputs.prompt }}
+      model: ${{ inputs.model }}
+      input: ${{ inputs.input }}
+      turns: ${{ inputs.turns }}

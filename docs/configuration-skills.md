@@ -4,8 +4,9 @@
 `cf-workflows:dk-preferences` are thin entries over the shared workflow
 (#26). [`cf_workflows/entries.py`](../cf_workflows/entries.py) defines them and
 [`cf_workflows/configuration.py`](../cf_workflows/configuration.py) holds their
-adapter procedures. Like the other library operations, they are not wired into an
-installed workflow yet (see [What remains](#what-remains)).
+adapter procedures. The procedures run on the host. Each native session runs
+through the entry's [installed workflow](#installed-workflow), and none of them
+has run through a released engine yet (see [What remains](#what-remains)).
 
 ## Entries
 
@@ -47,6 +48,106 @@ scopes do not match it, and `dk-pr-fix` preflight rejects it.
 Composition: a `dk-pr-fix` plan may select `onboard-repository` as a read-only
 task. It is admitted like any baseline adapter and passed to the installed
 workflow's inputs. The two configuration adapters reject outside their entries.
+
+## Installed workflow
+
+The plugin descriptor lists the three entries. Each is a preset over the shared
+session graph [`workflows/configure.yml`](../cf_workflows/workflows/dk-pr-fix/workflows/configure.yml):
+
+| Entry | Workflow | Modes | JSON schema |
+| --- | --- | --- | --- |
+| `dk-repo-onboard` | `workflows/onboard.yml` | `onboard` | `onboard`: the report sections |
+| `dk-config` | `workflows/config.yml` | `explain`, `change` | `explain`; `change`: outcome, summary, operations, questions, resolutions |
+| `dk-preferences` | `workflows/preferences.yml` | `change` | `change` |
+
+`configure.yml` has one job per mode. Each job runs one `agent/run` on the
+literal `agents/leaf.yaml`, with no `skill` selection, the mode's named schema,
+`repair-attempts: 0` and `with.model` from the `model` input. The graph has no
+helper container, PR capture, publication stage, gate or secret, and no
+request or PR input: the target (a repository or a PR) travels in the typed
+assignment, so a repository target needs no invented PR. A preset runs the
+shared graph only for its own modes.
+
+The procedure stays on the host: discovery, the configuration view, the report
+and proposal checks, the shared structural and semantic admission, and the
+configuration write through [`writes.py`](acceptance.md#configuration-writes)
+with its readback. So the installed graph carries no second writer or
+validator, and the configuration store never enters a helper container. This is
+the same split as the installed `dk-pr-fix` preflight, which recovers and writes
+back configuration on the host ([acceptance reuse](acceptance.md#installed-preflight)).
+
+### Engine binding
+
+[`configuration_binding.EngineTransport`](../cf_workflows/configuration_binding.py)
+implements the procedures' transport over an engine port. It extends the
+[validator binding](semantic.md#engine-binding), so `capabilities()`, the
+shared validator and the clarification gates (`input_gates`, `open_input_gate`)
+use `workflows/assess.yml` as before. `native_session(task)` runs the entry's
+preset:
+
+- The preset is chosen by the assignment's entry and mode. Another mode, another
+  entry or another role blocks, and so does a `workflows/agents/leaf.yaml` whose
+  SHA-256 differs from the admitted definition digest.
+- The typed input holds the assignment and the exact text of every readable
+  file, read again and checked against its admitted digest, so the session needs
+  no file access. An input larger than the engine's task mailbox (1 MiB less a
+  64 KiB reserve) blocks before any run.
+- The run is correlated by the assignment's claim. A replayed claim returns the
+  engine's retained run, so a lost response never starts a second session.
+- The `model` control is the step's `with.model`, and the engine must report the
+  same model. A per-run `reasoning_effort` has no engine parameter (it is an
+  agent definition field), so it blocks before any run.
+- Proposal operations arrive as JSON strings, as the leaf role's report contract
+  asks for operation objects. The binding decodes them before the procedure
+  applies them; a string that is not JSON blocks.
+
+| Observation field | Source |
+| --- | --- |
+| `session_id` | Observed: the step's opaque `agent` reference |
+| `agent` | Observed provider, which must be the assigned agent's |
+| `role`, `definition_sha256` | Fixed by the admitted step: the literal leaf definition whose bytes the binding pins |
+| `skills_loaded` | Fixed by the step and the engine: no `skill` selection, and managed sessions exclude discovered skills |
+| `claim` | The correlation key of the run |
+| `native` | Observed `model`, when a model was chosen |
+| `operations` | Not recorded by engine `8758775` for native tasks |
+
+Without an operation receipt the binding reports `operations: null`, and the
+procedure blocks: *the engine recorded no operation receipt for the entry
+session, so its read-only boundary is unverified*. So, with this engine, every
+onboarding, explanation and saved change blocks before anything is reported or
+written. It needs an engine that records the task's tool operations, as the
+validator binding does.
+
+## Per-task preference handoff
+
+Installed `dk-pr-fix` passes accepted preferences to occurrences with their
+scope ([semantic assessment](semantic.md#installed-workflow)).
+[`prfix/preferences.py`](../cf_workflows/workflows/dk-pr-fix/workflows/helpers/prfix/preferences.py)
+narrows them per task:
+
+- **Prepare.** A scoped preference reaches only the occurrences of its modes:
+  writers implement, review adapters review. A read-only occurrence of another
+  kind gets none. An unscoped preference reaches every occurrence, as before.
+- **Claim.** The claim adds `preferences` when the occurrence has a scoped
+  preference: the mode, the PR paths the capture lists, the selected scoped
+  preferences with the captured paths each one selects and whether it needs its
+  condition, and a `rule`. A reviewer reviews exactly the captured paths, so it
+  gets only the preferences that select one of them. A writer may change paths
+  the PR does not change yet, so it gets every scoped preference of its mode;
+  one that selects no captured path is listed with no paths, and the rule
+  applies each listed preference to any path the writer changes that its scope
+  includes and does not exclude. A prompt-only preference (empty `include`) is
+  kept as conditional. The `binding` covers only the selected records.
+
+The selectors are a verbatim copy of `configuration.py` (a test keeps them
+identical). A test checks that a reviewer's records (id, text, scope, paths,
+condition) are the ones `resolve()` selects for the captured paths, and that a
+writer's are those plus the other preferences of its mode with no paths.
+Prompt ids are unique within an occurrence, so ordering by id needs no
+`source`. The captured paths and the occurrence's prompts are both in the claim
+fingerprint, so an unchanged occurrence keeps its accepted result, and a
+changed preference that the occurrence does not receive leaves the binding
+unchanged.
 
 ## Sessions
 
@@ -287,6 +388,26 @@ counts and, where it matters, the number of distinct sessions.
   that stays unchanged when an unrelated preference changes; conservative
   overlap detection; and malformed scopes and request targets.
 
+[`tests/test_configuration_binding.py`](../tests/test_configuration_binding.py)
+runs the same procedures through `configuration_binding.EngineTransport` over a
+fake engine port. The port records every installed-workflow run, keeps one run
+per correlation key and keeps gate records; an unscripted session or validator
+run fails. It covers the descriptor rows, `SKILL.md` files and the preset and
+`configure.yml` shapes; onboarding that blocks without an operation receipt and
+saves nothing; with a **hypothetical** receipt (engine `8758775` records none),
+onboarding from the exact source text, a saved change written once on the host
+and settled again with no run, a lost response reconciled to the retained run,
+questions through one engine gate resumed with a new claim, and the
+`dk-preferences` and explanation presets; the model control and a blocked
+reasoning effort; and definition, mode, mailbox, provider and output checks.
+
+`tests/test_dk_pr_fix.py` covers the [handoff](#per-task-preference-handoff):
+the verbatim selectors, agreement with `resolve()`, a writer keeping a
+preference that selects no captured path while a reviewer drops it, mode
+narrowing at prepare, and a writer's claim from a relocated read-only install
+that receives both implementation preferences, one with its changed path and
+one with none, and no review preference.
+
 ## What remains
 
 - These procedures run as engine-managed native sessions only once a released
@@ -295,23 +416,19 @@ counts and, where it matters, the number of distinct sessions.
   [#130](https://github.com/dk-code-factory/agent-workflow/issues/130). Both are
   closed on upstream main, but no release contains them. No local controller or
   launcher stands in for either.
-- The installed graph is PR-targeted, and its container helpers carry only the
-  `prfix` bundle. Running these entries through it needs a repository target in
-  that graph and the configuration write path inside the helper bundle. Copying
-  `configuration.py`, admission, the validator and the write ledger into the
-  bundle would be the second writer and validator that #26 rules out, so the
-  installed presets wait for a way to run the shared library from the installed
-  package.
-- Plugin skill entries (`SKILL.md` and descriptor rows) and their `plugin
-  check`/`plugin test` fixtures wait for those installed presets
-  ([packaging](packaging.md)).
-- These features have no equivalent yet: saved instruction-source overrides
-  (admission consumes the root guidance closure for every run, so an override
-  changes what governs all runs and needs its own admission design) and
-  per-task preference handoffs in the installed `dk-pr-fix` workflow (accepted
-  preferences reach occurrences with their scope as data; the helpers do not
-  narrow them to matching paths).
-- Native controls are admitted and checked at library level. The installed
-  graph does not pass them to an engine yet, so no provider is shown to honor
-  them.
+- Through engine `8758775` every entry session blocks: the engine records no
+  operation receipt for native tasks (see [Engine binding](#engine-binding)).
+- A per-run `reasoning_effort` blocks in the binding: the engine takes it only
+  from an agent definition. A `model` is passed and must be reported back; no
+  provider is shown to honor either.
+- `plugin test` fixtures are not added: the upstream fixture runner needs a
+  case for every bound skill, and the other skills' container jobs are
+  unsupported ([packaging](packaging.md#what-remains-blocked)).
+- Saved instruction-source overrides have no equivalent yet. Admission consumes
+  the root guidance closure for every run, so an override changes what governs
+  all runs and needs its own admission design.
+- The per-task handoff selects preferences by the PR's captured paths. A
+  writer's preference that selects no captured path is applied by the session
+  to the paths it changes; nothing checks that. A condition is passed to the
+  session, never evaluated.
 - Real configuration-agent and validator adherence needs separate authorization.

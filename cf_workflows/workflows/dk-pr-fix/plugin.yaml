@@ -64,6 +64,15 @@ skills:
   - name: dk-pr-split
     path: skills/dk-pr-split/SKILL.md
     workflow: workflows/pr-split.yml
+  - name: dk-repo-onboard
+    path: skills/dk-repo-onboard/SKILL.md
+    workflow: workflows/onboard.yml
+  - name: dk-config
+    path: skills/dk-config/SKILL.md
+    workflow: workflows/config.yml
+  - name: dk-preferences
+    path: skills/dk-preferences/SKILL.md
+    workflow: workflows/preferences.yml
 resources:
   - LICENSE
   - agents.yml
