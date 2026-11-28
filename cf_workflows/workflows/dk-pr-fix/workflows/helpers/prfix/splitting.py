@@ -1034,7 +1034,10 @@ def _checkout(root, commit, directory):
 
 
 def _run(argv, directory):
-    """One validation command in its own session, so a timeout kills every process it started."""
+    """One validation command in its own session, so a timeout kills its whole process group.
+
+    A descendant that left the group can keep the output pipes open; the wait for them is bounded.
+    """
     try:
         env = {key: value for key, value in os.environ.items() if key not in PRIVATE_ENV}
         process = subprocess.Popen(argv, cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -1048,7 +1051,12 @@ def _run(argv, directory):
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.communicate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.stdout.close()
+            process.stderr.close()
+            process.wait()
         return {'argv': argv, 'exit': None, 'output': f'timed out after {VALIDATION_TIMEOUT} seconds'}
     output = (stdout + stderr).decode('utf-8', 'replace')
     return {'argv': argv, 'exit': process.returncode, 'output': output[-VALIDATION_OUTPUT:]}
