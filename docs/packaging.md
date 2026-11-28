@@ -6,13 +6,14 @@ the Codex and Claude packages from it. That toolchain is merged on Agent
 Workflow's `main` but not released (see
 [What remains blocked](#what-remains-blocked)). This repository checks in no
 generated package and has no hand-maintained substitute: no host manifests,
-launchers, catalogs or archives. Prereleases publish the generated dual-host ZIP
+launchers, catalogs or archives. Releases publish the generated dual-host ZIP
 after the development check
 [builds the packages from the unreleased source](#reproducible-builds-against-unreleased-source)
 and verifies reproducibility. The release gate checks its checksums, ZIP and
 payload against the tagged source closure. See [installation](installation.md).
-Installation does not make the workflows runnable or certified; final releases
-remain blocked.
+Package publication and runtime qualification are separate. A numbered version
+requires the verified package; it does not make the workflows runnable or
+certified. Runtime qualification remains blocked.
 
 ## Descriptor
 
@@ -20,7 +21,7 @@ remain blocked.
 Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
 (`docs/PLUGIN_AUTHORING.md`):
 
-- `name: cf-workflows` and `version: 0.1.0-dev.1` are the suite identity from
+- `name: cf-workflows` and `version: 0.1.1` are the suite identity from
   [sources.json](../baselines/sources.json). The plugin version is independent of
   the engine version.
 - `engine-version: 0.2.2` is the exact engine version that upstream `plugin init`
@@ -109,7 +110,7 @@ as JSON, and exits 1 on a diagnostic. The status:
   version that differs from the suite identity;
 - lists each skill with its inventory parity status (currently
   `not_implemented`);
-- reports `releasable: false` with its blockers: the missing engine release,
+- reports runtime qualification as `releasable: false` with its blockers: the missing engine release,
   the missing helper state mount, the fixture runner's missing container-job
   support, the missing operation receipt for native tasks, the non-runnable
   suite,
@@ -227,7 +228,7 @@ report as development assets. The
 `tests/test_package.py` case that builds the real CLI is skipped unless
 `CF_AGENT_WORKFLOW` names the clone. This verifies unreleased upstream source
 only. It is not a supported or released toolchain and installs and runs nothing.
-Publishing its development package does not remove any runtime or acceptance
+Publishing its package does not remove any runtime or acceptance
 blocker.
 
 ## What remains blocked

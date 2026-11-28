@@ -29,8 +29,8 @@ equal the suite version in [`sources.json`](../baselines/sources.json). To
 release, push the tag `v<version>` on a commit of `main`:
 
 ```sh
-git tag -a v0.1.0-dev.1 -m 'cf-workflows 0.1.0-dev.1'
-git push origin v0.1.0-dev.1
+git tag -a v0.1.1 -m 'cf-workflows 0.1.1'
+git push origin v0.1.1
 ```
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) runs the
@@ -39,12 +39,13 @@ whole CI on the tag, then
 
 - rejects a tag that is not `v` plus the plugin version, a tag that does not
   point at the checked-out commit and a failing package check;
-- for a final version (no prerelease part), rejects the release unless the
-  package check reports `releasable: true`, and lists the blockers;
-- for a prerelease version (such as `0.1.0-dev.1`), allows a **development
-  package**: a GitHub prerelease, never marked latest, whose notes distinguish
-  installation from execution, say the suite is not runnable and list every
-  open release blocker.
+- for a numbered version (no prerelease part), requires a verified dual-host
+  package and publishes a normal GitHub release; `0.1.1` uses this path;
+- for a prerelease version, marks the GitHub release as a prerelease and never
+  marks it latest; source-only snapshots remain available through the gate;
+- for every version, reports runtime qualification and lists all its blockers
+  in the notes and package-check asset. Runtime gaps do not force a `-dev`
+  suffix or change the requested package version.
 
 The assets are the tagged source (`git archive`), package check report,
 dual-host marketplace ZIP, toolchain build report and `SHA256SUMS`. The release
@@ -54,12 +55,14 @@ so an older package cannot leak into the release.
 
 The ZIP is installable through [these steps](installation.md). Its exact engine
 pin still has no released download, and workflow execution has additional
-[blockers](packaging.md#what-remains-blocked). A development package claims no
-runtime support; the final-version gate remains unchanged. The gate can also
-assemble a source-only snapshot when invoked without `--package-dir`, but the
-release workflow requires the verified build artifact and always supplies it.
+[blockers](packaging.md#what-remains-blocked). A numbered package version claims
+no runtime support. The package check's legacy `releasable` field remains the
+runtime qualification result; `distribution_ready` in the release summary is
+true only after the supplied package passes verification. A numbered release
+without `--package-dir` fails. The release workflow requires the verified build
+artifact and always supplies it.
 
 To start the next version, change the version in `plugin.yaml` and
 `sources.json` and in the places that quote it (README, packaging guide,
-contracts README and tests). `closure.json` digests `plugin.yaml`, so
+contracts README, installation guide and tests). `closure.json` digests `plugin.yaml`, so
 regenerate it with `python3 -B -m cf_workflows.dk_pr_fix`.

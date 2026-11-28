@@ -91,7 +91,7 @@ class Descriptor(unittest.TestCase):
             'duplicate key': DESCRIPTOR + 'name: other\n',
             'version range': DESCRIPTOR.replace('engine-version: 0.2.2', 'engine-version: ^0.2.2'),
             'v prefix': DESCRIPTOR.replace('engine-version: 0.2.2', 'engine-version: v0.2.2'),
-            'leading zero prerelease': DESCRIPTOR.replace('version: 0.1.0-dev.1', 'version: 0.1.0-01'),
+            'leading zero prerelease': DESCRIPTOR.replace('version: 0.1.1', 'version: 0.1.0-01'),
             'one host': DESCRIPTOR.replace('[codex, claude]', '[codex]'),
             'unknown host': DESCRIPTOR.replace('[codex, claude]', '[codex, claude, cursor]'),
             'duplicate host': DESCRIPTOR.replace('[codex, claude]', '[codex, codex]'),
@@ -315,7 +315,7 @@ if args[:3] == ['plugin', 'check', '--json']:
 if args[:3] != ['plugin', 'build', '--target'] or args[4] != '--output' or len(args) != 7:
     sys.exit('unconfigured fake operation ' + json.dumps(args))
 targets, output, source = sorted(args[3].split(',')), Path(args[5]), Path(args[6])
-name, version = 'cf-workflows', '0.1.0-dev.1'
+name, version = 'cf-workflows', '0.1.1'
 files = {{}}
 for directory, _, entries in os.walk(source):
     for entry in entries:

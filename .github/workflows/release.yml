@@ -1,9 +1,9 @@
 name: Release
 
 # Push a tag `v<plugin version>` (the version in plugin.yaml and
-# baselines/sources.json) to release. A prerelease version publishes a
-# development package; a final version is refused until the
-# package check reports `releasable: true`. See docs/release.md.
+# baselines/sources.json) to release verified packages. The version determines
+# GitHub prerelease status; runtime qualification is reported independently.
+# See docs/release.md.
 on:
   push:
     tags: ['v*']
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Download verified development packages
+      - name: Download verified packages
         uses: actions/download-artifact@v7
         with:
           name: plugin-packages
