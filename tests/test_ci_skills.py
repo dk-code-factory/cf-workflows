@@ -1469,6 +1469,14 @@ class FlakeDiscovery(unittest.TestCase):
         self.assertEqual((result['status'], result['tests'], result['covered']), ('complete', [], True))
         self.assertEqual(self.transport.calls['native_session'], 0)
 
+    def test_deeply_nested_declaration_is_ignored_as_malformed(self):
+        from prfix import flakes as installed
+        nested = '```dk-flaky\n' + '[' * 100000 + ']' * 100000 + '\n```\n'
+        issue = {'number': 8, 'title': 'Flaky', 'body': nested + declaration()}
+        for module in (ci_flakes, installed):
+            with self.subTest(module=module.__name__):
+                self.assertEqual([item['test'] for item in module.declarations(issue)], ['TestFlaky'])
+
     def test_the_entry_has_no_authority(self):
         result = self.inspect(request={'repository': 'github.com/owner/repo', 'instructions': 'Scan.',
                                        'authorizations': {'create_issue': grant('issue')}})

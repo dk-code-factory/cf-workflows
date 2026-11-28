@@ -366,7 +366,10 @@ def load_json(raw):
         raise AdmissionError('$', 'nonfinite JSON number: ' + value)
     require(len(raw.encode('utf-8') if isinstance(raw, str) else raw) <= MAX_TEXT * 16,
             '$', 'JSON exceeds byte bound')
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    try:
+        return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    except RecursionError:
+        raise AdmissionError('$', 'JSON nesting exceeds depth limit') from None
 
 
 # -- Resource resolution ----------------------------------------------------------------------

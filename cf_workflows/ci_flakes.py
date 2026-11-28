@@ -98,7 +98,7 @@ def declarations(issue):
     for block in DECLARATION.findall(content):
         try:
             value = json.loads(block)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         if (isinstance(value, dict) and value.get('flaky') is True
                 and all(isinstance(value.get(key), str) and value[key].strip() for key in (*CONTEXT, 'signature'))
