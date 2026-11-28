@@ -1469,6 +1469,19 @@ class FlakeDiscovery(unittest.TestCase):
         self.assertEqual((result['status'], result['tests'], result['covered']), ('complete', [], True))
         self.assertEqual(self.transport.calls['native_session'], 0)
 
+    def test_an_unobserved_signature_stays_reported_beside_a_linked_sibling(self):
+        from prfix import flakes as installed
+        self.github.issues[0]['body'] += declaration(signature='never logged')
+        target = {'owner': 'owner', 'name': 'repo', 'repository': 'github.com/owner/repo'}
+        options = {key: {'value': value} for key, value in installed.OPTIONS.items()}
+        for module in (ci_flakes, installed):
+            with self.subTest(module=module.__name__):
+                found = module.collect(self.github, target, options, 1_700_000_000.0)
+                [flaky] = [item for item in found['tests'] if item['test'] == 'TestFlaky']
+                self.assertEqual([link['signature'] for link in flaky['links']], ['intermittent gateway timeout'])
+                self.assertIn(('TestFlaky', 'never logged'),
+                              [(item['test'], item['signature']) for item in found['declared_unobserved']])
+
     def test_deeply_nested_declaration_is_ignored_as_malformed(self):
         from prfix import flakes as installed
         nested = '```dk-flaky\n' + '[' * 100000 + ']' * 100000 + '\n```\n'

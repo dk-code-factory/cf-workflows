@@ -205,10 +205,11 @@ def collect(github, target, options, now, targets=None):
             if matching:
                 links.append({'issue': item['issue'], 'number': item['number'], 'signature': item['signature'],
                               'observations': matching})
-                linked_issues.add((item['issue'], key))
+                linked_issues.add((item['issue'], key, item['signature']))
         tests.append({**dict(zip(CONTEXT, key)), 'observations': ids,
                       'status': 'linked' if links else 'candidate', 'links': links})
-    unobserved = [item for item in declared if (item['issue'], tuple(item[f] for f in CONTEXT)) not in linked_issues]
+    unobserved = [item for item in declared
+                  if (item['issue'], tuple(item[f] for f in CONTEXT), item['signature']) not in linked_issues]
     evidence = {'repository': target['repository'], 'since': since, 'runs': len(runs), 'issues': len(issues),
                 'targets': targets, 'observations': observations, 'tests': tests,
                 'declared_unobserved': unobserved, 'limits_reached': limits, 'gaps': gaps}
