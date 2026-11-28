@@ -440,6 +440,11 @@ class Shared(unittest.TestCase):
         report.update(changes)
         return report
 
+    def test_deletion_only_edits_are_edits(self):
+        before = b"# Guide\n\nRun it.\nIt runs.\n\nEnd.\n"
+        self.assertEqual(prose.check_edits("a.md", before, before.replace(b"It runs.\n", b""), {2, 3}, []), [[4, 4]])
+        self.assertEqual(prose.check_edits("a.md", b"Run it.\nIt runs.\n", b"Run it.\n", {0, 1}, []), [[1, 1]])
+
     def test_comment_delimiter_edits_cannot_reclassify_untouched_lines(self):
         before = b"int a;\n/* one\n */\nint b = 1;\n/* two */\n"
         for after in (before.replace(b" */\n", b" * more.\n", 1), before.replace(b" */\n", b"", 1)):

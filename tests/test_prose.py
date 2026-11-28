@@ -553,6 +553,10 @@ class SourceAndCodeBlocks(Fixture):
         self.assertEqual(lines('a.go', 'var s = `C:\\`\n// real\n'), {1})  # Go raw strings have no escapes.
         with self.assertRaises(prose.Blocked):  # Operators in changed prose are kept too.
             prose.check_edits('a.md', b'Use it when x > y.\n', b'Use it when x < y.\n', {0}, [])
+        # A deletion-only edit is an edit, located at the line now at its position.
+        guide = b'# Guide\n\nRun it.\nIt runs.\n\nEnd.\n'
+        self.assertEqual(prose.check_edits('a.md', guide, guide.replace(b'It runs.\n', b''), {2, 3}, []), [[4, 4]])
+        self.assertEqual(prose.check_edits('a.md', b'Run it.\nIt runs.\n', b'Run it.\n', {0, 1}, []), [[1, 1]])
         # Editing a block-comment delimiter cannot turn untouched code into comment (or back).
         source = b'int a;\n/* one\n */\nint b = 1;\n/* two */\n'
         for after in (source.replace(b' */\n', b' * more.\n', 1), source.replace(b' */\n', b'', 1)):

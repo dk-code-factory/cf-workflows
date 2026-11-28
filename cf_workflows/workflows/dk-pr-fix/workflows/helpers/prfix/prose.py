@@ -339,7 +339,8 @@ def check_edits(path, before, after, allowed, constraints):
             raise Blocked(path, f'edit at line {j1 + 1} turns prose into code or code into prose')
         removed.append(''.join(old[i1:i2]))
         added.append(''.join(new[j1:j2]))
-        touched.update(range(j1, j2))
+        # A deletion is an edit too: it touches the line now at its position.
+        touched.update(range(j1, j2) if j2 > j1 else [min(j1, max(len(new) - 1, 0))])
     before_text, after_text = ''.join(old), ''.join(new)
     if [match.group(0) for match in FENCE.finditer(before_text)] != [
             match.group(0) for match in FENCE.finditer(after_text)]:
