@@ -1040,6 +1040,34 @@ class InstalledApprovers(ApproverFixture):
         self.assertEqual({method for method, _ in transport.routes}, {'GET'})
         self.assertEqual(sum(1 for _, path in transport.routes if path.endswith('/teams')), 1, 'teams read once')
 
+    def test_a_missing_codeowners_account_cannot_approve_but_other_failures_block(self):
+        from prfix.approvers import GitHubEvidence
+        from prfix.capture import CommandFailed
+
+        def failure(status):
+            return CommandFailed('gh', 1, json.dumps({'message': 'x', 'status': status}).encode())
+
+        class Transport:
+            host = 'github.com'
+
+            def __init__(self, permission, account):
+                self.failures, self.routes = {'permission': permission, 'users/': account}, []
+
+            def request(self, method, path):
+                self.routes.append(path)
+                for key, status in self.failures.items():
+                    if key in path and status is not None:
+                        raise failure(status)
+                return {'login': 'gone'}
+
+        transport = Transport('404', '404')
+        self.assertEqual(GitHubEvidence(transport).permission('github.com/owner/repo', 'gone'), 'no such account')
+        self.assertEqual(transport.routes, ['repos/owner/repo/collaborators/gone/permission', 'users/gone'])
+        # The account exists (the repository read failed) or the read failed otherwise: still a blocker.
+        for permission, account in (('404', None), ('404', '500'), ('403', '404')):
+            with self.subTest(permission=permission, account=account), self.assertRaises(CommandFailed):
+                GitHubEvidence(Transport(permission, account)).permission('github.com/owner/repo', 'gone')
+
 
 class InstalledApproverPreflight(ApproverFixture):
     def preflight(self, **changes):

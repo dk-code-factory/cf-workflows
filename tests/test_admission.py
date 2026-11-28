@@ -580,6 +580,8 @@ class Bootstrap(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(admission.AdmissionError):
                 admission.load_json(raw)
         self.assertEqual(admission.load_json(json.dumps({'a': 1})), {'a': 1})
+        with self.assertRaisesRegex(admission.AdmissionError, 'depth'):
+            admission.load_json('[' * 100000 + ']' * 100000)
 
 
 if __name__ == '__main__':

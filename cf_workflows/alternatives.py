@@ -349,7 +349,7 @@ def compatibility(*, route, request, deployment, repository, transport, target, 
                 'error': {'path': 'legacy', 'message': 'retained dk-workflows assignments are not imported; resume '
                                                        'them in their original installation'}}
     delegates = entries.ENTRIES['dk-alternatives-review']['delegates']
-    if route not in delegates:
+    if not isinstance(route, str) or route not in delegates:
         return {'status': 'rejected', 'error': {'path': 'route', 'message': 'route must be whole-problem or branch'}}
     return _execute('dk-alternatives-review', delegate=delegates[route], scope=route, request=request,
                     deployment=deployment, repository=repository, transport=transport, state=state, target=target,

@@ -431,10 +431,17 @@ class Provisional(unittest.TestCase):
         covered = app.coverage(self.root, self.transport, ledger, plan, {})
         self.assertEqual((covered["complete"], covered["waiting"], covered["settled"]), (False, False, True),
                          "withheld CI does not keep cycles repeating once waits are exhausted")
-        completion = self.handle("completion", plan, {}, "completion")["result"]["output"]
+        executed = self.handle("completion", plan, {}, "completion")
+        completion = executed["result"]["output"]
         self.assertEqual((completion["complete"], completion["ready"], completion["provisional"]["provisional"]),
                          (False, False, True))
         self.assertEqual(completion["withheld"], ["current_head_ci"])
+        # The settled provisional checkpoint validates on resume like the result execute accepted.
+        request = {"protocol": "action-v1", "phase": "validate_checkpoint",
+                   "input": {"plan": "artifacts/" + digest(plan) + ".json"},
+                   "context": {"operation_key": "completion", "execution_fingerprint": plan["execution_fingerprint"]},
+                   "checkpoint": {"result": executed["result"]}}
+        self.assertTrue(action.handle("completion", request, self.root, self.transport)["valid"])
         # Once the metadata agrees, CI is ordinary missing work again.
         self.catch_up()
         covered = app.coverage(self.root, self.transport, ledger, plan, {})

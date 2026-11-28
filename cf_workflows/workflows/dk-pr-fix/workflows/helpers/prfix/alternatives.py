@@ -424,7 +424,8 @@ def check_selection(output, *, comparison, totals, policy, answer, citable):
         qualify(output['confident'] and not by_id[choice]['material_doubts'],
                 'a confident winner without unresolved material doubts')
         others = [totals[key] for key, item in by_id.items() if key != choice and item['feasible']]
-        qualify(all(totals[choice] - other >= policy['min_score_gap'] for other in others),
+        qualify(all(totals[choice] > other and totals[choice] - other >= policy['min_score_gap']
+                    for other in others),
                 'the winner needs a unique lead of at least min_score_gap')
         if not others:
             rejected = output.get('rejected_alternatives')
@@ -996,7 +997,7 @@ def settings(raw, *, entry, mode, adapter, request):
     if entry:
         routes = ENTRIES[entry]
         if entry == 'dk-alternatives-review':
-            require(raw.get('route') in routes, 'settings.alternatives.route',
+            require(isinstance(raw.get('route'), str) and raw['route'] in routes, 'settings.alternatives.route',
                     'the compatibility entry needs an explicit route: whole-problem or branch')
             route = raw['route']
         else:
@@ -1007,7 +1008,9 @@ def settings(raw, *, entry, mode, adapter, request):
         caller = None
     else:
         require('route' not in raw, 'settings.alternatives.route', 'only the compatibility entry takes a route')
-        delegate = next(name for name, value in ADAPTERS.items() if value == adapter)
+        delegate = next((name for name, value in ADAPTERS.items() if value == adapter), None)
+        require(delegate is not None, 'options.tasks', 'an alternatives task runs the issue-alternatives or '
+                'pr-alternatives adapter')
         # dk-pr-fix composes whole-problem analysis on its PR; dk-pr-review composes branch analysis.
         caller = 'cf-workflows:dk-pr-fix' if mode == 'fix' else 'cf-workflows:dk-pr-review'
         require(COMPOSERS[caller] == SCOPES[delegate], 'options.tasks',

@@ -39,6 +39,10 @@ class CoreTests(unittest.TestCase):
         number = 9007199254740993
         self.assertEqual(core.bounded_json('{"id":' + str(number) + '}')["id"], number)
 
+    def test_json_nesting_beyond_the_recursion_limit_is_malformed_json(self):
+        with self.assertRaisesRegex(ValueError, "depth"):
+            core.bounded_json("[" * 100000 + "]" * 100000)
+
     def test_owned_directories_preserve_unrelated_files_and_reject_symlinks(self):
         (self.state / "keep.txt").write_text("unrelated")
         with self.assertRaisesRegex(ValueError, "nonempty"):

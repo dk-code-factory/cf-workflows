@@ -161,9 +161,9 @@ class Fixture(unittest.TestCase):
         return {"assessments": assessments, "replies": replies}
 
     def respond(self, value=None):
-        """The responder's report: retained at acceptance (as app.accept does), then accepted."""
+        """The responder's report: checked, retained at acceptance (as app.accept does), then accepted."""
         report = self.report(deliverables={"feedback": value or self.drafts()})
-        responses.accept(self.root, self.github, self.plan, report)
+        responses.retain_feedback(self.root, self.plan, *responses.accept(self.root, self.github, self.plan, report))
         self.claims += 1
         task = self.plan["tasks"][0]
         fingerprint = app._fingerprint(self.snapshot, task, self.ledger)
@@ -428,6 +428,26 @@ class HonestStatus(Fixture):
                     responses.accept(self.root, self.github, self.plan,
                                      self.report(deliverables={"feedback": value}))
         self.assertEqual(self.github.counts["write"], 0)
+
+    def test_a_rejected_responder_report_retains_nothing_and_binds_no_correction(self):
+        view = self.view()
+        missing = self.drafts(view)
+        missing["assessments"].pop()
+        with self.assertRaisesRegex(feedback.FeedbackError, "unassessed: comment:41"):
+            responses.accept(self.root, self.github, self.plan, self.report(deliverables={"feedback": missing}))
+        record = responses._record(self.root, self.plan, read_only=True)
+        try:
+            self.assertEqual({key: record.history(key) for key in view.sources}, {key: [] for key in view.sources})
+        finally:
+            record.close()
+        # The same-session correction may decide the rename differently: nothing was retained.
+        corrected = self.drafts(view)
+        corrected["assessments"][0] = assessment(view, "inline:30",
+                                                 request("rename", "rename `value` to `count`", "rejected"))
+        corrected["replies"][0]["body"] = "Kept `value`: it is the public field name."
+        _, assessments = responses.accept(self.root, self.github, self.plan,
+                                          self.report(deliverables={"feedback": corrected}))
+        self.assertEqual(assessments, corrected["assessments"])
 
     def test_provisional_analysis_withholds_replies(self):
         self.respond()
