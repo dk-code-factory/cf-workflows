@@ -229,6 +229,20 @@ class Closure(unittest.TestCase):
             with (root / 'workflows/helper.yml').open('ab') as stream:
                 stream.write(b'# \xff\n')
 
+        def commented_files(root):
+            text = (root / 'workflows/ci-poll.yml').read_text().replace(
+                '      files:\n      - helpers/\n', '      files:\n      - helpers/\n# note\n      - helpers/absent.py\n')
+            (root / 'workflows/ci-poll.yml').write_text(text)
+
+        def commented_definitions(root):
+            text = (root / 'workflows/native.yml').read_text().replace(
+                '            leaf: agents/leaf.yaml\n', '            leaf: agents/leaf.yaml\n  # note\n'
+                '            absent: agents/absent.yaml\n')
+            (root / 'workflows/native.yml').write_text(text)
+
+        def invalid_agent(root):
+            (root / 'workflows/agents/verifier.yaml').write_text('name: "pr-fix-verifier"\n')
+
         def normalization(root):
             (root / 'extra').mkdir()
             for form in ('NFC', 'NFD'):
@@ -246,6 +260,9 @@ class Closure(unittest.TestCase):
                  'invalid UTF-8 skill': (invalid_utf8, 'SKILL.md: must be UTF-8'),
                  'invalid UTF-8 workflow': (invalid_workflow_utf8, 'helper.yml: must be UTF-8'),
                  'normalization collision': (normalization, 'normalizing hosts'),
+                 'helper after a comment': (commented_files, 'helpers/absent.py'),
+                 'agent after a comment': (commented_definitions, 'agents/absent.yaml'),
+                 'invalid agent definition': (invalid_agent, 'workflows/agents/verifier.yaml'),
                  'undeclared': (plant, 'notes.txt'), 'unreachable workflow': (unreachable, 'workflows/extra.yml'),
                  'missing resource': (missing, 'request.example.json'), 'symlink': (link, 'skills/dk-pr-fix/SKILL.md'),
                  'hand-maintained manifest': (manifest, '.codex-plugin'), 'case collision': (collision, 'license'),
@@ -263,6 +280,13 @@ class Closure(unittest.TestCase):
                 with self.assertRaises(package.PackageError) as raised:
                     package.check(root)
                 self.assertIn(path, str(raised.exception))
+
+    def test_a_comment_between_on_and_workflow_call_keeps_a_workflow_reusable(self):
+        root = copy_root(self.base / 'root')
+        text = (root / 'workflows/helper.yml').read_text().replace("'on':\n", "'on':\n# called only\n")
+        (root / 'workflows/helper.yml').write_text(text)
+        regenerate(root)
+        package.check(root)
 
     @staticmethod
     def skill(root, name, workflow, first=False):

@@ -483,6 +483,23 @@ class ReviewRegressions(Fixture):
                                     roots={**self.roots, name: self.config_root})
                 self.assertRejected(result, 'reserved name skill')
 
+    def test_escaped_or_unbalanced_backticks_never_hide_a_link(self):
+        for body in ('\\` [doc](secret.md) \\`', '` [doc](secret.md) ``', '`` [doc](secret.md) `',
+                     '``` [doc](secret.md) ``'):
+            with self.subTest(body=body):
+                self.assertEqual(admission.link_targets(body), ['secret.md'])
+        # Real spans, including ones holding shorter backtick runs, still hide their text.
+        self.assertEqual(admission.link_targets('`[a](a.md)` `` b`[c](c.md)`d `` [e](e.md)'), ['e.md'])
+
+    def test_links_across_line_ends_and_after_a_list_item_fence_are_found(self):
+        for body in ('[doc](\nsecret.md)', '[doc](\n  <secret.md>\n  "Title")', '[doc]:\n  secret.md',
+                     '- a\n  ```\n  code\ntext [doc](secret.md)\n',
+                     # Without a list item the indented fence runs to its closer.
+                     '  ```\ncode\n  ```\n[doc](secret.md)\n'):
+            with self.subTest(body=body):
+                self.assertIn('secret.md', admission.link_targets(body))
+        self.assertEqual(admission.link_targets('```\n[a](a.md)\n```\n[b](\nb.md)\n'), ['b.md'])
+
     def test_nested_lists_footnotes_and_parentheses(self):
         self.assertEqual(admission.link_targets('- Rules:\n    - see [policy](policy.md)\n\n  continued [c](c.md)\n'),
                          ['policy.md', 'c.md'])

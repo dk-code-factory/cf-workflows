@@ -479,11 +479,24 @@ class Evidence(Fixture):
         record['events'][1]['message']['content'][0]['tool_use_id'] = 'other'
         self.assertCoverage(self.single, [record], 'incomplete', 'no engine-observed invocation')
 
+    def test_a_non_object_tool_result_never_hides_a_later_successful_retry(self):
+        gateway = Gateway('claude', self.single)
+        record = gateway.session()
+        call, result = copy.deepcopy(record['events'][0]), copy.deepcopy(record['events'][1])
+        call['message']['content'][0]['id'] = 'first-call'
+        result['message']['content'][0] = {'type': 'tool_result', 'tool_use_id': 'first-call'}
+        for value in ('Error: skill unavailable', [{'type': 'text', 'text': 'Error'}]):
+            with self.subTest(value=value):
+                retried = {**record, 'events': [call, {**result, 'tool_use_result': value}, *record['events']]}
+                self.assertEqual(self.assertCoverage(self.single, [retried], 'covered')['invocations'], 1)
+
     def test_codex_consumption_fragment_must_carry_the_admitted_bytes_and_provenance(self):
         gateway = Gateway('codex', self.single)
         # The typed `skill` input alone is a request, not evidence.
         self.assertCoverage(self.single, [gateway.session(invoke=False)], 'incomplete', 'no engine-observed invocation')
         self.assertCoverage(self.single, [gateway.session(body='Other instructions.\n')], 'failed',
+                            'differ from the admitted bytes')
+        self.assertCoverage(self.single, [gateway.session(body='Lone \ud800 surrogate.\n')], 'failed',
                             'differ from the admitted bytes')
 
         def provenance(params):
@@ -502,11 +515,15 @@ class Evidence(Fixture):
         def malformed(params):
             params['item']['content'][0]['text'] = 'Use the lint skill.'
 
+        def content_object(params):
+            params['item']['content'] = {'text': params['item']['content'][0]['text']}
+
         for name, change, fragment in [('provenance', provenance, 'mismatched identity or provenance'),
                                        ('turn', turn, 'mismatched identity or provenance'),
                                        ('thread', thread, 'mismatched identity or provenance'),
                                        ('role', role, 'mismatched identity or provenance'),
-                                       ('malformed', malformed, 'fragment is malformed')]:
+                                       ('malformed', malformed, 'fragment is malformed'),
+                                       ('content object', content_object, 'mismatched identity or provenance')]:
             with self.subTest(name):
                 result = self.assertCoverage(self.single, [gateway.session(fragment=change)], 'failed', fragment)
                 self.assertEqual(result['invocations'], 0)
