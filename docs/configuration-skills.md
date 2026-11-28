@@ -309,8 +309,9 @@ path.
   take the entry's `default_applies_to`.
 - **Updates.** An update keeps the saved modes, so a changed default never
   reinterprets a saved record.
-- **IDs and duplicates.** New records get a stable `pref-` ID. An exact
-  duplicate reuses the saved record.
+- **IDs and duplicates.** New records get a stable `pref-` ID, never one
+  another saved record holds (an updated record keeps its original ID). An
+  exact duplicate reuses the saved record.
 - **Overlaps.** `overlaps()` finds changed records whose modes and selectors may
   overlap another applicable record. It is conservative: globs compare by their
   literal prefix, and conditions are never evaluated. The proposal must settle

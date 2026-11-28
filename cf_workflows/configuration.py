@@ -711,8 +711,15 @@ def apply_operations(document, operations, name, where, options, repository=None
                 if previous is not None:
                     changes['removed'].append(previous['id'])
                 continue
-            ident = previous['id'] if previous is not None else 'pref-' + digest(
-                {'scope': scope['id'], 'record': normalized})[:16]
+            if previous is not None:
+                ident = previous['id']
+            else:
+                # An updated record keeps its original id, so the content-derived id may already be taken.
+                taken = {item.get('id') for other in revised['scopes'] for item in other['preferences']}
+                ident, salt = 'pref-' + digest({'scope': scope['id'], 'record': normalized})[:16], 0
+                while ident in taken:
+                    salt += 1
+                    ident = 'pref-' + digest({'scope': scope['id'], 'record': normalized, 'salt': salt})[:16]
             scope['preferences'].append({'id': ident, **normalized})
             changes['upserted'][f'operations[{number}]'] = ident
             changes['paths'].append(f"scopes.{scope['id']}.preferences.{ident}")
