@@ -518,6 +518,10 @@ class Unsupported(Fixture):
             'tool banner': 'Generated with an assistant.',
             'template comment': '<!-- How was this tested? -->',
             'closing between stray backticks': 'Use ` here.\n\nFixes #7.\n\nAnd ` there.',
+            'closing an unlinked GH- issue': 'Closes GH-7.',
+            'unknown qualified issue': 'Fixes o/r#8.',
+            'closing a qualified linked issue': 'Fixes o/r#3.',
+            'closing an issue URL': 'Fixes https://github.com/o/r/issues/3.',
         }
         for name, sentence in cases.items():
             with self.subTest(name):
@@ -525,7 +529,8 @@ class Unsupported(Fixture):
                 with self.assertRaises(drafting.Blocked) as caught:
                     drafting.check_result('dk-pr-description', output(body=body), evidence, governing)
                 self.assertEqual(caught.exception.path, 'body')
-        pinned = (DESCRIPTION_BODY + f'\nFixes #3. See https://github.com/o/r/blob/{self.head_sha}/src/upload.py#L2.\n')
+        pinned = (DESCRIPTION_BODY + f'\nFixes #3 and GH-3. See https://github.com/o/r/issues/3 and '
+                  f'https://github.com/o/r/blob/{self.head_sha}/src/upload.py#L2.\n')
         accepted = drafting.check_result('dk-pr-description', output(body=pinned), evidence, governing)
         self.assertEqual(accepted['draft']['body'], pinned)
         unknown = output(claims=[{'text': 'Benchmarks improved.', 'sources': ['benchmark']}])

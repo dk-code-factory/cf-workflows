@@ -84,8 +84,10 @@ only when all of these hold:
   `Tested:` line, cites a `validation` fact. A reproduction section cites a
   `reproduction` fact. Sections that are already in the current body belong
   to its author.
-- Every `#N` and issue or PR URL is named by the evidence. A closing keyword
-  names a linked issue. Code links are pinned to a full commit SHA.
+- Every `#N`, `GH-N`, `owner/repo#N` and issue or PR URL is named by the
+  evidence. A closing keyword names a linked issue as `#N` or `GH-N`; one that
+  closes an `owner/repo#N` or URL reference must already be in the current
+  body. Code links are pinned to a full commit SHA.
 - Public text has no `path:line` reference, no template comment and no
   generated-by banner or tool attribution.
 - The draft follows the governing template, or the fallback sections when no

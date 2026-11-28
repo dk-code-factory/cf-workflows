@@ -134,9 +134,13 @@ _LABEL = re.compile(r'^\s*(?:[-*]\s+)?\**([A-Za-z][A-Za-z ]{0,30}?)\**\s*:', re.
 VALIDATION = re.compile(r'(?:test(?:s|ing|ed| plan)?|validation|validated|verification|verified|how to test|'
                         r'checks? run)$', re.I)
 REPRODUCTION = re.compile(r'(?:steps to reproduce|reproduction(?: steps)?|to reproduce|repro(?:duce)?)$', re.I)
-_REF = re.compile(r'(?<![\w/&#])#([1-9][0-9]{0,15})\b')
+_REF = re.compile(r'(?:(?<![\w/&#])#|(?<![\w/&#-])(?i:GH)-)([1-9][0-9]{0,15})\b')
 _URL_REF = re.compile(r'https://([A-Za-z0-9.-]+)/([\w.-]+)/([\w.-]+)/(?:issues|pull)/([1-9][0-9]*)')
-_CLOSING = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#([1-9][0-9]{0,15})\b', re.I)
+_CLOSING = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:#|GH-)([1-9][0-9]{0,15})\b', re.I)
+_QUALIFIED_REF = re.compile(r'(?<![\w/.-])[\w.-]+/[\w.-]+#[1-9][0-9]{0,15}\b')
+# GitHub also closes an owner/repo#N or issue-URL reference; a draft closes only linked issues, written as #N.
+_CLOSING_ELSEWHERE = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+/[\w.-]+#[1-9][0-9]*|'
+                                r'https?://[^\s)>\]]+/(?:issues|pull)/[1-9][0-9]*)', re.I)
 _CODE_LINK = re.compile(r'https://[A-Za-z0-9.-]+/[\w.-]+/[\w.-]+/(blob|tree)/([^/\s)>\]]+)')
 _PATH_LINE = re.compile(r'(?<![\w/.:#-])(?:[\w.-]+/)*[\w-]+\.[A-Za-z0-9]{1,8}:[1-9][0-9]*\b')
 _ATTRIBUTION = re.compile(r'generated (?:by|with)\b|\U0001F916|co-authored-by:[^\n]*\b(?:claude|codex|chatgpt|'
@@ -326,16 +330,23 @@ def _check_text(body, evidence, where, *, public):
     for match in _URL_REF.finditer(plain):
         if match[0] not in evidence['urls']:
             raise Blocked(where, match[0] + ' is not named by any evidence')
+    texts = '\n'.join(item['text'] for item in evidence['sources'])
+    for found in _QUALIFIED_REF.findall(plain):
+        if found not in texts:
+            raise Blocked(where, found + ' is not named by any evidence')
     for number in _CLOSING.findall(plain):
         if int(number) not in evidence['linked']:
             raise Blocked(where, f'a closing keyword names #{number}, which is not a linked issue')
+    existing = (evidence['current'] or {}).get('body') or ''  # Text the author already published.
+    for found in _CLOSING_ELSEWHERE.finditer(plain):
+        if found[0] not in existing:
+            raise Blocked(where, f'"{found[0]}" closes an issue that is not written as a linked #N')
     if _ATTRIBUTION.search(body):
         raise Blocked(where, 'drafts carry no generated-by banner or tool attribution')
     for kind, ref in _CODE_LINK.findall(plain):
         if not _SHA.fullmatch(ref):
             raise Blocked(where, 'code links must be pinned to a full commit SHA, not ' + ref)
     if public:
-        existing = (evidence['current'] or {}).get('body') or ''  # Text the author already published.
         for found in _PATH_LINE.finditer(plain):
             if found[0] not in existing:
                 raise Blocked(where, found[0] + ' is not usable in a browser; use a SHA-pinned permalink')
