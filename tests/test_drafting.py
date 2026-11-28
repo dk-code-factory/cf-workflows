@@ -613,6 +613,20 @@ class CommitMessage(Fixture):
         self.assertEqual(before['staged'], after['staged'], 'the change is past the text bound')
         self.assertNotEqual(before['content'], after['content'])
 
+    def test_inputs_that_return_to_an_earlier_state_draft_a_current_message(self):
+        admitted, ledger = self.admitted()
+        first = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.write('notes.txt', 'other scratch\n')
+        second = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.write('notes.txt', 'scratch\n')
+        again = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.assertEqual([item['status'] for item in (first, second, again)], ['drafted'] * 3)
+        self.assertTrue(again['session'], 'the superseded first draft is not reused')
+        self.assertNotIn(again['result_ref'], (first['result_ref'], second['result_ref']))
+        current = drafting.current_report('dk-commit-message', admitted, repository=self.repo, ledger=ledger)
+        self.assertEqual(current['result_ref'], again['result_ref'])
+        self.assertTrue(drafting.source_validator(ledger, 'dk-commit-message')('drafting:' + again['result_ref']))
+
     def test_non_utf8_path_names_do_not_block_the_capture(self):
         (self.repo / os.fsdecode(b'caf\xe9.txt')).write_bytes(b'x\n')
         changes = drafting.local_changes(self.repo)

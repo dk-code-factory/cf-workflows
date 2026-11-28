@@ -110,6 +110,8 @@ It appends accepted drafts and rejected claims and never rewrites them.
   fresh session. When the current title and body equal the retained draft
   because it was published, the draft is still current.
 - **A lost session response** reconciles through the same claim.
+- **Inputs that return to an earlier state** draft anew: the claim binds the
+  retained draft it supersedes, so a superseded draft is never reused.
 - **A rejected draft** is retained and never redispatched. The next attempt
   gets a fresh claim, up to `1 + retries_per_task` attempts per binding.
 

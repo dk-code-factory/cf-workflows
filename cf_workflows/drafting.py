@@ -1095,7 +1095,9 @@ def draft(name, admitted, *, repository, ledger, transport, options=None, **inpu
             'path': 'attempts', 'message': f'{rejected} rejected drafts for unchanged inputs; change the inputs '
                                            'or grant a continuation'}}
     run = admitted['snapshot']['request']['logical_run']
-    claim = 'draft-' + digest({'run': run, 'entry': name, 'binding': binding})[:32] + (
+    # The retained draft it supersedes is part of the claim: inputs that return to an earlier state draft anew.
+    after = latest['claim'] if latest is not None else None
+    claim = 'draft-' + digest({'run': run, 'entry': name, 'binding': binding, 'after': after})[:32] + (
         '' if rejected == 0 else f'-r{rejected}')
     known = ledger.claimed(claim)
     if known is not None:
