@@ -36,7 +36,9 @@ IDENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
 INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
 REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)')  # Not footnotes.
 FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)')
-CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
+# A whole backtick run not preceded by a backslash, closed by a run of exactly its length (CommonMark 6.1).
+# Anything this misses as a span is scanned, which can only reject, never drop a link.
+CODE_SPAN = re.compile(r'(?<![`\\])(`+)(?!`).+?(?<!`)\1(?!`)')
 REPOSITORY = re.compile(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+')
 HOST = re.compile(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?')
 
