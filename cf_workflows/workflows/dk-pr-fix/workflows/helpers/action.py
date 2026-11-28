@@ -91,12 +91,7 @@ def dispatch(operation, root, provider, ledger, plan, inputs):
     if operation == "completion":
         from prfix.publishing import readiness
         result = readiness(root, provider, ledger, plan)
-        # A provisional run ends with its analysis settled and only work that
-        # needs a reconciled head withheld; it is never complete or ready.
-        # Retained alternatives analysis that does not release review ends the same way.
-        analyzed = "missing" in result and not result["missing"] and not result["unresolved"]
-        if not result["complete"] and not (analyzed and (result["provisional"].get("provisional")
-                                                         or "current_alignment" in result.get("withheld", []))):
+        if not _completion_settled(result):
             raise ValueError("selected task/finalizer plan remains incomplete")
         return result
     if operation == "ci":
@@ -275,10 +270,22 @@ def _validate_checkpoint(operation, root, provider, ledger, plan, inputs, ident,
         from prfix.publishing import readiness, completed_merge
         current = readiness(root, provider, ledger, plan)
         old = checkpoint["output"]
-        valid = current["complete"] and (not old["ready"] or current["ready"] and current["head"] == old["head"] and current["target"] == old["target"])
+        valid = _completion_settled(current) and (not old["ready"] or current["ready"] and current["head"] == old["head"] and current["target"] == old["target"])
         if not valid:
             valid = completed_merge(root, provider, ledger, plan, old)
     return {"valid": bool(valid)}
+
+
+def _completion_settled(result):
+    """Whether a readiness result ends the run: complete, or settled analysis with only head-bound work withheld.
+
+    A provisional run ends with its analysis settled and only work that needs a
+    reconciled head withheld; it is never complete or ready. Retained
+    alternatives analysis that does not release review ends the same way.
+    """
+    analyzed = "missing" in result and not result["missing"] and not result["unresolved"]
+    return bool(result["complete"] or analyzed and (result["provisional"].get("provisional")
+                                                    or "current_alignment" in result.get("withheld", [])))
 
 
 def handle(operation, request, root=None, provider=None):
