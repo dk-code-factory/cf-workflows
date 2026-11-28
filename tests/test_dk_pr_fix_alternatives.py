@@ -527,6 +527,14 @@ class Checks(unittest.TestCase):
             with self.assertRaisesRegex(alternatives.StageError, 'settles the choice manually'):
                 check(output)
 
+    def test_malformed_routes_and_unknown_composed_adapters_are_settings_rejections(self):
+        for route in (['branch'], {'branch': True}, None):
+            with self.subTest(route=route), self.assertRaisesRegex(alternatives.StageError, 'explicit route'):
+                alternatives.settings({'route': route}, entry='dk-alternatives-review', mode='review',
+                                      adapter='pr-alternatives', request=None)
+        with self.assertRaisesRegex(alternatives.StageError, 'issue-alternatives or pr-alternatives adapter'):
+            alternatives.settings(None, entry='', mode='fix', adapter='custom-alternatives', request=None)
+
     def test_a_deeply_nested_report_is_rejected_not_raised(self):
         claim, agent, output, error = alternatives._decode({
             'claim': 'c', 'status': 'succeeded', 'agent': 'a',

@@ -1124,7 +1124,7 @@ class Compatibility(Fixture):
         result = self.compat({}, 'whole-problem', legacy=legacy)
         self.assertEqual((result['status'], result['legacy'], result['dispatches']), ('unsupported', legacy, 0))
         self.calls()
-        for route in (None, 'legacy', 'architecture'):
+        for route in (None, 'legacy', 'architecture', ['branch'], {'branch': True}):
             rejected = self.compat({}, route)
             self.assertEqual((rejected['status'], rejected['error']['path']), ('rejected', 'route'))
             self.calls()
