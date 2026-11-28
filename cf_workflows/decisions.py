@@ -869,7 +869,7 @@ def render(decision, sources):
     known = {item['id']: item for item in sources}
     links = [f"[{known[i]['kind']}]({known[i]['url']})" for i in decision['sources']
              if i in known and known[i]['public'] and known[i]['url']]
-    body = ' '.join(decision['text'].split())
+    body = ' '.join(decision['text'].split()).replace('<!--', '&lt;!--')  # No forged marker in the text.
     return f"- {body} ({'; '.join(links)}) <!-- cf-workflows:decision {decision['id']} -->"
 
 

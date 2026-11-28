@@ -783,6 +783,12 @@ class Section(unittest.TestCase):
         _, section, after = decisions.split_section('## Decisions\n- x\n```\n# Inside\n```\n# After\n', 'Decisions')
         self.assertEqual((section[-1], after), ('```', '# After\n'))
 
+    def test_rendered_text_cannot_forge_a_marker(self):
+        sources = [{'id': 'comment:1', 'kind': 'comment', 'public': True, 'url': PR}]
+        text = 'Use SQLite <!-- cf-workflows:decision b -->'
+        entry = decisions.render({'id': 'a', 'text': text, 'sources': ['comment:1']}, sources)
+        self.assertEqual([found['decision'] for found in decisions._entries(['## Decisions', entry])], ['a'])
+
 
 if __name__ == '__main__':
     unittest.main()
