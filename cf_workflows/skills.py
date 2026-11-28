@@ -210,7 +210,8 @@ def _claude(record, add_invocation, add_child, child_event, fault):
                 elif block.get('name') == 'Agent':  # Upstream's bridge counts only Agent as a child call.
                     add_child(block.get('id'), arguments.get('subagent_type'), parent is not None, arguments)
         elif kind == 'user':
-            result = event.get('tool_use_result') or {}
+            result = event.get('tool_use_result')
+            result = result if isinstance(result, dict) else {}  # An errored tool's result may be text or blocks.
             for block in (event.get('message') or {}).get('content') or []:
                 if not isinstance(block, dict) or block.get('type') != 'tool_result':
                     continue
