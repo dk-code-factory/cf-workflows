@@ -20,6 +20,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -673,13 +674,29 @@ class InstalledPreflight(PreflightFixture):
                           result['inputs']['permissions']['rewrite_commits']), (True, False))
 
 
-class GitFailures(unittest.TestCase):
+class Failures(unittest.TestCase):
     def test_a_git_timeout_or_missing_git_is_blocked(self):
         for error in (subprocess.TimeoutExpired(['git'], 60), FileNotFoundError('git')):
             with self.subTest(type(error).__name__), mock.patch.object(splitting.subprocess, 'run', side_effect=error):
                 with self.assertRaises(splitting.Blocked) as caught:
                     splitting.git('.', 'status')
                 self.assertEqual(caught.exception.path, 'git')
+
+    def test_a_validation_timeout_kills_the_processes_the_command_started(self):
+        def alive(pid):
+            try:
+                return Path(f'/proc/{pid}/stat').read_text().split(')')[-1].split()[0] != 'Z'
+            except FileNotFoundError:
+                return False
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(splitting, 'VALIDATION_TIMEOUT', 1):
+            result = splitting._run(['sh', '-c', 'sleep 60 & echo $! > child; wait'], directory)
+            self.assertEqual((result['exit'], result['output']), (None, 'timed out after 1 seconds'))
+            child = int((Path(directory) / 'child').read_text())
+            for _ in range(50):
+                if not alive(child):
+                    break
+                time.sleep(0.1)
+            self.assertFalse(alive(child))
 
     def test_non_utf8_commit_data_and_paths_block_and_dirty_names_stay_encodable(self):
         with tempfile.TemporaryDirectory() as directory:
