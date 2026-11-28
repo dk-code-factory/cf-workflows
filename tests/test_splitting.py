@@ -12,6 +12,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -774,6 +775,41 @@ class GitFailures(unittest.TestCase):
                 with self.assertRaises(splitting.Blocked) as caught:
                     splitting.git('.', 'status')
                 self.assertEqual(caught.exception.path, 'git')
+
+    def test_non_utf8_commit_data_and_paths_block_and_dirty_names_stay_encodable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def run(*args, data=None):
+                return subprocess.run(git_fixture.command('-c', 'commit.gpgsign=false', *args), cwd=root,
+                                      input=data, check=True, capture_output=True,
+                                      env={**git_fixture.environment(), 'GIT_AUTHOR_NAME': 'Ada',
+                                           'GIT_AUTHOR_EMAIL': 'ada@example.invalid', 'GIT_COMMITTER_NAME': 'Ada',
+                                           'GIT_COMMITTER_EMAIL': 'ada@example.invalid'}).stdout.decode().strip()
+            run('init', '-q')
+            (root / 'a.txt').write_text('a\n')
+            run('add', 'a.txt')
+            run('commit', '-q', '-m', 'base')
+            base = run('rev-parse', 'HEAD')
+            # A legacy latin-1 commit message.
+            latin = run('-c', 'i18n.commitEncoding=latin1', 'commit-tree', base + '^{tree}', '-p', base,
+                        data='Caf\xe9\n'.encode('latin-1'))
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, latin)
+            self.assertEqual(caught.exception.path, 'commits')
+            # A non-UTF-8 path, committed and left untracked.
+            name = os.fsdecode(b'caf\xe9.txt')
+            (root / name).write_text('x\n')
+            run('add', '--', name)
+            run('commit', '-q', '-m', 'add a latin-1 path')
+            head = run('rev-parse', 'HEAD')
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, head)
+            self.assertEqual(caught.exception.path, 'changes')
+            (root / os.fsdecode(b'new\xe9.txt')).write_text('y\n')
+            dirty = splitting._dirty(root)
+            self.assertEqual(len(dirty), 1)
+            admission.canonical(dirty)
 
 
 if __name__ == '__main__':

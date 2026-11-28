@@ -166,6 +166,14 @@ def _objects(repository, write):
         yield {'GIT_OBJECT_DIRECTORY': scratch, 'GIT_ALTERNATE_OBJECT_DIRECTORIES': str(objects)}
 
 
+def _text(raw, path, what):
+    """Git output as strict UTF-8: non-UTF-8 commit data or paths cannot be recorded, so they block."""
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise Blocked(path, what + ' is not valid UTF-8') from None
+
+
 def _state(raw_mode, oid):
     return None if set(oid) == {'0'} else [raw_mode, oid]
 
@@ -173,7 +181,7 @@ def _state(raw_mode, oid):
 def _diff(repository, old, new, env=None):
     """{path: [old state, new state]} of a tree diff; a state is [mode, oid] or None."""
     raw = git(repository, 'diff-tree', '-r', '-z', '--no-renames', '--no-commit-id', '--raw', old, new, env=env)
-    parts = raw.decode('utf-8', 'surrogateescape').split('\0')
+    parts = _text(raw, 'changes', f'a changed path between {old} and {new}').split('\0')
     result = {}
     for header, path in zip(parts[0::2], parts[1::2]):
         if header:
@@ -188,7 +196,7 @@ def _states(repository, treeish, paths, env=None):
         return {}
     raw = git(repository, 'ls-tree', '-r', '-z', '--full-tree', treeish, '--', *sorted(paths), env=env)
     result = {}
-    for entry in raw.decode('utf-8', 'surrogateescape').split('\0'):
+    for entry in _text(raw, 'changes', 'a path in ' + treeish).split('\0'):
         if entry:
             meta, path = entry.split('\t', 1)
             mode, _, oid = meta.split(' ')
@@ -228,7 +236,7 @@ def _commit(repository, tree, parent, message, author, committer, env):
 
 def _record(repository, sha, env=None):
     """One commit: parents, exact author, message, trailers and changed paths."""
-    raw = git(repository, 'cat-file', 'commit', sha, env=env).decode('utf-8', 'surrogateescape')
+    raw = _text(git(repository, 'cat-file', 'commit', sha, env=env), 'commits', 'commit ' + sha)
     header, _, message = raw.partition('\n\n')
     parents, author, signed = [], None, False
     for line in header.split('\n'):
@@ -255,7 +263,8 @@ def series(repository, base, head, env=None):
 
 def _dirty(repository):
     raw = git(repository, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames')
-    return sorted(entry[3:] for entry in raw.decode('utf-8', 'surrogateescape').split('\0') if entry)
+    # Only listed and compared with UTF-8 paths, so an undecodable name is kept readable rather than raw.
+    return sorted(entry[3:] for entry in raw.decode('utf-8', 'replace').split('\0') if entry)
 
 
 def _ref(repository, ref):
