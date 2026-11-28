@@ -424,7 +424,8 @@ def check_selection(output, *, comparison, totals, policy, answer, citable):
         qualify(output['confident'] and not by_id[choice]['material_doubts'],
                 'a confident winner without unresolved material doubts')
         others = [totals[key] for key, item in by_id.items() if key != choice and item['feasible']]
-        qualify(all(totals[choice] - other >= policy['min_score_gap'] for other in others),
+        qualify(all(totals[choice] > other and totals[choice] - other >= policy['min_score_gap']
+                    for other in others),
                 'the winner needs a unique lead of at least min_score_gap')
         if not others:
             rejected = output.get('rejected_alternatives')

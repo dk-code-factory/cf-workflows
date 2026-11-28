@@ -527,6 +527,17 @@ class Checks(unittest.TestCase):
             with self.assertRaisesRegex(alternatives.StageError, 'settles the choice manually'):
                 check(output)
 
+    def test_a_tied_winner_is_never_picked_automatically_even_with_no_gap(self):
+        compared = comparison(self.TASK, {'pr': 50, 'smallest': 90, 'alternative': 90})
+        task = {'context': {'comparison': compared}}
+        totals = alternatives.scores(compared, RUBRIC)
+        self.assertEqual(totals['smallest'], totals['alternative'])
+        for gap in (0, 10):
+            with self.subTest(gap=gap), self.assertRaisesRegex(alternatives.Unqualified, 'unique lead'):
+                alternatives.check_selection(
+                    auto(task), comparison=compared, totals=totals, answer=None, citable={'git:code.py'},
+                    policy={'mode': 'automatic', 'enabled': True, 'min_score_gap': gap})
+
     def test_malformed_routes_and_unknown_composed_adapters_are_settings_rejections(self):
         for route in (['branch'], {'branch': True}, None):
             with self.subTest(route=route), self.assertRaisesRegex(alternatives.StageError, 'explicit route'):
