@@ -302,9 +302,12 @@ def _expand(root, name, closure):
 
 
 def _block(lines, start, indent):
-    """The nonblank value lines of the key at lines[start]: deeper lines, or same-indent list items."""
+    """The nonblank value lines of the key at lines[start]: deeper lines, or same-indent list items.
+
+    Comment lines are skipped at any indentation, as YAML ignores them; they never end the block.
+    """
     for line in lines[start + 1:]:
-        if not line.strip():
+        if not line.strip() or line.lstrip().startswith('#'):
             continue
         depth = len(line) - len(line.lstrip(' '))
         if depth < indent or depth == indent and not line.lstrip().startswith('- '):
