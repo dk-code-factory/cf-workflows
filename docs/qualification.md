@@ -320,8 +320,9 @@ accepted records for it.
 
 ## Release readiness
 
-`python3 -B -m cf_workflows.package` reports `releasable: false`. Its blockers
-come from three sources:
+`python3 -B -m cf_workflows.package` reports `releasable: false`. This legacy
+field records runtime qualification, separately from [package publication](release.md).
+Its blockers come from three sources:
 
 - the missing engine release, the helpers' state mount, the fixture
   runner's container-job gap and the missing operation receipt for native
@@ -334,7 +335,7 @@ Editing the inventory, the descriptor or the matrix status fields cannot remove
 these blockers. A changed status fails the checker unless the evidence supports
 it, and the upstream blockers stay until a released capability is consumed.
 
-A release follows Agent Workflow's supported pipeline:
+Runtime qualification follows Agent Workflow's supported pipeline:
 
 1. `plugin build` creates both host packages from this one project.
 2. `plugin check` and `plugin test` run with deterministic fixtures.
@@ -343,8 +344,9 @@ A release follows Agent Workflow's supported pipeline:
 
 No hand-built package, launcher or manifest stands in for any of these steps.
 A release advertises only the verified combinations and the rows that the
-accepted records list. This repository builds no package and publishes no
-release.
+accepted records list. Numbered package releases publish the reproducibly built
+dual-host ZIP with every runtime qualification blocker still reported. They do
+not establish a verified combination or change the matrix status.
 
 ## What remains
 

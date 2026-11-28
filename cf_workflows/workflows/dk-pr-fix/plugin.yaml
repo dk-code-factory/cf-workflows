@@ -3,7 +3,7 @@
 # catalogs from it; none are maintained here. See docs/packaging.md.
 schema-version: 1
 name: cf-workflows
-version: 0.1.0-dev.1
+version: 0.1.1
 engine-version: 0.2.2
 hosts: [codex, claude]
 skills:

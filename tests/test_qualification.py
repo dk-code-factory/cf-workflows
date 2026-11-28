@@ -49,7 +49,7 @@ def record(procedure='live_provider', skill='dk-pr-fix'):
         'schema_version': 1, 'kind': 'acceptance_evidence', 'suite': 'cf-workflows', 'procedure': procedure,
         'authorization': {'granted_by': 'owner', 'granted_at': '2027-01-01T00:00:00Z',
                           'reference': 'https://example.invalid/authorization', 'scope': 'disposable repo only'},
-        'plugin': {'version': '0.1.0-dev', 'closure_digest': CHECKED['closure_digest']},
+        'plugin': {'version': DESCRIPTOR['version'], 'closure_digest': CHECKED['closure_digest']},
         'engine': {'version': ENGINE,
                    'release': f'https://github.com/dk-code-factory/agent-workflow/releases/tag/v{ENGINE}'},
         'host': {'name': 'codex', 'version': '1.0.0'},

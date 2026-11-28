@@ -141,10 +141,10 @@ jobs:
         run: >-
           python3 -B -m unittest -v
           tests.test_package tests.test_validator_binding tests.test_recovery tests.test_dk_pr_fix
-      - name: Archive verified development packages with executable modes
+      - name: Archive verified packages with executable modes
         if: startsWith(github.ref, 'refs/tags/v')
         run: tar -czf "$RUNNER_TEMP/plugin-packages.tar.gz" -C "$RUNNER_TEMP/plugin-packages" .
-      - name: Retain verified development packages for release
+      - name: Retain verified packages for release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v6
         with:

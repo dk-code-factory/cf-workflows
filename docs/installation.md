@@ -1,6 +1,6 @@
-# Install the development package
+# Install the package
 
-Version `0.1.0-dev.1` publishes a generated Codex/Claude marketplace ZIP. The
+Version `0.1.1` is a numbered release with a generated Codex/Claude marketplace ZIP. The
 repository itself is the authoring source, not a marketplace: install from the
 release ZIP rather than adding the repository URL to a host.
 
@@ -15,11 +15,11 @@ With GitHub CLI, `sha256sum`, `unzip` and Codex installed, download and verify
 the release assets into a new persistent directory, then extract the marketplace:
 
 ```sh
-cf_package_dir="$HOME/.local/share/cf-workflows/0.1.0-dev.1"
+cf_package_dir="$HOME/.local/share/cf-workflows/0.1.1"
 mkdir -p "$cf_package_dir"
-gh release download v0.1.0-dev.1 --repo dk-code-factory/cf-workflows --dir "$cf_package_dir"
+gh release download v0.1.1 --repo dk-code-factory/cf-workflows --dir "$cf_package_dir"
 (cd "$cf_package_dir" && sha256sum --check SHA256SUMS)
-unzip -q "$cf_package_dir/cf-workflows-0.1.0-dev.1.zip" -d "$cf_package_dir"
+unzip -q "$cf_package_dir/cf-workflows-0.1.1.zip" -d "$cf_package_dir"
 codex plugin marketplace add "$cf_package_dir/cf-workflows"
 codex plugin add cf-workflows@cf-workflows
 ```
@@ -30,9 +30,11 @@ executable mode. On macOS use `shasum -a 256 --check SHA256SUMS` for verificatio
 Skills become available on the next turn. Their names use the `cf-workflows:`
 prefix, separate from an existing `dk-workflows` installation.
 
-For a new release, use a new versioned directory and repeat verification before
-updating the configured marketplace. Do not overwrite an existing extracted
-package in place. The ZIP also contains Claude's `.claude-plugin/marketplace.json`
+For an upgrade, download, verify and extract into a new versioned directory.
+Then run `codex plugin marketplace remove cf-workflows` before adding the new
+marketplace path and running `codex plugin add cf-workflows@cf-workflows` again.
+Keep the older directory for rollback; do not overwrite its extracted package
+in place. The ZIP also contains Claude's `.claude-plugin/marketplace.json`
 for adding the same extracted marketplace in Claude Code.
 
 ## Verify installation
@@ -47,6 +49,6 @@ The bootstrap's `check` command is read-only:
 "$cf_package_dir/cf-workflows/plugins/cf-workflows/scripts/agent-workflow" check
 ```
 
-A missing verified engine is expected for this development version. Do not
+A missing verified engine is expected for this version. Do not
 substitute an engine from PATH or treat successful host installation as runtime
 acceptance. See the [acceptance matrix](qualification.md) for pending evidence.

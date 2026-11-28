@@ -30,13 +30,16 @@ class Gate(unittest.TestCase):
     def test_prerelease_is_a_snapshot_even_while_blocked(self):
         self.assertEqual(release_gate.gate('v0.1.0-dev', report('0.1.0-dev')), ('0.1.0-dev', True))
 
-    def test_final_version_needs_releasable(self):
-        with self.assertRaisesRegex(release_gate.ReleaseError, 'releasable: false\n  - agent-workflow'):
-            release_gate.gate('v0.1.0', report('0.1.0'))
-        self.assertEqual(release_gate.gate('v0.1.0', report('0.1.0', releasable=True)), ('0.1.0', False))
+    def test_numbered_version_needs_a_verified_package_not_runtime_qualification(self):
+        for qualified in (False, True):
+            current = report('0.1.1', releasable=qualified)
+            with self.subTest(qualified=qualified):
+                with self.assertRaisesRegex(release_gate.ReleaseError, 'requires a verified plugin package'):
+                    release_gate.gate('v0.1.1', current)
+                self.assertEqual(release_gate.gate('v0.1.1', current, packaged=True), ('0.1.1', False))
 
     def test_build_metadata_is_not_a_prerelease(self):
-        with self.assertRaisesRegex(release_gate.ReleaseError, 'final version'):
+        with self.assertRaisesRegex(release_gate.ReleaseError, 'numbered release'):
             release_gate.gate('v0.1.0+build-1', report('0.1.0+build-1'))
 
     def test_tag_must_be_the_plugin_version(self):
@@ -50,24 +53,32 @@ class Gate(unittest.TestCase):
 
     def test_snapshot_notes_list_every_blocker(self):
         text = release_gate.notes(report('0.1.0-dev'), True, 'abc')
-        self.assertIn('Development snapshot', text)
+        self.assertIn('Prerelease', text)
         self.assertIn('- `agent-workflow`: no released engine', text)
-        self.assertIn('Releasable: `false`', text)
+        self.assertIn('Runtime qualified (`package_check.releasable`): `false`', text)
         self.assertIn('https://github.com/dk-code-factory/cf-workflows/blob/abc/docs/packaging.md', text)
 
-    def test_installable_snapshot_notes_keep_runtime_blockers(self):
-        text = release_gate.notes(report('0.1.0-dev.1'), True, 'abc', packaged=True)
+    def test_numbered_package_notes_keep_runtime_blockers(self):
+        text = release_gate.notes(report('0.1.1'), False, 'abc', packaged=True)
         self.assertIn('installable Codex/Claude marketplace', text)
         self.assertIn('Installation does not enable workflow execution', text)
         self.assertIn('is not runnable', text)
         self.assertIn('- `agent-workflow`: no released engine', text)
         self.assertIn(build_check.TOOLCHAIN_COMMIT, text)
         self.assertIn('/docs/installation.md', text)
+        self.assertIn('Runtime qualification pending', text)
+        self.assertNotIn('Prerelease', text)
 
-    def test_current_tree_gates_as_a_blocked_snapshot(self):
+    def test_qualified_package_notes_do_not_invent_runtime_blockers(self):
+        text = release_gate.notes(report('0.1.1', releasable=True), False, 'abc', packaged=True)
+        self.assertIn('Runtime qualified (`package_check.releasable`): `true`', text)
+        self.assertNotIn('is not runnable', text)
+        self.assertNotIn('Runtime qualification blockers', text)
+
+    def test_current_tree_gates_as_a_numbered_package_with_runtime_gaps(self):
         from cf_workflows import package
         current = package.report()
-        self.assertEqual(release_gate.gate(f'v{current["version"]}', current)[1], '-' in current['version'])
+        self.assertEqual(release_gate.gate(f'v{current["version"]}', current, packaged=True), ('0.1.1', False))
         if not current['releasable']:
             self.assertTrue(current['blockers'])
 
@@ -111,7 +122,8 @@ class ReleaseAssets(unittest.TestCase):
         for name, digest in sums.items():
             self.assertEqual(hashlib.sha256((out / name).read_bytes()).hexdigest(), digest)
         self.assertFalse(summary['releasable'])
-        self.assertTrue(summary['prerelease'])
+        self.assertFalse(summary['prerelease'])
+        self.assertTrue(summary['distribution_ready'])
         self.assertIn('installable Codex/Claude marketplace', (out / 'release-notes.md').read_text())
 
     def test_corrupt_package_rejects_before_any_asset_is_written(self):
@@ -130,11 +142,11 @@ class ReleaseAssets(unittest.TestCase):
             self.assemble(out, self.built)
         self.assertEqual(list(out.iterdir()), [out / 'old.zip'])
 
-    def test_source_only_snapshot_does_not_claim_an_installable_zip(self):
+    def test_source_only_numbered_release_rejects_before_writing(self):
         out = self.base / 'source-only'
-        summary = self.assemble(out)
-        self.assertFalse(any(name.endswith('.zip') for name in summary['assets']))
-        self.assertIn('Source only: no plugin package is included', (out / 'release-notes.md').read_text())
+        with self.assertRaisesRegex(release_gate.ReleaseError, 'requires a verified plugin package'):
+            self.assemble(out)
+        self.assertFalse(out.exists())
 
 
 if __name__ == '__main__':

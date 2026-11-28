@@ -2,11 +2,11 @@
 """Check a release tag against the suite identity and assemble the release assets.
 
 The tag must be `v` plus the plugin version, which is also the suite version in
-baselines/sources.json. A final version (no prerelease part) is published only
-when the package check reports `releasable: true`. A prerelease version is a
-development snapshot whose notes list every open release blocker. A supplied
-toolchain build is checked against the tagged plugin closure before its dual-host
-ZIP and build report are added. This does not certify workflow execution.
+baselines/sources.json. A numbered release requires a toolchain build checked
+against the tagged plugin closure before its dual-host ZIP and build report
+are added. Runtime qualification is reported independently for every version;
+publishing a package does not certify workflow execution. Prereleases may also
+publish source-only snapshots.
 """
 
 import argparse
@@ -28,7 +28,7 @@ class ReleaseError(Exception):
     pass
 
 
-def gate(tag, report):
+def gate(tag, report, *, packaged=False):
     """Return (version, prerelease) for `tag`, or raise ReleaseError when it may not be released."""
     if 'error' in report:
         raise ReleaseError(f'package check failed: {report["error"]["path"]}: {report["error"]["message"]}')
@@ -36,9 +36,9 @@ def gate(tag, report):
     if tag != f'v{version}':
         raise ReleaseError(f'tag {tag} does not match the plugin version v{version}')
     prerelease = '-' in version.split('+', 1)[0]
-    if not prerelease and not report['releasable']:
-        listed = '\n'.join(f'  - {item["prerequisite"]}: {item["missing"]}' for item in report['blockers'])
-        raise ReleaseError(f'{version} is a final version but the package check reports releasable: false\n{listed}')
+    if not prerelease and not packaged:
+        raise ReleaseError(f'{version} is a numbered release and requires a verified plugin package '
+                           '(--package-dir)')
     return version, prerelease
 
 
@@ -46,23 +46,27 @@ def notes(report, prerelease, commit, repository='dk-code-factory/cf-workflows',
     docs = f'https://github.com/{repository}/blob/{commit}/docs'
     lines = [f'cf-workflows {report["version"]} (`{commit}`).', '']
     if prerelease:
-        delivery = ('The ZIP contains an installable Codex/Claude marketplace built from pinned, unreleased '
-                    'toolchain source. Installation does not enable workflow execution. ' if packaged else
-                    'Source only: no plugin package is included. ')
-        lines += ['**Development snapshot.** ' + delivery + 'The suite '
+        lines += ['**Prerelease.**', '']
+    if packaged:
+        lines += ['The ZIP contains an installable Codex/Claude marketplace built from pinned, unreleased '
+                  'toolchain source.', '']
+    else:
+        lines += ['Source only: no plugin package is included.', '']
+    if not report['releasable']:
+        lines += ['**Runtime qualification pending.** Installation does not enable workflow execution. The suite '
                   'is not runnable, and no host/provider/engine combination is verified. See '
                   f'[packaging]({docs}/packaging.md#what-remains-blocked) and the '
                   f'[acceptance matrix]({docs}/qualification.md).', '']
     if packaged:
-        lines += [f'Installation: [development package instructions]({docs}/installation.md).',
+        lines += [f'Installation: [package instructions]({docs}/installation.md).',
                   f'Toolchain source: `{build_check.TOOLCHAIN_COMMIT}`.', '']
     lines += [f'- Plugin closure digest: `{report["closure_digest"]}` ({report["files"]} files)',
               f'- Pinned engine version: `{report["engine_version"]}`',
               f'- Hosts: {", ".join(report["hosts"])}',
               f'- Listed skills: {len(report["listed"])} of {report["inventory_rows"]} inventory rows',
-              f'- Releasable: `{str(report["releasable"]).lower()}`']
+              f'- Runtime qualified (`package_check.releasable`): `{str(report["releasable"]).lower()}`']
     if report['blockers']:
-        lines += ['', f'## Open release blockers ({len(report["blockers"])})', '']
+        lines += ['', f'## Runtime qualification blockers ({len(report["blockers"])})', '']
         lines += [f'- `{item["prerequisite"]}`: {item["missing"]}' for item in report['blockers']]
     return '\n'.join(lines) + '\n'
 
@@ -73,7 +77,7 @@ def assemble(tag, out, repository=ROOT, package_dir=None):
         report = package.report(repository=repository)
     except package.PackageError as error:
         report = {'error': {'path': error.path, 'message': error.message}}
-    version, prerelease = gate(tag, report)
+    version, prerelease = gate(tag, report, packaged=package_dir is not None)
 
     def git(*args):
         return subprocess.run(['git', '-C', str(repository), *args], check=True, capture_output=True).stdout
@@ -105,6 +109,7 @@ def assemble(tag, out, repository=ROOT, package_dir=None):
         notes(report, prerelease, commit, os.environ.get('GITHUB_REPOSITORY', 'dk-code-factory/cf-workflows'),
               packaged=package_dir is not None))
     return {'tag': tag, 'version': version, 'prerelease': prerelease, 'commit': commit,
+            'distribution_ready': package_dir is not None,
             'releasable': report['releasable'], 'assets': sorted(assets) + ['SHA256SUMS']}
 
 

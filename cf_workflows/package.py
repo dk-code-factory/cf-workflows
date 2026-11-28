@@ -451,7 +451,9 @@ def inventory_status(descriptor, repository=REPOSITORY, closure_digest=None):
     of the engine version. The acceptance matrix adds its own blockers: live
     procedures without accepted records, no verified host/provider/engine
     combination and rows without native-execution evidence. Live records count
-    only for `closure_digest`. Nothing is releasable while any blocker remains.
+    only for `closure_digest`. The legacy `releasable` field means runtime
+    qualification and stays false while any blocker remains. Package publication
+    is checked independently by scripts/release_gate.py.
     """
     sources = json.loads((Path(repository) / 'baselines/sources.json').read_text())
     inventory = json.loads((Path(repository) / 'baselines/inventory.json').read_text())
