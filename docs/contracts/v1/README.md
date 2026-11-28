@@ -1,7 +1,7 @@
 # cf-workflows contracts, version 1
 
 These are normative design contracts for the independent `cf-workflows` suite,
-version `0.1.0-dev`. They are not an installed plugin or executable schema validator.
+version `0.1.0-dev.1`. They are not an installed plugin or executable schema validator.
 The machine-readable identity lives in [sources.json](../../../baselines/sources.json).
 Configuration admission is implemented under issues #11–#13; structural
 admission is in [admission.md](../../admission.md), semantic assessment in

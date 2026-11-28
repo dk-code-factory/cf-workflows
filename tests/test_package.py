@@ -91,7 +91,7 @@ class Descriptor(unittest.TestCase):
             'duplicate key': DESCRIPTOR + 'name: other\n',
             'version range': DESCRIPTOR.replace('engine-version: 0.2.2', 'engine-version: ^0.2.2'),
             'v prefix': DESCRIPTOR.replace('engine-version: 0.2.2', 'engine-version: v0.2.2'),
-            'leading zero prerelease': DESCRIPTOR.replace('version: 0.1.0-dev', 'version: 0.1.0-01'),
+            'leading zero prerelease': DESCRIPTOR.replace('version: 0.1.0-dev.1', 'version: 0.1.0-01'),
             'one host': DESCRIPTOR.replace('[codex, claude]', '[codex]'),
             'unknown host': DESCRIPTOR.replace('[codex, claude]', '[codex, claude, cursor]'),
             'duplicate host': DESCRIPTOR.replace('[codex, claude]', '[codex, codex]'),
@@ -315,7 +315,7 @@ if args[:3] == ['plugin', 'check', '--json']:
 if args[:3] != ['plugin', 'build', '--target'] or args[4] != '--output' or len(args) != 7:
     sys.exit('unconfigured fake operation ' + json.dumps(args))
 targets, output, source = sorted(args[3].split(',')), Path(args[5]), Path(args[6])
-name, version = 'cf-workflows', '0.1.0-dev'
+name, version = 'cf-workflows', '0.1.0-dev.1'
 files = {{}}
 for directory, _, entries in os.walk(source):
     for entry in entries:
@@ -391,7 +391,11 @@ class PackageBuild(unittest.TestCase):
 
     def test_identical_builds_ship_exactly_the_closure_and_generated_assets(self):
         cli, log = self.toolchain()
-        summary = build_check.verify(cli, self.work('clean run'))
+        retained = self.base / 'retained'
+        work = self.work('clean run')
+        summary = build_check.verify(cli, work, output=retained)
+        self.assertEqual(build_check.tree(retained), build_check.tree(work / 'build output 1'))
+        build_check.check_output(retained, package.check()['descriptor'], package.ROOT)
         closure = json.loads((package.ROOT / dk_pr_fix.CLOSURE).read_text())['files']
         self.assertEqual(summary['payload_files'], len(closure) + 1 + len(build_check.GENERATED))
         self.assertFalse(summary['released'])
@@ -422,9 +426,11 @@ class PackageBuild(unittest.TestCase):
         for fault, (message, checks, builds) in cases.items():
             with self.subTest(fault):
                 cli, log = self.toolchain(fault)
+                retained = self.base / 'failed build'
                 with self.assertRaises(build_check.BuildCheckError) as raised:
-                    build_check.verify(cli, self.work(fault))
+                    build_check.verify(cli, self.work(fault), output=retained)
                 self.assertIn(message, str(raised.exception))
+                self.assertFalse(retained.exists())
                 calls = self.invocations(log)
                 self.assertEqual((calls.count(['plugin', 'check']), calls.count(['plugin', 'build'])),
                                  (checks, builds))
@@ -434,6 +440,10 @@ class PackageBuild(unittest.TestCase):
         with self.assertRaisesRegex(build_check.BuildCheckError, 'unconfigured fake operation'):
             build_check.run([str(cli), 'plugin', 'test', '--json', str(self.base)], self.work('unconfigured'))
         self.assertEqual(self.invocations(log), [['plugin', 'test']])
+
+    def test_existing_output_rejects_before_building(self):
+        with self.assertRaisesRegex(build_check.BuildCheckError, 'output must not exist'):
+            build_check.main(self.base / 'missing engine', output=self.base)
 
     @unittest.skipUnless(os.environ.get('CF_AGENT_WORKFLOW'),
                          'set CF_AGENT_WORKFLOW to a local agent-workflow clone with the pinned toolchain commit')
