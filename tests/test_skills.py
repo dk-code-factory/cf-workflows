@@ -513,11 +513,15 @@ class Evidence(Fixture):
         def malformed(params):
             params['item']['content'][0]['text'] = 'Use the lint skill.'
 
+        def content_object(params):
+            params['item']['content'] = {'text': params['item']['content'][0]['text']}
+
         for name, change, fragment in [('provenance', provenance, 'mismatched identity or provenance'),
                                        ('turn', turn, 'mismatched identity or provenance'),
                                        ('thread', thread, 'mismatched identity or provenance'),
                                        ('role', role, 'mismatched identity or provenance'),
-                                       ('malformed', malformed, 'fragment is malformed')]:
+                                       ('malformed', malformed, 'fragment is malformed'),
+                                       ('content object', content_object, 'mismatched identity or provenance')]:
             with self.subTest(name):
                 result = self.assertCoverage(self.single, [gateway.session(fragment=change)], 'failed', fragment)
                 self.assertEqual(result['invocations'], 0)

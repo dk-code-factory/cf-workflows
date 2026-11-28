@@ -175,7 +175,8 @@ def _codex(record, add_invocation, add_child, child_event, fault):
         turn = params.get('turnId')
         if (params.get('threadId') != thread or not turn or metadata.get('turn_id') != turn
                 or item.get('type') != 'message' or item.get('role') != 'user' or not item.get('id')
-                or kinds != [CODEX_SKILL_KIND] or provenance != ['skills'] or len(content) != 1
+                or kinds != [CODEX_SKILL_KIND] or provenance != ['skills'] or not isinstance(content, list)
+                or len(content) != 1
                 or content[0].get('type') != 'input_text' or not isinstance(content[0].get('text'), str)):
             fault('failed', 'native skill fragment has mismatched identity or provenance')
             continue
