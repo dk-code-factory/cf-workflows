@@ -1396,7 +1396,8 @@ def publish(name, admitted, report, *, publisher, audience):
         except Exception as error:
             state = decisions._journal_state(publisher, proposal['id'])
             steps.append({'id': proposal['id'], 'kind': proposal['kind'],
-                          'status': {'prepared': 'blocked', None: 'blocked'}.get(state, state),
+                          # An applied intent that still raised (its receipt no longer validates) is no success.
+                          'status': {'prepared': 'blocked', 'applied': 'blocked', None: 'blocked'}.get(state, state),
                           'error': {'path': 'publication', 'message': str(error) or type(error).__name__}})
             return {'status': steps[-1]['status'], 'steps': steps}
         steps.append({'id': proposal['id'], 'kind': proposal['kind'], 'status': 'applied', 'receipt': receipt})

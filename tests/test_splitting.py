@@ -768,13 +768,34 @@ class CommitOnRequest(Fixture):
         self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), self.head)
 
 
-class GitFailures(unittest.TestCase):
+class Failures(unittest.TestCase):
     def test_a_git_timeout_or_missing_git_is_blocked(self):
         for error in (subprocess.TimeoutExpired(['git'], 60), FileNotFoundError('git')):
             with self.subTest(type(error).__name__), mock.patch.object(splitting.subprocess, 'run', side_effect=error):
                 with self.assertRaises(splitting.Blocked) as caught:
                     splitting.git('.', 'status')
                 self.assertEqual(caught.exception.path, 'git')
+
+    def test_an_applied_step_that_raises_blocks_instead_of_reporting_success(self):
+        class Publisher:
+            executed = []
+
+            def events(self, ident):
+                return [{'event': 'dispatch'}, {'event': 'applied'}]
+
+            def execute(self, ident, audience):
+                self.executed.append(ident)
+                raise ValueError('retained publication receipt no longer validates')
+        publisher = Publisher()
+        steps = [{'id': 'split-push-1', 'kind': 'split_push'}, {'id': 'split-source', 'kind': 'push'}]
+        with mock.patch.object(splitting, 'publication_plan',
+                               return_value={'options': {'permissions': {'push_commits': True}}}), \
+                mock.patch.object(splitting, 'proposals', return_value=steps):
+            result = splitting.publish('dk-pr-split', {}, {'status': 'prepared'}, publisher=publisher,
+                                       audience=None)
+        self.assertEqual(result['status'], 'blocked', result)
+        self.assertEqual([step['status'] for step in result['steps']], ['blocked'])
+        self.assertEqual(publisher.executed, ['split-push-1'])
 
     def test_non_utf8_commit_data_and_paths_block_and_dirty_names_stay_encodable(self):
         with tempfile.TemporaryDirectory() as directory:
