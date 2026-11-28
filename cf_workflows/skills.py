@@ -187,7 +187,9 @@ def _codex(record, add_invocation, add_child, child_event, fault):
                 or not body.endswith('\n</skill>')):
             fault('failed', 'native skill fragment is malformed')
             continue
-        add_invocation(head[len('<skill>\n<name>'):], locator, body=body[:-len('\n</skill>')].encode('utf-8'))
+        # surrogatepass: a lone surrogate from JSON never matches the admitted UTF-8 bytes, and never raises.
+        add_invocation(head[len('<skill>\n<name>'):], locator,
+                       body=body[:-len('\n</skill>')].encode('utf-8', 'surrogatepass'))
 
 
 def _claude(record, add_invocation, add_child, child_event, fault):

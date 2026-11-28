@@ -496,6 +496,8 @@ class Evidence(Fixture):
         self.assertCoverage(self.single, [gateway.session(invoke=False)], 'incomplete', 'no engine-observed invocation')
         self.assertCoverage(self.single, [gateway.session(body='Other instructions.\n')], 'failed',
                             'differ from the admitted bytes')
+        self.assertCoverage(self.single, [gateway.session(body='Lone \ud800 surrogate.\n')], 'failed',
+                            'differ from the admitted bytes')
 
         def provenance(params):
             params['item']['internal_chat_message_metadata_passthrough']['content_item_metadata'] = [
