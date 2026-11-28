@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -536,6 +537,12 @@ class Unsupported(Fixture):
         unknown = output(claims=[{'text': 'Benchmarks improved.', 'sources': ['benchmark']}])
         with self.assertRaises(admission.AdmissionError):
             drafting.check_result('dk-pr-description', unknown, evidence, governing)
+
+    def test_long_padded_heading_lines_parse_in_linear_time(self):
+        started = time.monotonic()
+        self.assertEqual(drafting.headings('## Summary ##\n# a' + ' \t' * 5000 + 'x\n### C# ###  '),
+                         ['Summary', 'a' + ' \t' * 5000 + 'x', 'C#'])
+        self.assertLess(time.monotonic() - started, 1)
 
     def test_huge_digit_runs_in_evidence_are_not_references(self):
         evidence, _ = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'See #' + '1' * 5000,

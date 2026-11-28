@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import unittest
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
@@ -457,6 +458,11 @@ class Prepare(Fixture):
                     self.drafting_plan(tasks, **extra)
         self.assertEqual(self.github.calls['write'], 0)
 
+    def test_long_padded_heading_lines_parse_in_linear_time(self):
+        started = time.monotonic()
+        self.assertEqual(drafting.headings('## Fix ##\n# a' + ' \t' * 5000 + 'x'), ['Fix', 'a' + ' \t' * 5000 + 'x'])
+        self.assertLess(time.monotonic() - started, 1)
+
     def test_installed_checks_are_the_library_checks_verbatim(self):
         def definitions(path):
             source = Path(path).read_text()
@@ -470,7 +476,7 @@ class Prepare(Fixture):
         installed, original = definitions(drafting.__file__), definitions(library.__file__)
         names = ('_HEADING', '_FENCE', '_CODE', '_LABEL', 'VALIDATION', 'REPRODUCTION', '_REF', '_URL_REF',
                  '_CLOSING', '_QUALIFIED_REF', '_CLOSING_ELSEWHERE', '_CODE_LINK', '_PATH_LINE', '_ATTRIBUTION', '_TRAILER', '_MARKER', '_SHA', '_BOT',
-                 '_names', 'git', '_bounded', '_source', '_strip_code', 'headings', '_front_matter', '_form_labels',
+                 '_names', 'git', '_bounded', '_source', '_strip_code', '_heading', 'headings', '_front_matter', '_form_labels',
                  'local_changes', '_identity', '_history', '_labels', '_check_sections', '_settled', '_check_text',
                  '_check_layout', '_items', '_check_message', 'check_result', 'MAX_SOURCE', 'MAX_PATCH',
                  'MAX_ITEMS', 'HISTORY', 'PR_TEMPLATES', 'ISSUE_TEMPLATES')

@@ -127,7 +127,7 @@ def fields(value, path, required, optional=()):
 
 # -- Verbatim copy of cf_workflows/drafting.py (constants and result checks) -------------------
 
-_HEADING = re.compile(r' {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*')
+_HEADING = re.compile(r' {0,3}(#{1,6})[ \t]+(.*)')  # The closing # run is stripped by _heading().
 _FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?^ {0,3}\1[`~]*[ \t]*$', re.M | re.S)
 _CODE = re.compile(r'(`+)(?:(?!\1|\n[ \t]*\n).)+?\1', re.S)  # A code span never crosses a blank line.
 _LABEL = re.compile(r'^\s*(?:[-*]\s+)?\**([A-Za-z][A-Za-z ]{0,30}?)\**\s*:', re.M)
@@ -190,6 +190,12 @@ def _strip_code(body):
     return _CODE.sub(' ', _FENCE.sub('\n', body))
 
 
+def _heading(line):
+    """An ATX heading line's title without its closing # run, else None; no backtracking regex."""
+    match = _HEADING.fullmatch(line)
+    return match[2].rstrip(' \t').rstrip('#').strip() if match else None
+
+
 def headings(body):
     """Markdown heading titles outside fenced code, in order."""
     found, fence = [], None
@@ -199,9 +205,9 @@ def headings(body):
         if stripped.startswith(('```', '~~~')):
             fence = None if fence and stripped.startswith(fence) else (fence or stripped[:3])
             continue
-        match = None if fence else _HEADING.fullmatch(line)
-        if match:
-            found.append(match[2].strip())
+        title = None if fence else _heading(line)
+        if title is not None:
+            found.append(title)
     return found
 
 
