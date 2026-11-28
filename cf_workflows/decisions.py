@@ -79,7 +79,10 @@ MAX_ITEMS = 256
 SCHEMA_VERSION = 1
 KIND = 'decisions_state'
 _ID = re.compile(r'[a-z0-9][a-z0-9-]{0,63}')
-_HEADING = re.compile(r' {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*')
+# No lazy group before the optional closing sequence: that form backtracks cubically on a
+# long whitespace run, and PR bodies are author-written. _heading() strips the closing run.
+_HEADING = re.compile(r' {0,3}(#{1,6})[ \t]+(.*)')
+_FENCE = re.compile(r' {0,3}(`{3,}|~{3,})(.*)')
 _MARKER = re.compile(r'<!-- cf-workflows:decision ([a-z0-9][a-z0-9-]{0,63}) -->')
 
 
@@ -250,6 +253,25 @@ def effective(admitted):
 
 # -- Sources ------------------------------------------------------------------------------------
 
+def _heading(line):
+    """(level, text) of an ATX heading line, or None."""
+    match = _HEADING.fullmatch(line)
+    return (len(match[1]), match[2].rstrip(' \t').rstrip('#').rstrip(' \t')) if match else None
+
+
+def _fence(fence, line):
+    """(open fence after the line, whether the line opens or closes one), per CommonMark 4.5."""
+    opening = _FENCE.match(line)
+    if fence:
+        # A closer uses the opener's character, is at least as long and has no info string.
+        if opening and opening[1][0] == fence[0] and len(opening[1]) >= len(fence) and not opening[2].strip():
+            return None, True
+        return fence, False
+    if opening and not (opening[1][0] == '`' and '`' in opening[2]):  # Backticks in the info string: a span.
+        return opening[1], True
+    return None, False
+
+
 def split_section(body, heading):
     """(before, section lines or None, after) around the one bounded decision section of a body.
 
@@ -261,13 +283,12 @@ def split_section(body, heading):
     fence = None
     for number, raw in enumerate(lines):
         line = raw.rstrip('\r')
-        stripped = line.lstrip()
-        if stripped.startswith(('```', '~~~')):
-            fence = None if fence and stripped.startswith(fence) else (fence or stripped[:3])
+        fence, marker = _fence(fence, line)
+        if fence or marker:
             continue
-        match = None if fence else _HEADING.fullmatch(line)
-        if match and match[2] == heading:
-            found.append((number, len(match[1])))
+        match = _heading(line)
+        if match and match[1] == heading:
+            found.append((number, match[0]))
     if not found:
         return body, None, ''
     if len(found) > 1:
@@ -277,12 +298,11 @@ def split_section(body, heading):
     fence = None
     for number in range(start + 1, len(lines)):
         line = lines[number].rstrip('\r')
-        stripped = line.lstrip()
-        if stripped.startswith(('```', '~~~')):
-            fence = None if fence and stripped.startswith(fence) else (fence or stripped[:3])
+        fence, marker = _fence(fence, line)
+        if fence or marker:
             continue
-        match = None if fence else _HEADING.fullmatch(line)
-        if match and len(match[1]) <= level:
+        match = _heading(line)
+        if match and match[0] <= level:
             end = number
             break
     return '\n'.join(lines[:start]), [line.rstrip('\r') for line in lines[start:end]], '\n'.join(lines[end:])
