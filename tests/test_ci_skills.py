@@ -26,7 +26,7 @@ from urllib.parse import unquote
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture
-from prfix import ci, publishing
+from prfix import capture, ci, publishing
 from prfix.capture import identity
 from prfix.core import Ledger
 from prfix.prepare import entry_preset, prepare
@@ -1324,9 +1324,12 @@ class FlakeGitHub:
 
     def request(self, method, path, payload=None):
         self.calls['request'] += 1
+        # Every route must also pass the installed gh transport's route check (no percent-encoding).
+        with patch('prfix.capture.run', return_value=b'{}'):
+            capture.GitHub(Path.cwd())._request(method, path)
         if 'listing' in self.broken:
             raise ConnectionError('listing failed')
-        match = re.fullmatch(r'repos/owner/repo/actions/runs\?status=failure&created=%3E%3D\d{4}-\d\d-\d\d'
+        match = re.fullmatch(r'repos/owner/repo/actions/runs\?status=failure&created=>=\d{4}-\d\d-\d\d'
                              r'&per_page=100&page=(\d+)', path)
         if method == 'GET' and match:
             self.calls['runs'] += 1

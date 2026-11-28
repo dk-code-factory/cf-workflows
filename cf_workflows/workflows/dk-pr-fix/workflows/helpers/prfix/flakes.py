@@ -24,7 +24,6 @@ from datetime import datetime, timezone
 import json
 import re
 import time
-from urllib.parse import quote
 
 from .approvers import AdmissionError, fields, require, text
 from .core import artifact, digest, identity, read_artifact
@@ -119,7 +118,7 @@ def collect(github, target, options, now, targets=None):
     limits, gaps = [], []
     runs, total = [], None
     for page in range(1, MAX_PAGES + 1):
-        response = _page(github, f'{prefix}/actions/runs?status=failure&created={quote(">=" + since)}'
+        response = _page(github, f'{prefix}/actions/runs?status=failure&created=>={since}'
                                  f'&per_page={PAGE}&page={page}', 'workflow_runs', 'workflow run')
         total = response.get('total_count', total)
         runs.extend(response['workflow_runs'])
