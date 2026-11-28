@@ -22,7 +22,8 @@ import re
 import subprocess
 from urllib.parse import quote
 
-from .core import artifact, digest, identity, read_artifact
+from .capture import CommandFailed
+from .core import artifact, bounded_json, digest, identity, read_artifact
 
 MAX_TEXT = 64 << 10
 MAX_SEARCH_PATHS = 20  # Changed paths a maintainer search covers; more is an incomplete search.
@@ -363,8 +364,30 @@ class GitHubEvidence:
             raise Incomplete('the reviews response is not a list')
         return {'items': items, 'next': page + 1 if len(items) == 100 else None}
 
+    def _missing(self, failed):
+        """Whether a failed read is GitHub's 404 (gh keeps the error body on standard output)."""
+        try:
+            body = bounded_json(failed.stdout.decode('utf-8', errors='strict'))
+        except (AttributeError, ValueError, UnicodeError):
+            return False
+        return isinstance(body, dict) and str(body.get('status')) == '404'
+
     def permission(self, repository, login):
-        value = self.transport.request('GET', f'{self._route(repository)}/collaborators/{login}/permission')
+        route = f'{self._route(repository)}/collaborators/{login}/permission'
+        try:
+            value = self.transport.request('GET', route)
+        except CommandFailed as failed:
+            # A deleted, renamed or mistyped CODEOWNERS login answers 404: it cannot approve. Only a
+            # confirmed missing account is excluded; any other failed read (including a 404 for the
+            # repository) stays a blocker.
+            if not self._missing(failed):
+                raise
+            try:
+                self.transport.request('GET', 'users/' + login)
+            except CommandFailed as account:
+                if self._missing(account):
+                    return 'no such account'
+            raise failed
         if not isinstance(value, dict):
             raise Incomplete('the permission response is not an object')
         # role_name distinguishes maintain from write; permission is the legacy level, which a custom
