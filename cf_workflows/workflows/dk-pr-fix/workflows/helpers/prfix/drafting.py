@@ -138,7 +138,7 @@ _REF = re.compile(r'(?:(?<![\w/&#])#|(?<![\w/&#-])(?i:GH)-)([1-9][0-9]{0,15})\b'
 _URL_REF = re.compile(r'https://([A-Za-z0-9.-]+)/([\w.-]+)/([\w.-]+)/(?:issues|pull)/([1-9][0-9]*)')
 _CLOSING = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:#|GH-)([1-9][0-9]{0,15})\b', re.I)
 _QUALIFIED_REF = re.compile(r'(?<![\w/.-])[\w.-]+/[\w.-]+#[1-9][0-9]{0,15}\b')
-# GitHub also closes an owner/repo#N or issue-URL reference; a draft closes only linked issues, written as #N.
+# GitHub also closes an owner/repo#N or issue-URL reference; a draft closes only linked issues, written as #N or GH-N.
 _CLOSING_ELSEWHERE = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+/[\w.-]+#[1-9][0-9]*|'
                                 r'https?://[^\s)>\]]+/(?:issues|pull)/[1-9][0-9]*)', re.I)
 _CODE_LINK = re.compile(r'https://[A-Za-z0-9.-]+/[\w.-]+/[\w.-]+/(blob|tree)/([^/\s)>\]]+)')
@@ -336,9 +336,9 @@ def _check_text(body, evidence, where, *, public):
     for match in _URL_REF.finditer(plain):
         if match[0] not in evidence['urls']:
             raise Blocked(where, match[0] + ' is not named by any evidence')
-    texts = '\n'.join(item['text'] for item in evidence['sources'])
+    named = {found for item in evidence['sources'] for found in _QUALIFIED_REF.findall(item['text'])}
     for found in _QUALIFIED_REF.findall(plain):
-        if found not in texts:
+        if found not in named:  # Whole references: o/r#1 is not named by o/r#12.
             raise Blocked(where, found + ' is not named by any evidence')
     for number in _CLOSING.findall(plain):
         if int(number) not in evidence['linked']:

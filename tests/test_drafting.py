@@ -508,7 +508,7 @@ class Unsupported(Fixture):
         return evidence, governing
 
     def test_fabricated_references_links_and_attribution_reject(self):
-        evidence, governing = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'Flaky.',
+        evidence, governing = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'Flaky, see o/r#12.',
                                                      'url': 'https://github.com/o/r/issues/3'}])
         cases = {
             'unknown issue': 'See #99 for context.',
@@ -521,6 +521,7 @@ class Unsupported(Fixture):
             'closing between stray backticks': 'Use ` here.\n\nFixes #7.\n\nAnd ` there.',
             'closing an unlinked GH- issue': 'Closes GH-7.',
             'unknown qualified issue': 'Fixes o/r#8.',
+            'prefix of a named qualified issue': 'See o/r#1.',
             'closing a qualified linked issue': 'Fixes o/r#3.',
             'closing an issue URL': 'Fixes https://github.com/o/r/issues/3.',
         }
@@ -530,7 +531,7 @@ class Unsupported(Fixture):
                 with self.assertRaises(drafting.Blocked) as caught:
                     drafting.check_result('dk-pr-description', output(body=body), evidence, governing)
                 self.assertEqual(caught.exception.path, 'body')
-        pinned = (DESCRIPTION_BODY + f'\nFixes #3 and GH-3. See https://github.com/o/r/issues/3 and '
+        pinned = (DESCRIPTION_BODY + f'\nFixes #3 and GH-3. See o/r#12, https://github.com/o/r/issues/3 and '
                   f'https://github.com/o/r/blob/{self.head_sha}/src/upload.py#L2.\n')
         accepted = drafting.check_result('dk-pr-description', output(body=pinned), evidence, governing)
         self.assertEqual(accepted['draft']['body'], pinned)
