@@ -269,7 +269,8 @@ verified.
 A record is a JSON file committed under `baselines/evidence/` and listed in
 the matrix under `live_acceptance.<procedure>.records`. Each listed record must
 be accepted. A listed record that is missing or invalid rejects the whole
-matrix; it is never ignored.
+matrix; it is never ignored. A record path outside the repository (absolute,
+with `..`, or a symlink leading out) is never read and counts as missing.
 
 ```json
 {
