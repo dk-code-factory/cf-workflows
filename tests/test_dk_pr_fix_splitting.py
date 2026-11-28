@@ -673,5 +673,14 @@ class InstalledPreflight(PreflightFixture):
                           result['inputs']['permissions']['rewrite_commits']), (True, False))
 
 
+class GitFailures(unittest.TestCase):
+    def test_a_git_timeout_or_missing_git_is_blocked(self):
+        for error in (subprocess.TimeoutExpired(['git'], 60), FileNotFoundError('git')):
+            with self.subTest(type(error).__name__), mock.patch.object(splitting.subprocess, 'run', side_effect=error):
+                with self.assertRaises(splitting.Blocked) as caught:
+                    splitting.git('.', 'status')
+                self.assertEqual(caught.exception.path, 'git')
+
+
 if __name__ == '__main__':
     unittest.main()

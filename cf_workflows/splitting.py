@@ -317,11 +317,16 @@ def effective(name, admitted, options=None):
 
 def git(repository, *args, data=None, env=None, check=True):
     """Git with filesystem monitors, hooks, external diffs and lazy fetches off; env adds variables."""
-    result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
-                             '--literal-pathspecs', '-C', str(repository), *args],
-                            input=data, capture_output=True, timeout=60,
-                            env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0', 'GIT_NO_LAZY_FETCH': '1',
-                                 'GIT_TERMINAL_PROMPT': '0', **(env or {})})
+    try:
+        result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
+                                 '--literal-pathspecs', '-C', str(repository), *args],
+                                input=data, capture_output=True, timeout=60,
+                                env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0', 'GIT_NO_LAZY_FETCH': '1',
+                                     'GIT_TERMINAL_PROMPT': '0', **(env or {})})
+    except subprocess.TimeoutExpired:
+        raise Blocked('git', 'git ' + args[0] + ' timed out after 60 seconds') from None
+    except OSError as error:
+        raise Blocked('git', 'git ' + args[0] + ' could not start: ' + type(error).__name__) from None
     if check and result.returncode:
         raise Blocked('git', 'git ' + args[0] + ' failed: ' + result.stderr.decode(errors='replace')[:400])
     return result.stdout
