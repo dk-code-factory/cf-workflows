@@ -839,10 +839,11 @@ def accept(root, provider, ledger, plan, inputs):
             except Blocked as error:
                 raise ReportContractError("prose cleanup: " + str(error)) from error
         if task["kind"] == "reply" and complete:
-            # The responder must account for every current source and draft every owed reply.
-            from .responses import accept as retain_responses
+            # The responder must account for every current source and draft every owed reply;
+            # its assessments are retained only once the report's effects are committed below.
+            from .responses import accept as check_responses
             try:
-                retain_responses(root, provider, plan, report)
+                validated = check_responses(root, provider, plan, report)
             except FeedbackError as error:
                 raise ReportContractError("feedback responses: " + str(error)) from error
         elif drafting.role(task) and complete:
