@@ -373,6 +373,22 @@ class AppTests(unittest.TestCase):
         self.assertEqual(retained[0]["agent"], REVIEWER)
         self.assertEqual(self.ledger.db.execute("SELECT count(*) FROM submissions").fetchone()[0], 2)
 
+    def test_a_continuation_rewording_an_accepted_finding_is_a_correctable_rejection(self):
+        claim = self.claim()
+        original = {"id": "R1", "text": "Retained original defect", "sources": ["source"]}
+        partial = self.fixture.report(complete=False, findings=[original])
+        partial["checklist"][-1]["status"] = "incomplete"
+        self.assertFalse(self.accept(claim, partial)["complete"])
+        reworded = self.fixture.report(findings=[{**original, "text": "Reworded defect"}])
+        rejected = self.accept(claim, reworded, round=1)
+        self.assertFalse(rejected["complete"])
+        self.assertIn("rewrote original finding R1", read_artifact(self.root, rejected["report"])["contract_error"])
+        self.assertEqual(self.ledger.db.execute("SELECT count(*) FROM submissions").fetchone()[0], 1)
+        # The same session corrects it; the run keeps working instead of failing in candidates().
+        self.assertTrue(self.accept(claim, self.fixture.report(findings=[original]), round=2)["complete"])
+        self.assertEqual([item["text"] for item in app.candidates(self.root, self.ledger, self.plan)],
+                         ["Retained original defect"])
+
     def test_completed_writer_rejects_missing_or_empty_manifest(self):
         claim = self.claim("finding_fix")
         (self.root / "code.py").write_text("value = 3\n")

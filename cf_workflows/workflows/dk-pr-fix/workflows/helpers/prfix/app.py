@@ -760,10 +760,30 @@ def _dispositions(root, ledger, plan, task, report, agent, assignment):
 
 def _preserve_rejected_findings(ledger, claim, report):
     current = {item["id"]: item for item in report.get("findings", [])}
+    # A finding ID an accepted earlier round already submitted is held to that round instead
+    # (_preserve_submitted_findings), so a rejected rewording of it never binds the correction.
+    submitted = {finding["id"] for row in ledger.db.execute("SELECT report FROM submissions WHERE claim_id=?",
+                                                            (claim["id"],))
+                 for finding in bounded_json(row["report"]).get("findings", [])}
     for row in ledger.db.execute("SELECT report FROM report_rejections WHERE claim_id=?", (claim["id"],)):
         for original in bounded_json(row["report"]).get("findings", []):
-            if current.get(original["id"]) != original:
+            if original["id"] not in submitted and current.get(original["id"]) != original:
                 raise ValueError("report correction lost or rewrote an original finding")
+
+
+def _preserve_submitted_findings(ledger, claim, report, round_number):
+    """A continuation of an accepted incomplete round keeps each earlier finding ID's text and sources.
+
+    candidates() merges every submitted round by claim and finding ID, and submissions are
+    immutable, so a rewording must be a correctable rejection here rather than a later failure.
+    """
+    current = {item["id"]: item for item in report.get("findings", [])}
+    for row in ledger.db.execute("SELECT report FROM submissions WHERE claim_id=? AND round<?",
+                                 (claim["id"], round_number)):
+        for original in bounded_json(row["report"]).get("findings", []):
+            kept = current.get(original["id"])
+            if kept is not None and (kept["text"], kept["sources"]) != (original["text"], original["sources"]):
+                raise ReportContractError("checklist continuation rewrote original finding " + original["id"])
 
 
 def _reject_report(root, provider, ledger, plan, claim, assignment, report, agent, round_number, error):
@@ -830,6 +850,8 @@ def accept(root, provider, ledger, plan, inputs):
         verify_findings(report, identities)
         report = decode_native_report(report)
         complete = verify_report(root, task, report)
+        if task["kind"] in {"review", "inspection"}:
+            _preserve_submitted_findings(ledger, claim, report, round_number)
         _dispositions(root, ledger, plan, task, report, agent, assignment)
         if complete and "prose" in assignment:
             # Edits stay within changed prose and the prose report matches them, before any commit.
