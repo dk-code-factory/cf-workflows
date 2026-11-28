@@ -175,7 +175,8 @@ def _codex(record, add_invocation, add_child, child_event, fault):
         turn = params.get('turnId')
         if (params.get('threadId') != thread or not turn or metadata.get('turn_id') != turn
                 or item.get('type') != 'message' or item.get('role') != 'user' or not item.get('id')
-                or kinds != [CODEX_SKILL_KIND] or provenance != ['skills'] or len(content) != 1
+                or kinds != [CODEX_SKILL_KIND] or provenance != ['skills'] or not isinstance(content, list)
+                or len(content) != 1
                 or content[0].get('type') != 'input_text' or not isinstance(content[0].get('text'), str)):
             fault('failed', 'native skill fragment has mismatched identity or provenance')
             continue
@@ -186,7 +187,9 @@ def _codex(record, add_invocation, add_child, child_event, fault):
                 or not body.endswith('\n</skill>')):
             fault('failed', 'native skill fragment is malformed')
             continue
-        add_invocation(head[len('<skill>\n<name>'):], locator, body=body[:-len('\n</skill>')].encode('utf-8'))
+        # surrogatepass: a lone surrogate from JSON never matches the admitted UTF-8 bytes, and never raises.
+        add_invocation(head[len('<skill>\n<name>'):], locator,
+                       body=body[:-len('\n</skill>')].encode('utf-8', 'surrogatepass'))
 
 
 def _claude(record, add_invocation, add_child, child_event, fault):
@@ -210,7 +213,8 @@ def _claude(record, add_invocation, add_child, child_event, fault):
                 elif block.get('name') == 'Agent':  # Upstream's bridge counts only Agent as a child call.
                     add_child(block.get('id'), arguments.get('subagent_type'), parent is not None, arguments)
         elif kind == 'user':
-            result = event.get('tool_use_result') or {}
+            result = event.get('tool_use_result')
+            result = result if isinstance(result, dict) else {}  # An errored tool's result may be text or blocks.
             for block in (event.get('message') or {}).get('content') or []:
                 if not isinstance(block, dict) or block.get('type') != 'tool_result':
                     continue

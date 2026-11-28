@@ -73,6 +73,8 @@ and any request authorization reject before the engine is contacted.
    - every changed line lies within two lines of a candidate line, and both the
      old and the new line are prose lines, so code is never edited and a
      comment never becomes code;
+   - every unchanged line keeps its prose or code classification, so an edited
+     comment delimiter such as `*/` cannot turn untouched code into comment;
    - fenced code blocks are byte-identical;
    - code spans, URLs, link targets, identifier-like terms, numbers, RFC 2119
      keywords, operator characters (`<>=!&|^~%`) and machine directives in the

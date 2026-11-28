@@ -476,6 +476,18 @@ class LiveEvidence(unittest.TestCase):
                 with self.assertRaises(qualification.MatrixError):
                     validate(matrix, qualification.read_records(matrix, ROOT))
 
+    def test_record_files_outside_the_repository_are_never_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'repo' / 'docs').mkdir(parents=True)
+            (base / 'outside.json').write_text('{}')
+            (base / 'repo' / 'docs' / 'inside.json').write_text('{}')
+            (base / 'repo' / 'docs' / 'link.json').symlink_to(base / 'outside.json')
+            listed = [str(base / 'outside.json'), '../outside.json', 'docs/../../outside.json', 'docs/link.json',
+                      'docs/inside.json']
+            matrix = {'live_acceptance': {'live_provider': {'records': listed}}}
+            self.assertEqual(qualification.read_records(matrix, base / 'repo'), {'docs/inside.json': {}})
+
     def test_a_matrix_that_is_not_an_object_is_a_release_blocker(self):
         for document in ([], 'matrix', 1, {'live_acceptance': []}, {'live_acceptance': {'x': {'records': 1}}}):
             with self.subTest(document=document), tempfile.TemporaryDirectory() as directory:

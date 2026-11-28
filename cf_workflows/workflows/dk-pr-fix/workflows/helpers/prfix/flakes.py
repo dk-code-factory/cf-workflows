@@ -24,7 +24,6 @@ from datetime import datetime, timezone
 import json
 import re
 import time
-from urllib.parse import quote
 
 from .approvers import AdmissionError, fields, require, text
 from .core import artifact, digest, identity, read_artifact
@@ -102,7 +101,7 @@ def declarations(issue):
     for block in DECLARATION.findall(content):
         try:
             value = json.loads(block)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         if (isinstance(value, dict) and value.get('flaky') is True
                 and all(isinstance(value.get(key), str) and value[key].strip() for key in (*CONTEXT, 'signature'))
@@ -119,7 +118,7 @@ def collect(github, target, options, now, targets=None):
     limits, gaps = [], []
     runs, total = [], None
     for page in range(1, MAX_PAGES + 1):
-        response = _page(github, f'{prefix}/actions/runs?status=failure&created={quote(">=" + since)}'
+        response = _page(github, f'{prefix}/actions/runs?status=failure&created=>={since}'
                                  f'&per_page={PAGE}&page={page}', 'workflow_runs', 'workflow run')
         total = response.get('total_count', total)
         runs.extend(response['workflow_runs'])
@@ -209,10 +208,11 @@ def collect(github, target, options, now, targets=None):
             if matching:
                 links.append({'issue': item['issue'], 'number': item['number'], 'signature': item['signature'],
                               'observations': matching})
-                linked_issues.add((item['issue'], key))
+                linked_issues.add((item['issue'], key, item['signature']))
         tests.append({**dict(zip(CONTEXT, key)), 'observations': ids,
                       'status': 'linked' if links else 'candidate', 'links': links})
-    unobserved = [item for item in declared if (item['issue'], tuple(item[f] for f in CONTEXT)) not in linked_issues]
+    unobserved = [item for item in declared
+                  if (item['issue'], tuple(item[f] for f in CONTEXT), item['signature']) not in linked_issues]
     evidence = {'repository': target['repository'], 'since': since, 'runs': len(runs), 'issues': len(issues),
                 'targets': targets, 'observations': observations, 'tests': tests,
                 'declared_unobserved': unobserved, 'limits_reached': limits, 'gaps': gaps}

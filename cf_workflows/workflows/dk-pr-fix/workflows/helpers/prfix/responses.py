@@ -76,20 +76,57 @@ def _observe(provider, plan):
     return evidence, feedback.View(plan["pr"], evidence)
 
 
+class _Pending:
+    """A retained feedback record with validated, not yet retained, assessments on top.
+
+    It answers the reads ``feedback.check`` and ``feedback.stage`` make exactly as the record
+    would after ``Ledger.assess`` of each pending assessment, without writing anything.
+    """
+
+    def __init__(self, record):
+        self.record, self.pending = record, []
+
+    def add(self, value):
+        if self.current(value["source"], value["fingerprint"]) != value:
+            self.pending.append(value)
+
+    def current(self, source, fingerprint):
+        for value in reversed(self.pending):
+            if value["source"] == source and value["fingerprint"] == fingerprint:
+                return value
+        return self.record.current(source, fingerprint)
+
+    def history(self, source):
+        return self.record.history(source) + [value for value in self.pending if value["source"] == source]
+
+    def identity(self, source):
+        return self.record.identity(source)
+
+    def decided(self, source, request_id, implementation):
+        return feedback.decided(self, source, request_id, implementation)
+
+    def replies(self, source_key, fingerprint):
+        return self.record.replies(source_key, fingerprint)
+
+
 def accept(root, provider, plan, report):
-    """Retain a responder report's assessments at acceptance.
+    """Validate a responder report's assessments and drafts without retaining them.
 
     Raises FeedbackError, which acceptance turns into a bounded same-session
     correction, when an assessment is invalid or drops an obligation, a current
     source stays unassessed, or a source that still needs an answer has no draft.
+    Returns the observation and the validated assessments; ``retain_feedback``
+    records exactly those once the report is accepted, so a rejected report never
+    binds its correction.
     """
     assessments, bodies = drafts(report)
     _, view = _observe(provider, plan)
-    record = _record(root, plan, read_only=False)
+    record = _record(root, plan, read_only=True)
     try:
+        pending = _Pending(record)
         for assessment in assessments:
-            record.assess(view, assessment)
-        result = feedback.stage(record, view, permissions(plan))
+            pending.add(feedback.check(pending, view, assessment))
+        result = feedback.stage(pending, view, permissions(plan))
     finally:
         record.close()
     feedback.require(not result["unassessed"], "responder left feedback sources unassessed: "
@@ -98,6 +135,7 @@ def accept(root, provider, plan, report):
     feedback.require(not missing, "responder drafted no reply for: " + ", ".join(missing))
     unknown = sorted(set(bodies) - set(view.sources))
     feedback.require(not unknown, "drafted replies name no current feedback source: " + ", ".join(unknown))
+    return view, assessments
 
 
 def role(task):

@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -507,7 +508,7 @@ class Unsupported(Fixture):
         return evidence, governing
 
     def test_fabricated_references_links_and_attribution_reject(self):
-        evidence, governing = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'Flaky.',
+        evidence, governing = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'Flaky, see o/r#12.',
                                                      'url': 'https://github.com/o/r/issues/3'}])
         cases = {
             'unknown issue': 'See #99 for context.',
@@ -517,6 +518,12 @@ class Unsupported(Fixture):
             'path and line': 'See src/upload.py:2.',
             'tool banner': 'Generated with an assistant.',
             'template comment': '<!-- How was this tested? -->',
+            'closing between stray backticks': 'Use ` here.\n\nFixes #7.\n\nAnd ` there.',
+            'closing an unlinked GH- issue': 'Closes GH-7.',
+            'unknown qualified issue': 'Fixes o/r#8.',
+            'prefix of a named qualified issue': 'See o/r#1.',
+            'closing a qualified linked issue': 'Fixes o/r#3.',
+            'closing an issue URL': 'Fixes https://github.com/o/r/issues/3.',
         }
         for name, sentence in cases.items():
             with self.subTest(name):
@@ -524,12 +531,19 @@ class Unsupported(Fixture):
                 with self.assertRaises(drafting.Blocked) as caught:
                     drafting.check_result('dk-pr-description', output(body=body), evidence, governing)
                 self.assertEqual(caught.exception.path, 'body')
-        pinned = (DESCRIPTION_BODY + f'\nFixes #3. See https://github.com/o/r/blob/{self.head_sha}/src/upload.py#L2.\n')
+        pinned = (DESCRIPTION_BODY + f'\nFixes #3 and GH-3. See o/r#12, https://github.com/o/r/issues/3 and '
+                  f'https://github.com/o/r/blob/{self.head_sha}/src/upload.py#L2.\n')
         accepted = drafting.check_result('dk-pr-description', output(body=pinned), evidence, governing)
         self.assertEqual(accepted['draft']['body'], pinned)
         unknown = output(claims=[{'text': 'Benchmarks improved.', 'sources': ['benchmark']}])
         with self.assertRaises(admission.AdmissionError):
             drafting.check_result('dk-pr-description', unknown, evidence, governing)
+
+    def test_long_padded_heading_lines_parse_in_linear_time(self):
+        started = time.monotonic()
+        self.assertEqual(drafting.headings('## Summary ##\n# a' + ' \t' * 5000 + 'x\n### C# ###  '),
+                         ['Summary', 'a' + ' \t' * 5000 + 'x', 'C#'])
+        self.assertLess(time.monotonic() - started, 1)
 
     def test_huge_digit_runs_in_evidence_are_not_references(self):
         evidence, _ = self.evidence(issues=[{'number': 3, 'title': 'Uploads fail', 'body': 'See #' + '1' * 5000,
@@ -613,6 +627,20 @@ class CommitMessage(Fixture):
         self.assertEqual(before['staged'], after['staged'], 'the change is past the text bound')
         self.assertNotEqual(before['content'], after['content'])
 
+    def test_inputs_that_return_to_an_earlier_state_draft_a_current_message(self):
+        admitted, ledger = self.admitted()
+        first = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.write('notes.txt', 'other scratch\n')
+        second = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.write('notes.txt', 'scratch\n')
+        again = self.draft('dk-commit-message', admitted, ledger, session(message()))
+        self.assertEqual([item['status'] for item in (first, second, again)], ['drafted'] * 3)
+        self.assertTrue(again['session'], 'the superseded first draft is not reused')
+        self.assertNotIn(again['result_ref'], (first['result_ref'], second['result_ref']))
+        current = drafting.current_report('dk-commit-message', admitted, repository=self.repo, ledger=ledger)
+        self.assertEqual(current['result_ref'], again['result_ref'])
+        self.assertTrue(drafting.source_validator(ledger, 'dk-commit-message')('drafting:' + again['result_ref']))
+
     def test_non_utf8_path_names_do_not_block_the_capture(self):
         (self.repo / os.fsdecode(b'caf\xe9.txt')).write_bytes(b'x\n')
         changes = drafting.local_changes(self.repo)
@@ -653,6 +681,16 @@ class CommitMessage(Fixture):
             claims=[{'text': 'make test passes.', 'sources': ['validation:make']}])), facts=[ran])
         self.assertEqual(tested['status'], 'drafted', tested)
         self.assertEqual(self.engine.sessions, Counter({'dk-commit-message': 2}))
+
+    def test_a_conventional_test_subject_is_not_a_validation_section(self):
+        admitted, ledger = self.admitted()
+        report = self.draft('dk-commit-message', admitted, ledger, session(message(
+            'test: cover upload retries\n\nUploads retry up to three times before failing.\n')))
+        self.assertEqual(report['status'], 'drafted', report)
+        admitted, ledger = self.admitted('Draft a commit message (body label).')
+        body = self.draft('dk-commit-message', admitted, ledger, session(message(
+            'test: cover upload retries\n\nTested: make test passes.\n')))
+        self.assertEqual(body['status'], 'blocked', body)
 
     def test_lost_session_response_reconciles_by_claim(self):
         admitted, ledger = self.admitted()

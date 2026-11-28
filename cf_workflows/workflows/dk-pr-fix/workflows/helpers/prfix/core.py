@@ -76,7 +76,10 @@ def bounded_json(raw, limit=MAX_JSON):
         return result
     def constant(value):
         raise ValueError("nonfinite JSON number: " + value)
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    try:
+        return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    except RecursionError:
+        raise ValueError("JSON nesting exceeds depth limit") from None
 
 
 def atomic_json(path, value):

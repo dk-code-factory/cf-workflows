@@ -321,11 +321,15 @@ def check_edits(path, before, after, allowed, constraints):
     except UnicodeDecodeError:
         raise Blocked(path, 'edited file is not UTF-8') from None
     matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
-    allowed = allowed & (prose_lines(path, old) or set())
+    prose_before = prose_lines(path, old) or set()
+    allowed = allowed & prose_before
     prose_after = prose_lines(path, new) or set()
     removed, added, touched = [], [], set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
+            # An edited comment delimiter can turn untouched code into comment or comment into code.
+            if any((i1 + k in prose_before) != (j1 + k in prose_after) for k in range(i2 - i1)):
+                raise Blocked(path, f'edit turns untouched line {j1 + 1} into prose or code')
             continue
         inside = (all(line in allowed for line in range(i1, i2)) if i2 > i1
                   else i1 - 1 in allowed or i1 in allowed)  # An insertion sits next to changed prose.
@@ -335,7 +339,8 @@ def check_edits(path, before, after, allowed, constraints):
             raise Blocked(path, f'edit at line {j1 + 1} turns prose into code or code into prose')
         removed.append(''.join(old[i1:i2]))
         added.append(''.join(new[j1:j2]))
-        touched.update(range(j1, j2))
+        # A deletion is an edit too: it touches the line now at its position.
+        touched.update(range(j1, j2) if j2 > j1 else [min(j1, max(len(new) - 1, 0))])
     before_text, after_text = ''.join(old), ''.join(new)
     if [match.group(0) for match in FENCE.finditer(before_text)] != [
             match.group(0) for match in FENCE.finditer(after_text)]:

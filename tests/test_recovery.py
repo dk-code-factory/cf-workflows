@@ -514,6 +514,23 @@ class Backup(unittest.TestCase):
         self.assertEqual(report['engine'], {'quarantined': []})
         self.assertEqual(engine.calls, Counter(status=2, backup=1, bundle=1, retained=2, restore=1))
 
+    def test_relative_backup_and_restore_paths_reach_the_engine_absolute(self):
+        host = Host('codex')
+        engine = EngineAdapter(host, helpers=dk_pr_fix.INSTALL / 'workflows' / 'helpers')
+        seen = []
+        for name in ('backup', 'bundle', 'restore'):
+            def record(*paths, _call=getattr(engine, name)):
+                seen.extend(paths)
+                return _call(*paths)
+            setattr(engine, name, record)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(self.base)
+        recovery.backup(self.home, Path('backups') / 'relative', engine=engine)
+        shutil.rmtree(self.home / recovery.SUITE_DIR)
+        recovery.restore(Path('backups') / 'relative', self.home, engine=engine)
+        self.assertEqual(len(seen), 4)
+        self.assertTrue(all(Path(path).is_absolute() for path in seen), seen)
 
 # -- Partial recovery and fresh-session reuse through the installed helpers -------------------------
 

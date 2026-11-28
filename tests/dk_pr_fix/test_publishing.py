@@ -98,6 +98,22 @@ class PublishingTests(unittest.TestCase):
         self.assertTrue(publishing.validate_operation(self.root, self.provider, self.ledger, self.plan,
             {"id": prepared["id"]}, result))
 
+    def test_a_proposal_naming_foreign_sources_keeps_its_author_out_of_the_audience(self):
+        foreign = self.accepted("review", agent=AUDIENCE)
+        proposal = {**self.proposal(), "sources": [foreign]}
+        reference = self.accepted("description", self.report(operations=[proposal]))
+        listed = publishing.dispatch("publication_list", self.root, self.provider, self.ledger, self.plan, {})["items"]
+        self.assertEqual(listed[0]["sources"], [foreign, reference])
+        prepared = publishing.dispatch("publication_prepare", self.root, self.provider, self.ledger, self.plan,
+                                       {"proposal": listed[0]})
+        report = self.report(audience={"fingerprint": prepared["fingerprint"], "suitable": True,
+                                      "audience": "PR participants", "evidence": ["source"]})
+        for agent in (PRODUCER, AUDIENCE):
+            with self.subTest(agent=agent), self.assertRaisesRegex(PublicationError, "independent native agent"):
+                publishing.dispatch("publication_execute", self.root, self.provider, self.ledger, self.plan,
+                                    {"id": prepared["id"], "agent": agent, "report": report})
+        self.assertEqual(self.provider.writes, [])
+
     def test_input_cannot_change_payload_while_reusing_accepted_source(self):
         _, proposal, _, _ = self.setup_publication()
         changed = copy.deepcopy(proposal)

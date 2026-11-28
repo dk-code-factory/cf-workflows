@@ -20,13 +20,14 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture
 from prfix import app, publishing, splitting
-from prfix.core import read_artifact
+from prfix.core import canonical, read_artifact
 from prfix.prepare import prepare
 from test_dk_pr_fix_drafting import GitHub as DraftingGitHub
 from test_dk_pr_fix_publication import LocalPublication
@@ -582,7 +583,7 @@ class Prepare(Fixture):
             return result
         installed, original = definitions(splitting.__file__), definitions(library.__file__)
         names = ('MAX_COMMITS', 'MAX_PATHS', 'MAX_PATCH', 'MODES', 'SCOPES', 'MODE_OPTION', 'RECOVERY', '_TRAILER',
-                 '_AUTHOR', '_SLUG', '_BRANCH', 'git', '_sha', '_objects', '_state', '_diff', '_states', '_tree',
+                 '_AUTHOR', '_SLUG', '_BRANCH', 'git', '_sha', '_objects', '_text', '_state', '_diff', '_states', '_tree',
                  '_identity', '_commit', '_record', 'series', '_dirty', '_ref', '_owned', '_fixed', '_patch',
                  '_items', 'check_message', '_common', 'check_commits', '_public', 'check_split', 'build_series',
                  'build_split', 'plan_digest', '_sync')
@@ -671,6 +672,66 @@ class InstalledPreflight(PreflightFixture):
         self.assertEqual(result['preflight'], 'admitted', result.get('error'))
         self.assertEqual((result['inputs']['permissions']['push_commits'],
                           result['inputs']['permissions']['rewrite_commits']), (True, False))
+
+
+class Failures(unittest.TestCase):
+    def test_a_git_timeout_or_missing_git_is_blocked(self):
+        for error in (subprocess.TimeoutExpired(['git'], 60), FileNotFoundError('git')):
+            with self.subTest(type(error).__name__), mock.patch.object(splitting.subprocess, 'run', side_effect=error):
+                with self.assertRaises(splitting.Blocked) as caught:
+                    splitting.git('.', 'status')
+                self.assertEqual(caught.exception.path, 'git')
+
+    def test_a_validation_timeout_kills_the_processes_the_command_started(self):
+        def alive(pid):
+            try:
+                return Path(f'/proc/{pid}/stat').read_text().split(')')[-1].split()[0] != 'Z'
+            except FileNotFoundError:
+                return False
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(splitting, 'VALIDATION_TIMEOUT', 1):
+            result = splitting._run(['sh', '-c', 'sleep 60 & echo $! > child; wait'], directory)
+            self.assertEqual((result['exit'], result['output']), (None, 'timed out after 1 seconds'))
+            child = int((Path(directory) / 'child').read_text())
+            for _ in range(50):
+                if not alive(child):
+                    break
+                time.sleep(0.1)
+            self.assertFalse(alive(child))
+
+    def test_non_utf8_commit_data_and_paths_block_and_dirty_names_stay_encodable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def run(*args, data=None):
+                return subprocess.run(git_fixture.command('-c', 'commit.gpgsign=false', *args), cwd=root,
+                                      input=data, check=True, capture_output=True,
+                                      env={**git_fixture.environment(), 'GIT_AUTHOR_NAME': 'Ada',
+                                           'GIT_AUTHOR_EMAIL': 'ada@example.invalid', 'GIT_COMMITTER_NAME': 'Ada',
+                                           'GIT_COMMITTER_EMAIL': 'ada@example.invalid'}).stdout.decode().strip()
+            run('init', '-q')
+            (root / 'a.txt').write_text('a\n')
+            run('add', 'a.txt')
+            run('commit', '-q', '-m', 'base')
+            base = run('rev-parse', 'HEAD')
+            # A legacy latin-1 commit message.
+            latin = run('-c', 'i18n.commitEncoding=latin1', 'commit-tree', base + '^{tree}', '-p', base,
+                        data='Caf\xe9\n'.encode('latin-1'))
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, latin)
+            self.assertEqual(caught.exception.path, 'commits')
+            # A non-UTF-8 path, committed and left untracked.
+            name = os.fsdecode(b'caf\xe9.txt')
+            (root / name).write_text('x\n')
+            run('add', '--', name)
+            run('commit', '-q', '-m', 'add a latin-1 path')
+            head = run('rev-parse', 'HEAD')
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, head)
+            self.assertEqual(caught.exception.path, 'changes')
+            (root / os.fsdecode(b'new\xe9.txt')).write_text('y\n')
+            dirty = splitting._dirty(root)
+            self.assertEqual(len(dirty), 1)
+            canonical(dirty)
 
 
 if __name__ == '__main__':

@@ -523,14 +523,15 @@ def accepted_evidence(matrix, records, *, inventory, closure_digest=None, engine
 
 
 def read_records(matrix, repository):
-    """Parse every listed record file; a missing file is left out so validation names it."""
-    records = {}
+    """Parse every listed record file; a missing or outside file is left out so validation names it."""
+    records, root = {}, Path(repository).resolve()
     live = matrix.get('live_acceptance') if isinstance(matrix, dict) else None
     for entry in live.values() if isinstance(live, dict) else []:
         listed = entry.get('records') if isinstance(entry, dict) else None
         for path in listed if isinstance(listed, list) else []:
-            if isinstance(path, str) and (Path(repository) / path).is_file():
-                records[path] = json.loads((Path(repository) / path).read_text())
+            if (isinstance(path, str) and not Path(path).is_absolute() and '..' not in Path(path).parts
+                    and (root / path).is_file() and (root / path).resolve().is_relative_to(root)):
+                records[path] = json.loads((root / path).read_text())
     return records
 
 

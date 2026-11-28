@@ -219,6 +219,10 @@ def publication_list(root, provider, ledger, plan, inputs):
                 proposal["sources"] = [row["reference"]]
             elif not isinstance(sources, list) or not sources:
                 raise PublicationError("native publication sources require accepted report references")
+            elif row["reference"] not in sources:
+                # The proposing report is always a producer, so its agent can never be the
+                # independent audience of the payload it authored.
+                proposal["sources"] = [*sources, row["reference"]]
             for source in proposal["sources"]:
                 _source(root, provider, ledger, plan, source, snapshot=snapshot)
             # IDs bind the original accepted report and proposal coordinates;

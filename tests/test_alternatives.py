@@ -309,9 +309,12 @@ class Presets(Fixture):
         self.assertEqual(options['scoring']['source'], 'default')
         for bad in ({'selection': {'mode': 'sometimes'}}, {'selection': {'min_score_gap': 101}},
                     {'selection': {'enabled': 'yes'}}, {'scoring': {'profile': 'fast'}}, {'unknown': 1},
-                    {'assessment_prompt': ''}, {'selection': {'extra': 1}}):
+                    {'assessment_prompt': ''}, {'selection': {'extra': 1}}, {'evaluation_prompt': ' '},
+                    {'evaluation_prompt': 'a\0b'}, {'evaluation_prompt': 'x' * (admission.MAX_TEXT + 1)}):
             with self.assertRaises(admission.AdmissionError, msg=bad):
                 entries.check_options('dk-issue-alternatives', bad)
+        self.assertEqual(entries.check_options('dk-pr-alternatives', {'evaluation_prompt': ''})
+                         ['evaluation_prompt']['value'], '')
         self.assertEqual(entries.check_options('dk-alternatives-review', None), {})
         with self.assertRaises(admission.AdmissionError):
             entries.check_options('dk-pr-review-alternatives', {'selection': {'mode': 'manual'}})
@@ -1124,7 +1127,7 @@ class Compatibility(Fixture):
         result = self.compat({}, 'whole-problem', legacy=legacy)
         self.assertEqual((result['status'], result['legacy'], result['dispatches']), ('unsupported', legacy, 0))
         self.calls()
-        for route in (None, 'legacy', 'architecture'):
+        for route in (None, 'legacy', 'architecture', ['branch'], {'branch': True}):
             rejected = self.compat({}, route)
             self.assertEqual((rejected['status'], rejected['error']['path']), ('rejected', 'route'))
             self.calls()

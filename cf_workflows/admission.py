@@ -34,9 +34,11 @@ SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z][a-z0-9-]{0,63}')
 IDENT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
 INLINE_LINK = re.compile(r'\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?\s*\)')
-REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)')  # Not footnotes.
+REFERENCE_DEFINITION = re.compile(r'^ {0,3}\[(?!\^)[^\]]+\]:\s*(<[^>\n]*>|\S+)', re.M)  # Not footnotes.
 FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})(.*)')
-CODE_SPAN = re.compile(r'(`+)(?:(?!\1).)+?\1')
+# A whole backtick run not preceded by a backslash, closed by a run of exactly its length (CommonMark 6.1).
+# Anything this misses as a span is scanned, which can only reject, never drop a link.
+CODE_SPAN = re.compile(r'(?<![`\\])(`+)(?!`).+?(?<!`)\1(?!`)')
 REPOSITORY = re.compile(r'[a-z0-9.-]+/[a-z0-9_.-]+/[a-z0-9_.-]+')
 HOST = re.compile(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?')
 
@@ -366,7 +368,10 @@ def load_json(raw):
         raise AdmissionError('$', 'nonfinite JSON number: ' + value)
     require(len(raw.encode('utf-8') if isinstance(raw, str) else raw) <= MAX_TEXT * 16,
             '$', 'JSON exceeds byte bound')
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    try:
+        return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    except RecursionError:
+        raise AdmissionError('$', 'JSON nesting exceeds depth limit') from None
 
 
 # -- Resource resolution ----------------------------------------------------------------------
@@ -406,29 +411,44 @@ def read_file(root, rel, path, limit=MAX_FILE):
 
 
 def link_targets(body):
-    """Inline and reference-definition Markdown link targets outside code fences and spans."""
-    result, fence = [], None
+    """Inline and reference-definition Markdown link targets outside code fences and spans.
+
+    A fence opened with indentation may belong to a list item, whose end also ends the
+    fence. Both readings are scanned, so neither one can drop a link.
+    """
+    result = _link_targets(body, False)
+    return result + [link for link in _link_targets(body, True) if link not in result]
+
+
+def _link_targets(body, contained):
+    kept, fence = [], None
     for line in body.splitlines():
         opening = FENCE.match(line)
+        indent = len(line) - len(line.lstrip(' '))
+        if fence and contained and line.strip() and indent < fence[1]:
+            fence = None  # The less-indented line ends the list item holding the fence.
         if fence:
             # A closing fence is followed only by whitespace (CommonMark 4.5).
-            if opening and opening[1][0] == fence[0] and len(opening[1]) >= len(fence) and not opening[2].strip():
+            if opening and opening[1][0] == fence[0][0] and len(opening[1]) >= len(fence[0]) and not opening[2].strip():
                 fence = None
             continue
         if opening and not (opening[1][0] == '`' and '`' in opening[2]):  # Backticks in the info string: a span.
-            fence = opening[1]
+            fence = opening[1], indent
             continue
         # Indented lines are scanned too: nested list items and continuations hold real
         # links, and an extra link in indented code can only reject, never drop a resource.
-        line = CODE_SPAN.sub('', line)
-        found = INLINE_LINK.findall(line)
-        definition = REFERENCE_DEFINITION.match(line)
-        if definition:
-            found.append(definition[1])
-        for link in found:
-            link = link[1:-1].strip() if link.startswith('<') else link
-            if link and not re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', link) and not link.startswith('#'):
-                result.append(unquote(link.split('#')[0].split('?')[0]))
+        kept.append(CODE_SPAN.sub('', line))
+    # Scanned across line ends, since a destination may follow `](` or `]:` on the next line, but
+    # one paragraph at a time: a blank line ends any link, title or definition (CommonMark 4.8).
+    matches = []
+    for text in re.split(r'\n[ \t]*\n', '\n'.join(kept)):
+        matches += sorted([*INLINE_LINK.finditer(text), *REFERENCE_DEFINITION.finditer(text)], key=lambda m: m.start())
+    result = []
+    for match in matches:
+        link = match[1]
+        link = link[1:-1].strip() if link.startswith('<') else link
+        if link and not re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', link) and not link.startswith('#'):
+            result.append(unquote(link.split('#')[0].split('?')[0]))
     return [link for link in result if link]
 
 

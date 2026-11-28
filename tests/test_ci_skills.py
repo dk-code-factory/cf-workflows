@@ -26,7 +26,7 @@ from urllib.parse import unquote
 
 import dk_pr_fix  # noqa: F401  (puts the installed helpers and ported fixtures on sys.path)
 import git_fixture
-from prfix import ci, publishing
+from prfix import capture, ci, publishing
 from prfix.capture import identity
 from prfix.core import Ledger
 from prfix.prepare import entry_preset, prepare
@@ -1324,9 +1324,12 @@ class FlakeGitHub:
 
     def request(self, method, path, payload=None):
         self.calls['request'] += 1
+        # Every route must also pass the installed gh transport's route check (no percent-encoding).
+        with patch('prfix.capture.run', return_value=b'{}'):
+            capture.GitHub(Path.cwd())._request(method, path)
         if 'listing' in self.broken:
             raise ConnectionError('listing failed')
-        match = re.fullmatch(r'repos/owner/repo/actions/runs\?status=failure&created=%3E%3D\d{4}-\d\d-\d\d'
+        match = re.fullmatch(r'repos/owner/repo/actions/runs\?status=failure&created=>=\d{4}-\d\d-\d\d'
                              r'&per_page=100&page=(\d+)', path)
         if method == 'GET' and match:
             self.calls['runs'] += 1
@@ -1465,6 +1468,27 @@ class FlakeDiscovery(unittest.TestCase):
         result = self.inspect()
         self.assertEqual((result['status'], result['tests'], result['covered']), ('complete', [], True))
         self.assertEqual(self.transport.calls['native_session'], 0)
+
+    def test_an_unobserved_signature_stays_reported_beside_a_linked_sibling(self):
+        from prfix import flakes as installed
+        self.github.issues[0]['body'] += declaration(signature='never logged')
+        target = {'owner': 'owner', 'name': 'repo', 'repository': 'github.com/owner/repo'}
+        options = {key: {'value': value} for key, value in installed.OPTIONS.items()}
+        for module in (ci_flakes, installed):
+            with self.subTest(module=module.__name__):
+                found = module.collect(self.github, target, options, 1_700_000_000.0)
+                [flaky] = [item for item in found['tests'] if item['test'] == 'TestFlaky']
+                self.assertEqual([link['signature'] for link in flaky['links']], ['intermittent gateway timeout'])
+                self.assertIn(('TestFlaky', 'never logged'),
+                              [(item['test'], item['signature']) for item in found['declared_unobserved']])
+
+    def test_deeply_nested_declaration_is_ignored_as_malformed(self):
+        from prfix import flakes as installed
+        nested = '```dk-flaky\n' + '[' * 100000 + ']' * 100000 + '\n```\n'
+        issue = {'number': 8, 'title': 'Flaky', 'body': nested + declaration()}
+        for module in (ci_flakes, installed):
+            with self.subTest(module=module.__name__):
+                self.assertEqual([item['test'] for item in module.declarations(issue)], ['TestFlaky'])
 
     def test_the_entry_has_no_authority(self):
         result = self.inspect(request={'repository': 'github.com/owner/repo', 'instructions': 'Scan.',

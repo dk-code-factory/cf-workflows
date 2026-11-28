@@ -84,8 +84,10 @@ only when all of these hold:
   `Tested:` line, cites a `validation` fact. A reproduction section cites a
   `reproduction` fact. Sections that are already in the current body belong
   to its author.
-- Every `#N` and issue or PR URL is named by the evidence. A closing keyword
-  names a linked issue. Code links are pinned to a full commit SHA.
+- Every `#N`, `GH-N`, `owner/repo#N` and issue or PR URL is named by the
+  evidence. A closing keyword names a linked issue as `#N` or `GH-N`; one that
+  closes an `owner/repo#N` or URL reference must already be in the current
+  body. Code links are pinned to a full commit SHA.
 - Public text has no `path:line` reference, no template comment and no
   generated-by banner or tool attribution.
 - The draft follows the governing template, or the fallback sections when no
@@ -110,6 +112,8 @@ It appends accepted drafts and rejected claims and never rewrites them.
   fresh session. When the current title and body equal the retained draft
   because it was published, the draft is still current.
 - **A lost session response** reconciles through the same claim.
+- **Inputs that return to an earlier state** draft anew: the claim binds the
+  retained draft it supersedes, so a superseded draft is never reused.
 - **A rejected draft** is retained and never redispatched. The next attempt
   gets a fresh claim, up to `1 + retries_per_task` attempts per binding.
 

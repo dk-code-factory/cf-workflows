@@ -772,6 +772,21 @@ class Preferences(Changes):
         [updated] = self.store.read()['scopes'][0]['preferences']
         self.assertEqual((updated['id'], updated['applies_to']), (saved['id'], ['review']))
 
+    def test_a_new_preference_never_reuses_the_id_an_updated_record_kept(self):
+        where = {'repository': REPOSITORY, 'pr': None, 'upstream': None}
+        options = entries.check_options('dk-preferences', None)
+
+        def apply(document, *operations):
+            return configuration.apply_operations(document, list(operations), 'dk-preferences', where, options)
+        saved, changes = apply(None, REPO_SCOPE, preference('Use pytest fixtures.', TESTS))
+        first = changes['upserted']['operations[1]']
+        saved, _ = apply(saved, {'op': 'set_preference', 'scope': 'repo',
+                                 'record': {'id': first, 'text': 'Use unittest setup methods.', 'include': TESTS}})
+        saved, changes = apply(saved, preference('Use pytest fixtures.', TESTS))
+        ids = [item['id'] for item in saved['scopes'][0]['preferences']]
+        self.assertEqual((len(ids), len(set(ids)), ids[0]), (2, 2, first))
+        self.assertEqual(changes['upserted']['operations[0]'], ids[1])
+
     def test_overlapping_preferences_need_the_user_not_an_invented_winner(self):
         self.prefer(proposal(REPO_SCOPE, preference('Use unittest setup methods.', TESTS)),
                     instructions='Use unittest setup methods in tests.', validators=[verdict('accepted')])

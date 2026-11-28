@@ -164,8 +164,9 @@ session's original output and the reason, so no later session settles it by
 repetition.
 
 An automatic pick must be feasible and confident, have no material doubts, and
-lead every other feasible option by at least `min_score_gap`. A sole feasible
-option substantiates every rejection. `enabled: false` disables automatic picks.
+lead every other feasible option strictly, by at least `min_score_gap` (a tie
+never qualifies). A sole feasible option substantiates every rejection.
+`enabled: false` disables automatic picks.
 Every settled choice explains why each other option was rejected. A manual
 choice must cite the recorded gate answer and match it, and once a gate is
 answered only a manual choice settles the selection. Gates are found by their

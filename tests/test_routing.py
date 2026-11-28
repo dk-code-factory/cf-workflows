@@ -200,6 +200,10 @@ class Routing(unittest.TestCase):
         self.assertEqual(merged['options']['reviewers'], ['review'])
         self.assertEqual(merged['permissions'], {'merge': True})
         self.assertIsNone(routing.invocation({'invocation': None}))
+        for malformed in (['options'], {'options': ['prohibitions']}, {'options': {'prohibitions': 'push'}},
+                          {'options': {'prohibitions': {'push': True}}}):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(routing.invocation(routed, malformed), malformed)
 
 
 class RoutedPreflight(PreflightFixture):
@@ -245,6 +249,12 @@ class RoutedPreflight(PreflightFixture):
         result = self.admit(dk_pr_review.preflight, {**routed, 'request': request(authorizations={'merge': MERGE})},
                             invocation={'permissions': {'merge': True}}, transport=FakeTransport(offered))
         self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'request.authorizations.merge'))
+
+    def test_a_malformed_invocation_is_rejected_not_coerced_by_routing(self):
+        routed = routing.route(request=request(), analysis_only=True,
+                               transport=GitHub({'id': 11, 'login': 'me'}, {'id': 11, 'login': 'me'}))
+        result = self.admit(dk_pr_review.preflight, routed, invocation={'options': {'prohibitions': 'push'}})
+        self.assertEqual((result['preflight'], result['error']['path']), ('rejected', 'invocation.options.prohibitions'))
 
     def test_maintain_other_needs_an_exact_request_on_the_fix_entry(self):
         for value in ({'request_id': 'r'}, {'request_id': 'r', 'instruction': ' ', 'source': 's'}):

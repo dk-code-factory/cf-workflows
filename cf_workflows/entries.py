@@ -208,7 +208,7 @@ def _option(declared, value, path, rules, where):
     elif declared is None or isinstance(declared, str):
         # A nullable prompt takes text; only an option whose default is empty may be empty.
         require(isinstance(value, str) or (declared is None and value is None), path, 'must be text')
-        if isinstance(value, str) and declared != '':
+        if isinstance(value, str) and (declared != '' or value != ''):
             admission.text(value, path)
     else:
         require(type(value) is type(declared), path, 'must be ' + type(declared).__name__)

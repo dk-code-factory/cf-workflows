@@ -82,10 +82,14 @@ def invocation(routed, base=None):
     Prohibitions accumulate in admission, so a narrower routed request is never
     weakened by the caller's own invocation scope.
     """
+    if base and not isinstance(base, dict):
+        return base  # Malformed: passed through unchanged so admission rejects it.
     scope = {key: value for key, value in (base or {}).items()}
     added = ((routed.get('invocation') or {}).get('options') or {}).get('prohibitions', [])
-    if added:
-        options = dict(scope.get('options', {}))
+    options = scope.get('options', {})
+    # A malformed options or prohibitions value is never coerced into a valid-looking one; admission rejects it.
+    if added and isinstance(options, dict) and isinstance(options.get('prohibitions', []), list):
+        options = dict(options)
         options['prohibitions'] = list(options.get('prohibitions', [])) + [item for item in added
                                                                           if item not in options.get('prohibitions', [])]
         scope['options'] = options
