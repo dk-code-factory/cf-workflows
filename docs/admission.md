@@ -69,7 +69,7 @@ declaration follow the same upstream profile ([skills.md](skills.md)).
 
 Link closure covers inline links (including balanced parentheses), reference
 definitions (not footnotes) and `<...>` targets, including a destination on the
-line after `](` or `]:`. It ignores fenced code and code spans but scans indented
+line after the closing bracket. It ignores fenced code and code spans but scans indented
 lines, so links in nested lists are never dropped. An indented fence is read both
 as running to its closer and as ending with a less-indented line (the end of its
 list item), so neither reading can drop a link. It
