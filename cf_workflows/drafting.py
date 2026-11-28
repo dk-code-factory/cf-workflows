@@ -100,7 +100,7 @@ ISSUE_TEMPLATES = ('issue_template.md', '.github/issue_template.md', 'docs/issue
 
 _HEADING = re.compile(r' {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*')
 _FENCE = re.compile(r'^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?^ {0,3}\1[`~]*[ \t]*$', re.M | re.S)
-_CODE = re.compile(r'(`+)(?:(?!\1).)+?\1', re.S)
+_CODE = re.compile(r'(`+)(?:(?!\1|\n[ \t]*\n).)+?\1', re.S)  # A code span never crosses a blank line.
 _LABEL = re.compile(r'^\s*(?:[-*]\s+)?\**([A-Za-z][A-Za-z ]{0,30}?)\**\s*:', re.M)
 VALIDATION = re.compile(r'(?:test(?:s|ing|ed| plan)?|validation|validated|verification|verified|how to test|'
                         r'checks? run)$', re.I)

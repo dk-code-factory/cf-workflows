@@ -517,6 +517,7 @@ class Unsupported(Fixture):
             'path and line': 'See src/upload.py:2.',
             'tool banner': 'Generated with an assistant.',
             'template comment': '<!-- How was this tested? -->',
+            'closing between stray backticks': 'Use ` here.\n\nFixes #7.\n\nAnd ` there.',
         }
         for name, sentence in cases.items():
             with self.subTest(name):
