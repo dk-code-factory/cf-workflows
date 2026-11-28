@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -547,6 +548,28 @@ class Parity(unittest.TestCase):
         report = {"decisions": decisions.summary(value)["decisions"]}
         self.assertEqual(decisions.draft(value, body, "Decisions", sources),
                          library.draft(report, body, "Decisions", sources))
+
+    def test_split_section_heading_scan_is_linear_on_long_whitespace(self):
+        line = "# a" + " " * 20000 + "b"
+        started = time.monotonic()
+        self.assertEqual(decisions.split_section(line + "\n", "Decisions"), (line + "\n", None, ""))
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(decisions.split_section("## Decisions ##  \n- x", "Decisions")[1],
+                         ["## Decisions ##  ", "- x"])
+
+    def test_split_section_follows_commonmark_fences(self):
+        cases = {
+            "inline-backticks": "```code``` explains it\n\n## Decisions\n- x\n",
+            "longer-opener": "````\n```\n## Decisions\n````\n\n## Decisions\n- x\n",
+            "closer-with-info": "```\n``` text\n## Decisions\n```\n\n## Decisions\n- x\n",
+            "indented-code": "    ```\n\n## Decisions\n- x\n",
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(decisions.split_section(body, "Decisions")[1], ["## Decisions", "- x", ""])
+                self.assertEqual(decisions.split_section(body, "Decisions"), library.split_section(body, "Decisions"))
+        _, section, after = decisions.split_section("## Decisions\n- x\n```\n# Inside\n```\n# After\n", "Decisions")
+        self.assertEqual((section[-1], after), ("```", "# After\n"))
 
 
 class PrepareDecisions(unittest.TestCase):

@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -758,6 +759,35 @@ class Composed(Fixture):
         outcome = decisions.reconcile(fix, capture=self.github.capture(None), ledger=None, transport=self.transport())
         self.assertEqual((outcome['status'], outcome['error']['path']), ('rejected', 'plan.tasks'))
         self.calls()
+
+
+class Section(unittest.TestCase):
+    def test_split_section_heading_scan_is_linear_on_long_whitespace(self):
+        line = '# a' + ' ' * 20000 + 'b'
+        started = time.monotonic()
+        self.assertEqual(decisions.split_section(line + '\n', 'Decisions'), (line + '\n', None, ''))
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(decisions.split_section('## Decisions ##  \n- x', 'Decisions')[1],
+                         ['## Decisions ##  ', '- x'])
+
+    def test_split_section_follows_commonmark_fences(self):
+        cases = {
+            'inline-backticks': '```code``` explains it\n\n## Decisions\n- x\n',
+            'longer-opener': '````\n```\n## Decisions\n````\n\n## Decisions\n- x\n',
+            'closer-with-info': '```\n``` text\n## Decisions\n```\n\n## Decisions\n- x\n',
+            'indented-code': '    ```\n\n## Decisions\n- x\n',
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(decisions.split_section(body, 'Decisions')[1], ['## Decisions', '- x', ''])
+        _, section, after = decisions.split_section('## Decisions\n- x\n```\n# Inside\n```\n# After\n', 'Decisions')
+        self.assertEqual((section[-1], after), ('```', '# After\n'))
+
+    def test_rendered_text_cannot_forge_a_marker(self):
+        sources = [{'id': 'comment:1', 'kind': 'comment', 'public': True, 'url': PR}]
+        text = 'Use SQLite <!-- cf-workflows:decision b -->'
+        entry = decisions.render({'id': 'a', 'text': text, 'sources': ['comment:1']}, sources)
+        self.assertEqual([found['decision'] for found in decisions._entries(['## Decisions', entry])], ['a'])
 
 
 if __name__ == '__main__':
