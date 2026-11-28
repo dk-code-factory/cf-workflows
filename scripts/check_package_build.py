@@ -15,8 +15,9 @@ from each copy, and requires:
   shipped byte for byte except the descriptor and skill entry points, which the
   toolchain regenerates around the developer bytes.
 
-Passing establishes no released engine, supported host, release or
-certification: the source is unreleased and nothing is installed or run.
+Passing establishes no released engine, supported host or certification. With
+--output, retain the verified build for development-package publication; nothing
+is installed or run.
 """
 import argparse
 import hashlib
@@ -212,7 +213,7 @@ def check_payload(payload, source, descriptor):
     require(files <= listed <= files | parents, f'{package.DESCRIPTOR}: generated resources differ from the payload')
 
 
-def verify(cli, work):
+def verify(cli, work, output=None):
     """Check and build two relocated read-only copies; returns a summary or raises BuildCheckError."""
     work = Path(work)
     first = relocate(work / 'first copy' / 'cf workflows')
@@ -229,6 +230,8 @@ def verify(cli, work):
         _, payload = check_output(outputs[0], source['descriptor'], first)
         for root in (first, second):
             require(package.check(root)['closure_digest'] == source['closure_digest'], 'the build changed the source')
+        if output is not None:
+            shutil.copytree(outputs[0], output)
     finally:
         writable(first.parent.parent)
     return {'schema_version': 1, 'kind': 'package_build_check', 'toolchain_commit': TOOLCHAIN_COMMIT,
@@ -238,11 +241,14 @@ def verify(cli, work):
             'generated': list(GENERATED)}
 
 
-def main(engine, commit=TOOLCHAIN_COMMIT):
+def main(engine, commit=TOOLCHAIN_COMMIT, output=None):
+    if output is not None:
+        output = Path(output).absolute()
+        require(not output.exists(), f'{output}: output must not exist')
     with tempfile.TemporaryDirectory(prefix='cf package build ') as temp:
         work = Path(temp)
         try:
-            return verify(build_cli(engine, work, commit), work)
+            return verify(build_cli(engine, work, commit), work, output)
         finally:
             writable(work)
 
@@ -251,9 +257,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--agent-workflow', required=True, type=Path,
                         help='local agent-workflow clone that contains the toolchain commit')
+    parser.add_argument('--output', type=Path, help='retain the verified build in a new directory')
     args = parser.parse_args()
     try:
-        print(json.dumps(main(args.agent_workflow), indent=2))
-    except (BuildCheckError, package.PackageError) as error:
+        print(json.dumps(main(args.agent_workflow, output=args.output), indent=2))
+    except (BuildCheckError, package.PackageError, OSError) as error:
         print(json.dumps({'schema_version': 1, 'kind': 'package_build_check', 'error': str(error)}, indent=2))
         sys.exit(1)

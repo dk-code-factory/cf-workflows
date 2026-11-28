@@ -4,11 +4,15 @@ cf-workflows has one plugin project: the dk-pr-fix installation root,
 `cf_workflows/workflows/dk-pr-fix/`. Agent Workflow's shared toolchain builds
 the Codex and Claude packages from it. That toolchain is merged on Agent
 Workflow's `main` but not released (see
-[What remains blocked](#what-remains-blocked)). This repository checks in and
-publishes no package, and it has no hand-maintained substitute: no host
-manifests, launchers, catalogs or archives. A development check
+[What remains blocked](#what-remains-blocked)). This repository checks in no
+generated package and has no hand-maintained substitute: no host manifests,
+launchers, catalogs or archives. Prereleases publish the generated dual-host ZIP
+after the development check
 [builds the packages from the unreleased source](#reproducible-builds-against-unreleased-source)
-to show they are reproducible. Nothing here is releasable or certified.
+and verifies reproducibility. The release gate checks its checksums, ZIP and
+payload against the tagged source closure. See [installation](installation.md).
+Installation does not make the workflows runnable or certified; final releases
+remain blocked.
 
 ## Descriptor
 
@@ -16,7 +20,7 @@ to show they are reproducible. Nothing here is releasable or certified.
 Workflow's version 1 descriptor format, as defined in agent-workflow PR #135
 (`docs/PLUGIN_AUTHORING.md`):
 
-- `name: cf-workflows` and `version: 0.1.0-dev` are the suite identity from
+- `name: cf-workflows` and `version: 0.1.0-dev.1` are the suite identity from
   [sources.json](../baselines/sources.json). The plugin version is independent of
   the engine version.
 - `engine-version: 0.2.2` is the exact engine version that upstream `plugin init`
@@ -215,11 +219,16 @@ must already be present. Then it:
    resource list of exactly the payload, and each `SKILL.md`, which must start
    with the developer instructions before the generated guidance.
 
-It prints a JSON summary with `released: false` and the package digest. The
+It prints a JSON summary with `released: false` and the package digest: the
+toolchain source has no released engine. Add `--output /new/build/directory` to
+retain the verified output after both builds and all closure checks pass. CI
+retains it for version tags and the release job publishes its ZIP and build
+report as development assets. The
 `tests/test_package.py` case that builds the real CLI is skipped unless
 `CF_AGENT_WORKFLOW` names the clone. This verifies unreleased upstream source
-only. It is not a supported or released toolchain, installs and runs nothing,
-and no package is published from it.
+only. It is not a supported or released toolchain and installs and runs nothing.
+Publishing its development package does not remove any runtime or acceptance
+blocker.
 
 ## What remains blocked
 

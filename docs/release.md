@@ -18,6 +18,8 @@ The `engine` job downloads the toolchain's Go modules in a separate step, so the
 build check itself still builds offline (`GOPROXY=off`). It verifies unreleased
 upstream source only, as described in
 [packaging](packaging.md#reproducible-builds-against-unreleased-source).
+For version tags it retains the verified output as a tar archive so CI artifact
+transport preserves executable modes. The release job consumes that same build.
 
 ## Releasing
 
@@ -27,8 +29,8 @@ equal the suite version in [`sources.json`](../baselines/sources.json). To
 release, push the tag `v<version>` on a commit of `main`:
 
 ```sh
-git tag -a v0.1.0-dev -m 'cf-workflows 0.1.0-dev'
-git push origin v0.1.0-dev
+git tag -a v0.1.0-dev.1 -m 'cf-workflows 0.1.0-dev.1'
+git push origin v0.1.0-dev.1
 ```
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) runs the
@@ -39,14 +41,23 @@ whole CI on the tag, then
   point at the checked-out commit and a failing package check;
 - for a final version (no prerelease part), rejects the release unless the
   package check reports `releasable: true`, and lists the blockers;
-- for a prerelease version (such as `0.1.0-dev`), allows a **development
-  snapshot**: a GitHub prerelease, never marked latest, whose notes say the
-  suite is not runnable and list every open release blocker.
+- for a prerelease version (such as `0.1.0-dev.1`), allows a **development
+  package**: a GitHub prerelease, never marked latest, whose notes distinguish
+  installation from execution, say the suite is not runnable and list every
+  open release blocker.
 
-The assets are the tagged source (`git archive`), the package check report and
-`SHA256SUMS`. No plugin package is built or published: that needs a released
-engine ([what remains blocked](packaging.md#what-remains-blocked)). A snapshot
-claims no support.
+The assets are the tagged source (`git archive`), package check report,
+dual-host marketplace ZIP, toolchain build report and `SHA256SUMS`. The release
+gate rechecks the build's checksums, archive and payload against the tagged
+plugin closure before writing any asset. It refuses a nonempty output directory
+so an older package cannot leak into the release.
+
+The ZIP is installable through [these steps](installation.md). Its exact engine
+pin still has no released download, and workflow execution has additional
+[blockers](packaging.md#what-remains-blocked). A development package claims no
+runtime support; the final-version gate remains unchanged. The gate can also
+assemble a source-only snapshot when invoked without `--package-dir`, but the
+release workflow requires the verified build artifact and always supplies it.
 
 To start the next version, change the version in `plugin.yaml` and
 `sources.json` and in the places that quote it (README, packaging guide,
