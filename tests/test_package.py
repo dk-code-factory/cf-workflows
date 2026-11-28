@@ -229,6 +229,9 @@ class Closure(unittest.TestCase):
             with (root / 'workflows/helper.yml').open('ab') as stream:
                 stream.write(b'# \xff\n')
 
+        def invalid_agent(root):
+            (root / 'workflows/agents/verifier.yaml').write_text('name: "pr-fix-verifier"\n')
+
         def normalization(root):
             (root / 'extra').mkdir()
             for form in ('NFC', 'NFD'):
@@ -246,6 +249,7 @@ class Closure(unittest.TestCase):
                  'invalid UTF-8 skill': (invalid_utf8, 'SKILL.md: must be UTF-8'),
                  'invalid UTF-8 workflow': (invalid_workflow_utf8, 'helper.yml: must be UTF-8'),
                  'normalization collision': (normalization, 'normalizing hosts'),
+                 'invalid agent definition': (invalid_agent, 'workflows/agents/verifier.yaml'),
                  'undeclared': (plant, 'notes.txt'), 'unreachable workflow': (unreachable, 'workflows/extra.yml'),
                  'missing resource': (missing, 'request.example.json'), 'symlink': (link, 'skills/dk-pr-fix/SKILL.md'),
                  'hand-maintained manifest': (manifest, '.codex-plugin'), 'case collision': (collision, 'license'),

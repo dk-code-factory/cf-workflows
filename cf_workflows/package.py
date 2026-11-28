@@ -367,7 +367,10 @@ def _workflow(root, ref, closure, visited, active=()):
 def _agent(root, name, closure, where):
     if not name.endswith(('.yaml', '.yml')):
         raise PackageError(where, 'agent definitions must be YAML: ' + name)
-    admission.role_definition(_read(root, name), name)
+    try:
+        admission.role_definition(_read(root, name), name)
+    except admission.AdmissionError as error:
+        raise PackageError(error.path, error.message) from None
     closure.add(name)
 
 
