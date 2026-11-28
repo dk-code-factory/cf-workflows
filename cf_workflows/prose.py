@@ -522,11 +522,15 @@ def check_edits(path, before, after, allowed, constraints):
     except UnicodeDecodeError:
         raise Blocked(path, 'edited file is not UTF-8') from None
     matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
-    allowed = allowed & (prose_lines(path, old) or set())
+    prose_before = prose_lines(path, old) or set()
+    allowed = allowed & prose_before
     prose_after = prose_lines(path, new) or set()
     removed, added, touched = [], [], set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
+            # An edited comment delimiter can turn untouched code into comment or comment into code.
+            if any((i1 + k in prose_before) != (j1 + k in prose_after) for k in range(i2 - i1)):
+                raise Blocked(path, f'edit turns untouched line {j1 + 1} into prose or code')
             continue
         inside = (all(line in allowed for line in range(i1, i2)) if i2 > i1
                   else i1 - 1 in allowed or i1 in allowed)  # An insertion sits next to changed prose.

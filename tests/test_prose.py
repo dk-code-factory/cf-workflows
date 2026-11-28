@@ -553,6 +553,12 @@ class SourceAndCodeBlocks(Fixture):
         self.assertEqual(lines('a.go', 'var s = `C:\\`\n// real\n'), {1})  # Go raw strings have no escapes.
         with self.assertRaises(prose.Blocked):  # Operators in changed prose are kept too.
             prose.check_edits('a.md', b'Use it when x > y.\n', b'Use it when x < y.\n', {0}, [])
+        # Editing a block-comment delimiter cannot turn untouched code into comment (or back).
+        source = b'int a;\n/* one\n */\nint b = 1;\n/* two */\n'
+        for after in (source.replace(b' */\n', b' * more.\n', 1), source.replace(b' */\n', b'', 1)):
+            with self.subTest(after=after), self.assertRaisesRegex(prose.Blocked, 'untouched line'):
+                prose.check_edits('a.c', source, after, {1, 2}, [])
+        self.assertEqual(prose.check_edits('a.c', source, source.replace(b'one', b'first'), {1, 2}, []), [[2, 2]])
         for path, text in {'src/re.js': (self.repo / 'src/re.js').read_text(),
                            'r.ts': 'function f() {\n  return /x/.test(y);\n}\n// real\n',
                            'src/A.java': (self.repo / 'src/A.java').read_text(),
