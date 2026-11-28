@@ -429,7 +429,8 @@ def check_result(name, output, evidence, governing):
         require(isinstance(message, str) and message.strip(), 'message', 'must be text')
         message = message.strip('\n')
         _check_message(message, evidence, governing)
-        _check_sections(_labels(message), cited, 'message')
+        # The subject is a summary, not a section: a conventional `test: ...` subject claims nothing.
+        _check_sections(_labels(message.partition('\n')[2]), cited, 'message')
         _check_text(message, evidence, 'message', public=False)
         scope = fields(output['scope'], 'scope', ('included', 'excluded'))
         included = _names(scope['included'], 'scope.included')

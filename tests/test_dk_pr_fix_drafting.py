@@ -338,6 +338,18 @@ class CommitMessage(Fixture):
                                                               ('for-each-ref',), ('ls-files', '-s'))], state)
         self.assertEqual(self.writes(), 0)
 
+    def test_a_conventional_test_subject_is_not_a_validation_section(self):
+        (self.root / 'code.py').write_text('value = 3\n')
+        plan = self.drafting_plan(['draft-commit-message'], entry='dk-commit-message',
+                                  instructions='Draft a commit message for my changes.')
+        ledger = self.ledger(plan)
+        claimed = self.claim(plan, ledger, 'draft-commit-message')
+        labelled = self.submit(plan, ledger, claimed, message(text='test: set the value to 3\n\nTested: by hand.\n'))
+        self.assertIn('validation', labelled['feedback']['contract_error'])
+        accepted = self.submit(plan, ledger, claimed, message(text='test: set the value to 3\n\nThe value is 3.\n'),
+                               round_number=1)
+        self.assertTrue(accepted['complete'], accepted)
+
     def test_only_its_entry_runs_the_adapter_and_other_plans_start_clean(self):
         (self.root / 'code.py').write_text('value = 3\n')
         with self.assertRaisesRegex(ValueError, 'only through cf-workflows:dk-commit-message'):

@@ -654,6 +654,16 @@ class CommitMessage(Fixture):
         self.assertEqual(tested['status'], 'drafted', tested)
         self.assertEqual(self.engine.sessions, Counter({'dk-commit-message': 2}))
 
+    def test_a_conventional_test_subject_is_not_a_validation_section(self):
+        admitted, ledger = self.admitted()
+        report = self.draft('dk-commit-message', admitted, ledger, session(message(
+            'test: cover upload retries\n\nUploads retry up to three times before failing.\n')))
+        self.assertEqual(report['status'], 'drafted', report)
+        admitted, ledger = self.admitted('Draft a commit message (body label).')
+        body = self.draft('dk-commit-message', admitted, ledger, session(message(
+            'test: cover upload retries\n\nTested: make test passes.\n')))
+        self.assertEqual(body['status'], 'blocked', body)
+
     def test_lost_session_response_reconciles_by_claim(self):
         admitted, ledger = self.admitted()
         lost = self.draft('dk-commit-message', admitted, ledger, session(message()), lose=1)
