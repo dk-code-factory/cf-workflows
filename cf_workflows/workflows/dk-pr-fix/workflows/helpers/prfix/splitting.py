@@ -32,6 +32,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sqlite3
 import subprocess
 import tempfile
@@ -134,11 +135,16 @@ _BRANCH = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_./-]{0,200}')
 
 def git(repository, *args, data=None, env=None, check=True):
     """Git with filesystem monitors, hooks, external diffs and lazy fetches off; env adds variables."""
-    result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
-                             '--literal-pathspecs', '-C', str(repository), *args],
-                            input=data, capture_output=True, timeout=60,
-                            env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0', 'GIT_NO_LAZY_FETCH': '1',
-                                 'GIT_TERMINAL_PROMPT': '0', **(env or {})})
+    try:
+        result = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devnull,
+                                 '--literal-pathspecs', '-C', str(repository), *args],
+                                input=data, capture_output=True, timeout=60,
+                                env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0', 'GIT_NO_LAZY_FETCH': '1',
+                                     'GIT_TERMINAL_PROMPT': '0', **(env or {})})
+    except subprocess.TimeoutExpired:
+        raise Blocked('git', 'git ' + args[0] + ' timed out after 60 seconds') from None
+    except OSError as error:
+        raise Blocked('git', 'git ' + args[0] + ' could not start: ' + type(error).__name__) from None
     if check and result.returncode:
         raise Blocked('git', 'git ' + args[0] + ' failed: ' + result.stderr.decode(errors='replace')[:400])
     return result.stdout
@@ -161,6 +167,14 @@ def _objects(repository, write):
         yield {'GIT_OBJECT_DIRECTORY': scratch, 'GIT_ALTERNATE_OBJECT_DIRECTORIES': str(objects)}
 
 
+def _text(raw, path, what):
+    """Git output as strict UTF-8: non-UTF-8 commit data or paths cannot be recorded, so they block."""
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise Blocked(path, what + ' is not valid UTF-8') from None
+
+
 def _state(raw_mode, oid):
     return None if set(oid) == {'0'} else [raw_mode, oid]
 
@@ -168,7 +182,7 @@ def _state(raw_mode, oid):
 def _diff(repository, old, new, env=None):
     """{path: [old state, new state]} of a tree diff; a state is [mode, oid] or None."""
     raw = git(repository, 'diff-tree', '-r', '-z', '--no-renames', '--no-commit-id', '--raw', old, new, env=env)
-    parts = raw.decode('utf-8', 'surrogateescape').split('\0')
+    parts = _text(raw, 'changes', f'a changed path between {old} and {new}').split('\0')
     result = {}
     for header, path in zip(parts[0::2], parts[1::2]):
         if header:
@@ -183,7 +197,7 @@ def _states(repository, treeish, paths, env=None):
         return {}
     raw = git(repository, 'ls-tree', '-r', '-z', '--full-tree', treeish, '--', *sorted(paths), env=env)
     result = {}
-    for entry in raw.decode('utf-8', 'surrogateescape').split('\0'):
+    for entry in _text(raw, 'changes', 'a path in ' + treeish).split('\0'):
         if entry:
             meta, path = entry.split('\t', 1)
             mode, _, oid = meta.split(' ')
@@ -223,7 +237,7 @@ def _commit(repository, tree, parent, message, author, committer, env):
 
 def _record(repository, sha, env=None):
     """One commit: parents, exact author, message, trailers and changed paths."""
-    raw = git(repository, 'cat-file', 'commit', sha, env=env).decode('utf-8', 'surrogateescape')
+    raw = _text(git(repository, 'cat-file', 'commit', sha, env=env), 'commits', 'commit ' + sha)
     header, _, message = raw.partition('\n\n')
     parents, author, signed = [], None, False
     for line in header.split('\n'):
@@ -250,7 +264,8 @@ def series(repository, base, head, env=None):
 
 def _dirty(repository):
     raw = git(repository, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames')
-    return sorted(entry[3:] for entry in raw.decode('utf-8', 'surrogateescape').split('\0') if entry)
+    # Only listed and compared with UTF-8 paths, so an undecodable name is kept readable rather than raw.
+    return sorted(entry[3:] for entry in raw.decode('utf-8', 'replace').split('\0') if entry)
 
 
 def _ref(repository, ref):
@@ -1019,16 +1034,24 @@ def _checkout(root, commit, directory):
 
 
 def _run(argv, directory):
+    """One validation command in its own session, so a timeout kills every process it started."""
     try:
         env = {key: value for key, value in os.environ.items() if key not in PRIVATE_ENV}
-        result = subprocess.run(argv, cwd=directory, capture_output=True, timeout=VALIDATION_TIMEOUT,
-                                stdin=subprocess.DEVNULL, env=env)
-    except subprocess.TimeoutExpired:
-        return {'argv': argv, 'exit': None, 'output': f'timed out after {VALIDATION_TIMEOUT} seconds'}
+        process = subprocess.Popen(argv, cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   stdin=subprocess.DEVNULL, env=env, start_new_session=True)
     except OSError as error:
         return {'argv': argv, 'exit': None, 'output': 'could not start: ' + type(error).__name__}
-    output = (result.stdout + result.stderr).decode('utf-8', 'replace')
-    return {'argv': argv, 'exit': result.returncode, 'output': output[-VALIDATION_OUTPUT:]}
+    try:
+        stdout, stderr = process.communicate(timeout=VALIDATION_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        return {'argv': argv, 'exit': None, 'output': f'timed out after {VALIDATION_TIMEOUT} seconds'}
+    output = (stdout + stderr).decode('utf-8', 'replace')
+    return {'argv': argv, 'exit': process.returncode, 'output': output[-VALIDATION_OUTPUT:]}
 
 
 def validate(root, provider, ledger, plan, inputs):

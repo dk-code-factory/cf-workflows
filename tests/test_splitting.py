@@ -12,6 +12,7 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -765,6 +766,71 @@ class CommitOnRequest(Fixture):
                                  ledger=self.ledger(admitted), authorization=LOCAL)
         self.assertEqual(stale['status'], 'stale', stale)
         self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), self.head)
+
+
+class Failures(unittest.TestCase):
+    def test_a_git_timeout_or_missing_git_is_blocked(self):
+        for error in (subprocess.TimeoutExpired(['git'], 60), FileNotFoundError('git')):
+            with self.subTest(type(error).__name__), mock.patch.object(splitting.subprocess, 'run', side_effect=error):
+                with self.assertRaises(splitting.Blocked) as caught:
+                    splitting.git('.', 'status')
+                self.assertEqual(caught.exception.path, 'git')
+
+    def test_an_applied_step_that_raises_blocks_instead_of_reporting_success(self):
+        class Publisher:
+            executed = []
+
+            def events(self, ident):
+                return [{'event': 'dispatch'}, {'event': 'applied'}]
+
+            def execute(self, ident, audience):
+                self.executed.append(ident)
+                raise ValueError('retained publication receipt no longer validates')
+        publisher = Publisher()
+        steps = [{'id': 'split-push-1', 'kind': 'split_push'}, {'id': 'split-source', 'kind': 'push'}]
+        with mock.patch.object(splitting, 'publication_plan',
+                               return_value={'options': {'permissions': {'push_commits': True}}}), \
+                mock.patch.object(splitting, 'proposals', return_value=steps):
+            result = splitting.publish('dk-pr-split', {}, {'status': 'prepared'}, publisher=publisher,
+                                       audience=None)
+        self.assertEqual(result['status'], 'blocked', result)
+        self.assertEqual([step['status'] for step in result['steps']], ['blocked'])
+        self.assertEqual(publisher.executed, ['split-push-1'])
+
+    def test_non_utf8_commit_data_and_paths_block_and_dirty_names_stay_encodable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def run(*args, data=None):
+                return subprocess.run(git_fixture.command('-c', 'commit.gpgsign=false', *args), cwd=root,
+                                      input=data, check=True, capture_output=True,
+                                      env={**git_fixture.environment(), 'GIT_AUTHOR_NAME': 'Ada',
+                                           'GIT_AUTHOR_EMAIL': 'ada@example.invalid', 'GIT_COMMITTER_NAME': 'Ada',
+                                           'GIT_COMMITTER_EMAIL': 'ada@example.invalid'}).stdout.decode().strip()
+            run('init', '-q')
+            (root / 'a.txt').write_text('a\n')
+            run('add', 'a.txt')
+            run('commit', '-q', '-m', 'base')
+            base = run('rev-parse', 'HEAD')
+            # A legacy latin-1 commit message.
+            latin = run('-c', 'i18n.commitEncoding=latin1', 'commit-tree', base + '^{tree}', '-p', base,
+                        data='Caf\xe9\n'.encode('latin-1'))
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, latin)
+            self.assertEqual(caught.exception.path, 'commits')
+            # A non-UTF-8 path, committed and left untracked.
+            name = os.fsdecode(b'caf\xe9.txt')
+            (root / name).write_text('x\n')
+            run('add', '--', name)
+            run('commit', '-q', '-m', 'add a latin-1 path')
+            head = run('rev-parse', 'HEAD')
+            with self.assertRaises(splitting.Blocked) as caught:
+                splitting.series(root, base, head)
+            self.assertEqual(caught.exception.path, 'changes')
+            (root / os.fsdecode(b'new\xe9.txt')).write_text('y\n')
+            dirty = splitting._dirty(root)
+            self.assertEqual(len(dirty), 1)
+            admission.canonical(dirty)
 
 
 if __name__ == '__main__':
