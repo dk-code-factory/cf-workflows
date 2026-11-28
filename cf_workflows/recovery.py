@@ -661,7 +661,8 @@ def backup(home, destination, *, engine=None, configuration=None, install=dk_pr_
     bundle(path). Without it the backup holds this suite's state only, and an
     unfinished claim later needs its engine run or an explicit continuation.
     """
-    suite, destination = Path(home) / SUITE_DIR, Path(destination)
+    # Absolute: the engine CLI runs in its own workspace, so a relative path would name another place there.
+    suite, destination = Path(home) / SUITE_DIR, Path(destination).absolute()
     if os.path.lexists(destination):
         raise RecoveryError('backup destination already exists')
     journal = suite / JOURNAL
@@ -835,7 +836,7 @@ def restore(source, home, *, engine=None, configuration=None, install=dk_pr_fix.
     its original admitted helpers, installed or retained by the engine; otherwise
     it is reported blocked rather than run with replacement resources.
     """
-    source = Path(source)
+    source = Path(source).absolute()  # The engine CLI resolves relative paths against its own workspace.
     manifest = verify(source)
     suite = Path(home) / SUITE_DIR
     if os.path.lexists(suite) and (suite.is_symlink() or not suite.is_dir() or any(suite.iterdir())):
