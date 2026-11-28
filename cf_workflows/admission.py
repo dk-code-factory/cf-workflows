@@ -438,9 +438,11 @@ def _link_targets(body, contained):
         # Indented lines are scanned too: nested list items and continuations hold real
         # links, and an extra link in indented code can only reject, never drop a resource.
         kept.append(CODE_SPAN.sub('', line))
-    # Scanned across line ends: a destination may follow `](` or `]:` on the next line.
-    text = '\n'.join(kept)
-    matches = sorted([*INLINE_LINK.finditer(text), *REFERENCE_DEFINITION.finditer(text)], key=lambda m: m.start())
+    # Scanned across line ends, since a destination may follow `](` or `]:` on the next line, but
+    # one paragraph at a time: a blank line ends any link, title or definition (CommonMark 4.8).
+    matches = []
+    for text in re.split(r'\n[ \t]*\n', '\n'.join(kept)):
+        matches += sorted([*INLINE_LINK.finditer(text), *REFERENCE_DEFINITION.finditer(text)], key=lambda m: m.start())
     result = []
     for match in matches:
         link = match[1]

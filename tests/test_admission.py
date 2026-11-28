@@ -500,6 +500,12 @@ class ReviewRegressions(Fixture):
                 self.assertIn('secret.md', admission.link_targets(body))
         self.assertEqual(admission.link_targets('```\n[a](a.md)\n```\n[b](\nb.md)\n'), ['b.md'])
 
+    def test_a_blank_line_ends_a_link_title_or_definition(self):
+        # A title cannot swallow the next paragraph's link, and a destination never follows a blank line.
+        self.assertEqual(admission.link_targets('[a](a.md "x\n\n[b](secret.md) y")\n'), ['secret.md'])
+        self.assertEqual(admission.link_targets('[Note]:\n\nSee the guide.\n'), [])
+        self.assertEqual(admission.link_targets('[a](\n\nb.md)\n'), [])
+
     def test_nested_lists_footnotes_and_parentheses(self):
         self.assertEqual(admission.link_targets('- Rules:\n    - see [policy](policy.md)\n\n  continued [c](c.md)\n'),
                          ['policy.md', 'c.md'])
